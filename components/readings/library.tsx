@@ -4,7 +4,7 @@
  * THE READINGS LIBRARY (docs/readings.md §8): every reading the learner
  * has asked for, across sessions and the graph — filter by kind, search
  * by title or session, open one as a full page. Also the home of a
- * session-less primer ("a primer on a topic, before you start").
+ * session-less primer or overview ("on a topic, before you start").
  *
  * The TopBar law: no serif title (that always names a session); the
  * surface label rides in the UI font.
@@ -12,7 +12,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BookOpenIcon, LibraryIcon, NotebookTextIcon, SearchIcon } from "lucide-react";
+import { BookOpenIcon, LibraryIcon, MapIcon, NotebookTextIcon, SearchIcon } from "lucide-react";
 import type { ReadingKind } from "@/src/core";
 import { TopBar } from "@/components/top-bar";
 import { BrailleSpinner } from "@/components/braille-spinner";
@@ -20,12 +20,13 @@ import { requestReading, useReadingMode, useReadings } from "@/components/readin
 import { ModeToggle, ReadingView } from "@/components/readings/reading-view";
 import { ReadingRow } from "@/components/readings/readings-tray";
 
-type Filter = "all" | "recap" | "primer" | "deep-dive";
+type Filter = "all" | "recap" | "primer" | "overview" | "deep-dive";
 
 const FILTERS: Array<{ f: Filter; label: string }> = [
 	{ f: "all", label: "All" },
 	{ f: "recap", label: "Recaps" },
 	{ f: "primer", label: "Primers" },
+	{ f: "overview", label: "Overviews" },
 	{ f: "deep-dive", label: "Deep dives" },
 ];
 
@@ -55,7 +56,7 @@ export function ReadingsLibrary() {
 			</TopBar>
 			<div className="min-h-0 flex-1 overflow-y-auto">
 				<div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">
-					<TopicPrimer />
+					<TopicReading />
 					<div className="flex flex-wrap items-center gap-2">
 						<div role="tablist" aria-label="Filter readings" className="flex gap-1 font-ui text-xs">
 							{FILTERS.map(({ f, label }) => (
@@ -94,7 +95,7 @@ export function ReadingsLibrary() {
 							</div>
 							{readings.length === 0 && (
 								<p className="max-w-sm font-ui text-xs">
-									In a teaching session, open <span className="text-foreground">Readings</span> in the top bar for a recap or a primer, click an idea in the plan, or select a passage and choose “Read deeper”. From the graph, open a node and choose “Deep dive”.
+									In a teaching session, open <span className="text-foreground">Readings</span> in the top bar for a recap, a primer or an overview, click an idea in the plan, or select a passage and choose “Read deeper”. From the graph, open a node and choose “Deep dive”.
 								</p>
 							)}
 						</div>
@@ -114,18 +115,18 @@ export function ReadingsLibrary() {
 	);
 }
 
-/** A primer on a topic before any session exists. */
-export function TopicPrimer({ initialTopic = "" }: { initialTopic?: string }) {
+/** A primer or overview on a topic before any session exists. */
+export function TopicReading({ initialTopic = "" }: { initialTopic?: string }) {
 	const router = useRouter();
 	const [topic, setTopic] = useState(initialTopic);
 	const [mode, setMode] = useReadingMode();
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const go = async () => {
+	const go = async (kind: "primer" | "overview") => {
 		if (!topic.trim()) return;
 		setBusy(true);
 		setError(null);
-		const res = await requestReading({ kind: "primer", topic: topic.trim(), mode });
+		const res = await requestReading({ kind, topic: topic.trim(), mode });
 		setBusy(false);
 		if (!res.ok) return setError(res.error);
 		router.push(`/readings/${res.id}`);
@@ -133,29 +134,38 @@ export function TopicPrimer({ initialTopic = "" }: { initialTopic?: string }) {
 	return (
 		<section className="flex flex-col gap-2 rounded-xl border border-border/70 bg-card/40 p-3">
 			<div className="flex items-center gap-1.5 font-ui text-xs font-medium">
-				<NotebookTextIcon className="size-3.5 text-primary" /> Primer on a topic
-				<span className="font-normal text-muted-foreground">— the key terms, before you start a session</span>
+				<NotebookTextIcon className="size-3.5 text-primary" /> On a topic
+				<span className="font-normal text-muted-foreground">— the key terms or the whole map, before you start a session</span>
 			</div>
 			<div className="flex flex-wrap items-center gap-2">
 				<input
 					value={topic}
 					onChange={(e) => setTopic(e.target.value)}
 					onKeyDown={(e) => {
-						if (e.key === "Enter") void go();
+						if (e.key === "Enter") void go("primer");
 					}}
 					maxLength={500}
 					placeholder="e.g. Bayesian inference"
-					aria-label="Primer topic"
+					aria-label="Reading topic"
 					className="h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-sm placeholder:text-muted-foreground/60"
 				/>
 				<ModeToggle mode={mode} onChange={setMode} />
 				<button
 					type="button"
 					disabled={busy || !topic.trim()}
-					onClick={() => void go()}
+					onClick={() => void go("primer")}
 					className="rounded-full bg-primary px-3 py-1.5 font-ui text-xs font-medium text-primary-foreground hover:bg-primary/80 disabled:opacity-50"
 				>
 					Write primer
+				</button>
+				<button
+					type="button"
+					data-testid="topic-overview"
+					disabled={busy || !topic.trim()}
+					onClick={() => void go("overview")}
+					className="flex items-center gap-1.5 rounded-full border border-border/80 px-3 py-1.5 font-ui text-xs font-medium hover:bg-accent disabled:opacity-50"
+				>
+					<MapIcon className="size-3.5" aria-hidden /> Write overview
 				</button>
 			</div>
 			{error && <div className="font-ui text-xs text-destructive">{error}</div>}

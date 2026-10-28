@@ -11,7 +11,7 @@
 
 import type { LhMessage } from "./native-messages.ts";
 import type { PlanTree } from "./contracts/plan.ts";
-import { derivePlanStatusesLh, derivedNodeStatus } from "./contracts/plan.ts";
+import { derivePlanStatusesLh, derivedNodeStatus, type PlanNodeStatus } from "./contracts/plan.ts";
 import { sessionMarkdown } from "./session-markdown.ts";
 import type {
 	ReadingKind,
@@ -22,7 +22,7 @@ import type {
 	ReadingSummary,
 	ReadingSource,
 } from "./contracts/readings.ts";
-import { isReadingKind, isReadingMode } from "./contracts/readings.ts";
+import { isReadingKind, isReadingMode, READING_KIND_LABEL } from "./contracts/readings.ts";
 
 // ─── limits ─────────────────────────────────────────────────────────────────
 
@@ -32,6 +32,7 @@ export const TRANSCRIPT_BUDGET: Readonly<Record<ReadingKind, number>> = {
 	recap: 160_000,
 	"deep-dive": 60_000,
 	primer: 30_000,
+	overview: 30_000,
 	node: 0,
 };
 export const MAX_REQUEST_CHARS = 2_000;
@@ -43,7 +44,7 @@ export const MAX_NODE_PICKS = 64;
 
 /** Normalize + validate a POST body. Returns the cleaned request or the
  *  first problem (the route turns it into a 400). Kind-specific anchor
- *  rules: primer needs a session or a topic; deep-dive needs a session
+ *  rules: primer and overview need a session or a topic; deep-dive needs a session
  *  and a plan node or a passage; recap needs a session; node needs picks. */
 export function parseReadingRequest(body: unknown): { ok: true; value: ReadingRequest } | { ok: false; error: string } {
 	if (typeof body !== "object" || body === null) return { ok: false, error: "Body must be a JSON object" };
@@ -59,7 +60,7 @@ export function parseReadingRequest(body: unknown): { ok: true; value: ReadingRe
 		if (b.mode !== undefined && !isReadingMode(b.mode)) return { ok: false, error: "mode must be researched or model" };
 		return { ok: true, value: { kind: "recap", rerunOf: b.rerunOf, ...(isReadingMode(b.mode) ? { mode: b.mode } : {}) } };
 	}
-	if (!isReadingKind(b.kind)) return { ok: false, error: "kind must be one of primer, deep-dive, recap, node" };
+	if (!isReadingKind(b.kind)) return { ok: false, error: "kind must be one of primer, overview, deep-dive, recap, node" };
 	if (b.mode !== undefined && !isReadingMode(b.mode)) return { ok: false, error: "mode must be researched or model" };
 	const value: ReadingRequest = { kind: b.kind };
 	if (isReadingMode(b.mode)) value.mode = b.mode;
@@ -84,6 +85,9 @@ export function parseReadingRequest(body: unknown): { ok: true; value: ReadingRe
 	switch (value.kind) {
 		case "primer":
 			if (!value.chatId && !value.topic) return { ok: false, error: "A primer needs a session (chatId) or a topic" };
+			break;
+		case "overview":
+			if (!value.chatId && !value.topic) return { ok: false, error: "An overview needs a session (chatId) or a topic" };
 			break;
 		case "deep-dive":
 			if (!value.chatId) return { ok: false, error: "A deep dive needs a session (chatId)" };
@@ -164,7 +168,7 @@ export interface SnapshotChat {
 	tree?: PlanTree;
 }
 
-/** Build a session-anchored snapshot (primer, deep-dive, recap). Returns
+/** Build a session-anchored snapshot (primer, overview, deep-dive, recap). Returns
  *  an error string when the anchor doesn't resolve (unknown plan node). */
 export function buildSessionSnapshot(
 	kind: Exclude<ReadingKind, "node">,
@@ -189,6 +193,11 @@ export function buildSessionSnapshot(
 	} else if (kind === "deep-dive" && chat.tree) {
 		// A passage deep dive still respects the lesson's order.
 		const statuses = derivePlanStatusesLh(chat.tree, chat.messages);
+		snapshot.upcoming = chat.tree.nodes.filter((n) => derivedNodeStatus(statuses, n.id) === "upcoming").map((n) => n.title);
+	} else if (kind === "overview" && chat.tree && chat.tree.nodes.length > 0) {
+		// The map may name every part; the fence keeps upcoming ones underived.
+		const statuses = derivePlanStatusesLh(chat.tree, chat.messages);
+		snapshot.planNodes = chat.tree.nodes.map((n) => ({ id: n.id, title: n.title }));
 		snapshot.upcoming = chat.tree.nodes.filter((n) => derivedNodeStatus(statuses, n.id) === "upcoming").map((n) => n.title);
 	}
 
@@ -220,6 +229,8 @@ export function provisionalTitle(
 	switch (kind) {
 		case "primer":
 			return `Key terms: ${clip(ctx.topic ?? ctx.sessionTitle ?? "this lesson")}`;
+		case "overview":
+			return `Overview: ${clip(ctx.topic ?? ctx.sessionTitle ?? "this lesson")}`;
 		case "recap":
 			return `Recap: ${clip(ctx.sessionTitle ?? "session")}`;
 		case "deep-dive":
@@ -294,7 +305,7 @@ export function citationProblems(
 
 /** The list row: the record minus its heavy fields. */
 export function summarizeReading(r: ReadingRecord): ReadingSummary {
-	const { snapshot: _s, body: _b, terms: _t, furtherReading: _f, sources: _src, ...rest } = r;
+	const { snapshot: _s, body: _b, terms: _t, sections: _sec, furtherReading: _f, sources: _src, ...rest } = r;
 	return rest;
 }
 
@@ -323,6 +334,18 @@ export function readingsForNode<R extends Pick<ReadingRecord, "id" | "anchor" | 
 		.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+/** Each plan node's status in the session as it stands NOW (an
+ *  overview's node chips — read live, so they follow the lesson).
+ *  Nodes no longer in the plan are left out. */
+export function planNodeStatuses(chat: SnapshotChat, nodeIds: readonly string[]): Record<string, PlanNodeStatus> {
+	if (!chat.tree || nodeIds.length === 0) return {};
+	const statuses = derivePlanStatusesLh(chat.tree, chat.messages);
+	const present = new Set(chat.tree.nodes.map((n) => n.id));
+	const out: Record<string, PlanNodeStatus> = {};
+	for (const id of nodeIds) if (present.has(id)) out[id] = derivedNodeStatus(statuses, id);
+	return out;
+}
+
 /** A session's readings, newest first, superseded versions hidden. */
 export function readingsForChat<R extends Pick<ReadingRecord, "id" | "anchor" | "createdAt" | "supersedes"> & { status?: ReadingRecord["status"] }>(
 	readings: readonly R[],
@@ -336,13 +359,24 @@ export function readingsForChat<R extends Pick<ReadingRecord, "id" | "anchor" | 
 
 /** A reading as one portable markdown document (the export). */
 export function readingMarkdown(
-	r: Pick<ReadingRecord, "title" | "kind" | "mode" | "body" | "terms" | "sources" | "furtherReading" | "createdAt">,
+	r: Pick<ReadingRecord, "title" | "kind" | "mode" | "body" | "terms" | "sections" | "sources" | "furtherReading" | "createdAt"> & {
+		snapshot?: Pick<ReadingSnapshot, "planNodes">;
+	},
 ): string {
 	const out: string[] = [`# ${r.title}`];
 	out.push(
-		`*${r.kind === "recap" ? "Recap" : r.kind === "primer" ? "Primer" : "Deep dive"} · ${r.mode === "researched" ? "researched" : "written from model knowledge — not source-checked"} · ${r.createdAt.slice(0, 10)}*`,
+		`*${READING_KIND_LABEL[r.kind]} · ${r.mode === "researched" ? "researched" : "written from model knowledge — not source-checked"} · ${r.createdAt.slice(0, 10)}*`,
 	);
 	if (r.body?.trim()) out.push(r.body.trim());
+	if (r.sections && r.sections.length > 0) {
+		const titles = new Map((r.snapshot?.planNodes ?? []).map((n) => [n.id, n.title] as const));
+		for (const sec of r.sections) {
+			const nodes = (sec.planNodeIds ?? []).map((id) => titles.get(id) ?? id);
+			out.push(`## ${sec.heading}`);
+			if (nodes.length > 0) out.push(`*In your lesson: ${nodes.join(", ")}*`);
+			if (sec.body.trim()) out.push(sec.body.trim());
+		}
+	}
 	if (r.terms && r.terms.length > 0) {
 		out.push("## Terms", r.terms.map((t) => `**${t.term}** — ${t.definition}`).join("\n\n"));
 	}

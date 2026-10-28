@@ -2,7 +2,8 @@
  * READINGS (docs/readings.md) — opt-in companion documents.
  *
  * Pins: the request grammar (kind-specific anchors), the snapshot
- * builders (the "deeper, not further" fence, the transcript budget), the
+ * builders (the "deeper, not further" fence, the overview's plan-node
+ * list, the transcript budget, live node statuses), the
  * citation law (every cited URL was fetched successfully in the run), the
  * per-kind submit shape, the node/chat folds, the suggest_reading offer,
  * and the writer pipeline end to end with a scripted engine — researched
@@ -99,6 +100,9 @@ describe("parseReadingRequest", () => {
 		assert.equal(core.parseReadingRequest({ kind: "recap" }).ok, false);
 		assert.equal(core.parseReadingRequest({ kind: "primer" }).ok, false);
 		assert.equal(core.parseReadingRequest({ kind: "primer", topic: "Bayes" }).ok, true);
+		assert.equal(core.parseReadingRequest({ kind: "overview" }).ok, false);
+		assert.equal(core.parseReadingRequest({ kind: "overview", topic: "Bayes" }).ok, true);
+		assert.equal(core.parseReadingRequest({ kind: "overview", chatId: "c" }).ok, true);
 		assert.equal(core.parseReadingRequest({ kind: "node", nodeIds: [] }).ok, false);
 		assert.equal(core.parseReadingRequest({ kind: "node", nodeIds: ["n_1", "n_1", 3] }).ok, true);
 		assert.equal(core.parseReadingRequest({ kind: "essay" }).ok, false);
@@ -135,6 +139,31 @@ describe("snapshots", () => {
 		assert.match(built.snapshot.plan!, /\[visited\] Limits/);
 	});
 
+	it("an overview maps every plan node and fences off the ones not yet reached", () => {
+		const built = core.buildSessionSnapshot("overview", chat, {});
+		assert.ok(built.ok);
+		assert.deepEqual(built.snapshot.planNodes, [
+			{ id: "limits", title: "Limits" },
+			{ id: "derivative", title: "The derivative" },
+			{ id: "chain-rule", title: "The chain rule" },
+		]);
+		assert.deepEqual(built.snapshot.upcoming, ["The chain rule"]);
+		assert.equal(built.snapshot.focus, undefined);
+		const noPlan = core.buildSessionSnapshot("overview", { title: "x", messages: lessonMessages() }, {});
+		assert.ok(noPlan.ok);
+		assert.equal(noPlan.snapshot.planNodes, undefined);
+		assert.equal(core.provisionalTitle("overview", { topic: "Bayes" }), "Overview: Bayes");
+	});
+
+	it("node statuses are read live from the session, unknown nodes left out", () => {
+		assert.deepEqual(core.planNodeStatuses(chat, ["limits", "derivative", "chain-rule", "gone"]), {
+			limits: "visited",
+			derivative: "current",
+			"chain-rule": "upcoming",
+		});
+		assert.deepEqual(core.planNodeStatuses({ title: "x", messages: [] }, ["limits"]), {});
+	});
+
 	it("an unknown plan node is refused", () => {
 		const built = core.buildSessionSnapshot("deep-dive", chat, { planNodeId: "nope" });
 		assert.equal(built.ok, false);
@@ -166,12 +195,22 @@ describe("snapshots", () => {
 		assert.match(text, /<transcript>/);
 	});
 
+	it("an overview's task text lists the plan nodes a section may tag", () => {
+		const built = core.buildSessionSnapshot("overview", chat, {});
+		assert.ok(built.ok);
+		const text = writerTaskText({ kind: "overview", mode: "model", anchor: {}, snapshot: built.snapshot, title: "t" });
+		assert.match(text, /Write an OVERVIEW/);
+		assert.match(text, /Plan nodes a section may tag/);
+		assert.match(text, /- `chain-rule` — The chain rule/);
+	});
+
 	it("the writer prompt composes base, mode, kind and the shared law", () => {
 		const p = composeWriterPrompt("primer", "model");
 		assert.match(p, /# The writer/);
 		assert.match(p, /model-knowledge mode/);
 		assert.match(p, /a primer/);
 		assert.match(p, /## Accuracy/);
+		assert.match(composeWriterPrompt("overview", "model"), /Map, not mechanism/);
 	});
 });
 
@@ -199,7 +238,7 @@ describe("the citation law", () => {
 	});
 
 	it("validates the per-kind submit shape", () => {
-		const base = { title: "T", body: LONG_BODY, terms: [], sources: [], furtherReading: [] };
+		const base = { title: "T", body: LONG_BODY, terms: [], sections: [], sources: [], furtherReading: [] };
 		assert.equal(submittedReadingProblem("deep-dive", "model", base, new Set()), null);
 		assert.match(submittedReadingProblem("primer", "model", base, new Set())!, /at least 3/);
 		const primer = { ...base, body: "Intro.", terms: [1, 2, 3].map((i) => ({ term: `t${i}`, definition: "d" })) };
@@ -209,8 +248,25 @@ describe("the citation law", () => {
 		assert.match(submittedReadingProblem("deep-dive", "model", { ...base, body: "short" }, new Set())!, /too short/);
 	});
 
+	it("validates the overview's sections and their plan-node tags", () => {
+		const sec = (planNodeIds?: string[]) => ({ heading: "H", body: LONG_BODY, ...(planNodeIds ? { planNodeIds } : {}) });
+		const base = { title: "T", body: "Intro.", terms: [], sources: [], furtherReading: [] };
+		const plan = new Set(["limits", "derivative"]);
+		assert.equal(submittedReadingProblem("overview", "model", { ...base, sections: [sec(), sec(["limits"])] }, new Set(), plan), null);
+		assert.match(submittedReadingProblem("overview", "model", { ...base, sections: [sec()] }, new Set(), plan)!, /at least 2/);
+		assert.match(submittedReadingProblem("overview", "model", { ...base, sections: [sec(), sec(["nope"])] }, new Set(), plan)!, /Unknown plan node ids in planNodeIds: nope/);
+		assert.match(submittedReadingProblem("overview", "model", { ...base, sections: [sec(), sec(["limits"])] }, new Set())!, /no lesson plan/);
+		assert.match(
+			submittedReadingProblem("overview", "model", { ...base, sections: [sec(), { heading: "", body: "x" }] }, new Set(), plan)!,
+			/heading and a body/,
+		);
+		assert.match(submittedReadingProblem("deep-dive", "model", { ...base, body: LONG_BODY, sections: [sec()] }, new Set())!, /overviews only/);
+		const linked = { ...base, sections: [sec(), { heading: "H", body: `${LONG_BODY} [x](https://never.fetched/p)` }] };
+		assert.match(submittedReadingProblem("overview", "researched", linked, new Set(), plan)!, /never successfully fetched/);
+	});
+
 	it("links written into the body are citations too", () => {
-		const linked = { title: "T", body: `${LONG_BODY} See [this](https://never.fetched/page).`, terms: [], sources: [], furtherReading: [] };
+		const linked = { title: "T", body: `${LONG_BODY} See [this](https://never.fetched/page).`, terms: [], sections: [], sources: [], furtherReading: [] };
 		assert.match(submittedReadingProblem("deep-dive", "researched", linked, new Set())!, /never successfully fetched/);
 		assert.equal(submittedReadingProblem("deep-dive", "researched", linked, new Set([core.normalizeUrl("https://never.fetched/page")])), null);
 		assert.match(submittedReadingProblem("deep-dive", "model", linked, new Set())!, /no URLs/);
@@ -345,6 +401,34 @@ describe("the writer pipeline", () => {
 		const done = readingStore.getReading(record.id)!;
 		assert.equal(done.status, "ready", done.error);
 		assert.equal(done.sources, undefined);
+	});
+
+	it("an overview lands its sections, tags deduped, unknown tags retried", async () => {
+		const record = queued({
+			kind: "overview",
+			mode: "model",
+			anchor: { chatId: "c1" },
+			snapshot: { planNodes: [{ id: "limits", title: "Limits" }] },
+		});
+		const sections = (ids: string[]) => [
+			{ heading: "Why it exists", body: LONG_BODY, planNodeIds: [] as string[] },
+			{ heading: "Limits", body: LONG_BODY, planNodeIds: ids },
+		];
+		const engine = fauxEngine([
+			fauxAssistantMessage([fauxToolCall("submit_reading", { title: "The map", body: "Intro.", sections: sections(["nope"]) }, { id: "s1" })], {
+				stopReason: "toolUse",
+			}),
+			fauxAssistantMessage(
+				[fauxToolCall("submit_reading", { title: "The map", body: "Intro.", sections: sections(["limits", "limits"]) }, { id: "s2" })],
+				{ stopReason: "toolUse" },
+			),
+		]);
+		await createReadingsPipeline({ readingStore, engine }).run(record.id);
+		const done = readingStore.getReading(record.id)!;
+		assert.equal(done.status, "ready", done.error);
+		assert.equal(done.sections?.length, 2);
+		assert.equal(done.sections?.[0]!.planNodeIds, undefined);
+		assert.deepEqual(done.sections?.[1]!.planNodeIds, ["limits"]);
 	});
 
 	it("a writer that never submits lands error, honestly", async () => {

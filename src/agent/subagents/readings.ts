@@ -34,6 +34,7 @@ import {
 	type FurtherReadingItem,
 	type GlossaryTerm,
 	type JobUsage,
+	type OverviewSection,
 	type ReadingKind,
 	type ReadingMode,
 	type ReadingRecord,
@@ -83,6 +84,7 @@ export function writerTaskText(r: Pick<ReadingRecord, "kind" | "mode" | "request
 	const out: string[] = [];
 	const kindLine: Record<ReadingKind, string> = {
 		primer: "Write a PRIMER: the key terms of this lesson, as definitions.",
+		overview: "Write an OVERVIEW: the map of this whole topic, section by section.",
 		"deep-dive": "Write a DEEP DIVE on the focus below.",
 		recap: "Write a RECAP of this session.",
 		node: "Write a DEEP DIVE on the propositions below, from his knowledge map.",
@@ -98,6 +100,9 @@ export function writerTaskText(r: Pick<ReadingRecord, "kind" | "mode" | "request
 	}
 	if (s.assessment) out.push(`# The probe's read of where he stands\n\n${s.assessment}`);
 	if (s.plan) out.push(`# The lesson plan (statuses: visited / current / upcoming)\n\n${s.plan}`);
+	if (s.planNodes && s.planNodes.length > 0) {
+		out.push(`# Plan nodes a section may tag (planNodeIds — exact ids only)\n\n${s.planNodes.map((n) => `- \`${n.id}\` — ${n.title}`).join("\n")}`);
+	}
 	if (s.propositions && s.propositions.length > 0) {
 		out.push(
 			`# Propositions${r.kind === "recap" ? " extracted from this session" : ""}\n\n${s.propositions.map((p) => `- **${p.name}** — ${p.statement}`).join("\n")}`,
@@ -122,7 +127,7 @@ const sourceSchema = Type.Object({
 
 export const submitReadingSchema = Type.Object({
 	title: Type.String({ description: "Short, specific title (a heading, not a sentence)." }),
-	body: Type.String({ description: "The whole reading in markdown (no title heading at the top). Primers: a short intro only." }),
+	body: Type.String({ description: "The whole reading in markdown (no title heading at the top). Primers and overviews: a short intro only." }),
 	terms: Type.Optional(
 		Type.Array(
 			Type.Object({
@@ -130,6 +135,18 @@ export const submitReadingSchema = Type.Object({
 				definition: Type.String({ description: "A real definition, 1-3 sentences, LaTeX for notation." }),
 			}),
 			{ description: "PRIMERS ONLY: the glossary, in dependency order." },
+		),
+	),
+	sections: Type.Optional(
+		Type.Array(
+			Type.Object({
+				heading: Type.String({ description: "The section's heading." }),
+				body: Type.String({ description: "The section in markdown (no heading at the top)." }),
+				planNodeIds: Type.Optional(
+					Type.Array(Type.String(), { description: "Ids of the lesson-plan nodes this section maps to — from the given list only; empty when none." }),
+				),
+			}),
+			{ description: "OVERVIEWS ONLY: the article, in reading order." },
 		),
 	),
 	sources: Type.Optional(Type.Array(sourceSchema, { description: "Researched mode: every source the body relies on — fetched pages only." })),
@@ -150,6 +167,7 @@ export interface SubmittedReading {
 	title: string;
 	body: string;
 	terms: GlossaryTerm[];
+	sections: OverviewSection[];
 	sources: ReadingSource[];
 	furtherReading: FurtherReadingItem[];
 }
@@ -161,23 +179,41 @@ export function submittedReadingProblem(
 	mode: ReadingMode,
 	value: SubmittedReading,
 	fetched: ReadonlySet<string>,
+	/** Overviews: the plan-node ids a section may tag (none = no plan). */
+	planNodeIds: ReadonlySet<string> = new Set(),
 ): string | null {
 	const problems: string[] = [];
 	if (!value.title.trim()) problems.push("title is empty");
 	if (kind === "primer") {
 		if (value.terms.length < 3) problems.push("a primer needs `terms`: at least 3 glossary entries");
 		if (value.terms.some((t) => !t.term.trim() || !t.definition.trim())) problems.push("every term needs a term and a definition");
+	} else if (kind === "overview") {
+		if (value.terms.length > 0) problems.push("`terms` is for primers only — put the content in `sections`");
+		if (value.sections.length < 2) problems.push("an overview needs `sections`: at least 2, in reading order");
+		if (value.sections.some((sec) => !sec.heading.trim() || !sec.body.trim())) problems.push("every section needs a heading and a body");
+		const unknown = [...new Set(value.sections.flatMap((sec) => sec.planNodeIds ?? []).filter((id) => !planNodeIds.has(id)))];
+		if (unknown.length > 0) {
+			problems.push(
+				planNodeIds.size === 0
+					? "There is no lesson plan: every section's `planNodeIds` must be empty."
+					: `Unknown plan node ids in planNodeIds: ${unknown.join(", ")} — use only ids from the given plan-node list.`,
+			);
+		}
+		if (value.body.trim().length + value.sections.reduce((n, sec) => n + sec.body.trim().length, 0) < 200) {
+			problems.push("the overview is too short to be a reading");
+		}
 	} else {
 		if (value.terms.length > 0) problems.push("`terms` is for primers only — put the content in `body`");
 		if (value.body.trim().length < 200) problems.push("the body is too short to be a reading");
 	}
+	if (kind !== "overview" && value.sections.length > 0) problems.push("`sections` is for overviews only — put the content in `body`");
 	if (kind !== "recap" && value.furtherReading.length > 0) problems.push("`furtherReading` is for recaps only — cite sources in `sources`");
 	if (kind === "recap" && mode === "researched" && value.furtherReading.length === 0) {
 		problems.push("a researched recap needs `furtherReading`: 3-8 sources you fetched, closest to the session first");
 	}
 	problems.push(...citationProblems([...value.sources, ...value.furtherReading], fetched, mode));
 	// Links written into the text are citations too (the law has no side door).
-	const inline = urlsInText([value.body, ...value.terms.map((t) => t.definition)].join("\n"));
+	const inline = urlsInText([value.body, ...value.terms.map((t) => t.definition), ...value.sections.map((sec) => sec.body)].join("\n"));
 	if (mode === "model" && inline.length > 0) {
 		problems.push("Model-knowledge mode: the text must contain no URLs (no web access was used) — remove the links.");
 	} else if (mode === "researched") {
@@ -321,10 +357,12 @@ export function createReadingsPipeline(deps: ReadingsPipelineDeps): ReadingsPipe
 						title: String(input.title ?? "").trim(),
 						body: String(input.body ?? "").trim(),
 						terms: Array.isArray(input.terms) ? (input.terms as GlossaryTerm[]) : [],
+						sections: Array.isArray(input.sections) ? (input.sections as OverviewSection[]) : [],
 						sources: Array.isArray(input.sources) ? (input.sources as ReadingSource[]) : [],
 						furtherReading: Array.isArray(input.furtherReading) ? (input.furtherReading as FurtherReadingItem[]) : [],
 					}),
-					validate: (value) => submittedReadingProblem(record.kind, record.mode, value, fetched),
+					validate: (value) =>
+						submittedReadingProblem(record.kind, record.mode, value, fetched, new Set((record.snapshot.planNodes ?? []).map((n) => n.id))),
 					systemPrompt: composeWriterPrompt(record.kind, record.mode),
 					prompt: writerTaskText(record),
 					engine: e,
@@ -342,6 +380,7 @@ export function createReadingsPipeline(deps: ReadingsPipelineDeps): ReadingsPipe
 					title: submitted.title || record.title,
 					body: submitted.body,
 					...(submitted.terms.length > 0 ? { terms: submitted.terms } : {}),
+					...(submitted.sections.length > 0 ? { sections: submitted.sections.map(cleanSection) } : {}),
 					...(submitted.sources.length > 0 ? { sources: dedupeSources(submitted.sources) } : {}),
 					...(submitted.furtherReading.length > 0 ? { furtherReading: dedupeSources(submitted.furtherReading) } : {}),
 					activity: undefined,
@@ -412,6 +451,12 @@ export function createReadingsPipeline(deps: ReadingsPipelineDeps): ReadingsPipe
 		},
 		settleIfOrphaned: settle,
 	};
+}
+
+/** A section as stored: trimmed, node ids deduped, empty tag lists dropped. */
+function cleanSection(sec: OverviewSection): OverviewSection {
+	const ids = [...new Set(sec.planNodeIds ?? [])];
+	return { heading: sec.heading.trim(), body: sec.body.trim(), ...(ids.length > 0 ? { planNodeIds: ids } : {}) };
 }
 
 function dedupeSources<T extends ReadingSource>(list: T[]): T[] {

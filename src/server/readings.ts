@@ -13,6 +13,7 @@ import { resolveRoleSpec } from "../core/settings-resolution.ts";
 import {
 	buildNodeSnapshot,
 	buildSessionSnapshot,
+	planNodeStatuses,
 	provisionalTitle,
 	readingsForChat,
 	readingsForNode,
@@ -22,7 +23,7 @@ import { chainsForSelection, formatChainLine } from "../core/chains.ts";
 import { getGraph, graphSessionPropositions } from "../core/graph.ts";
 import {
 	DEFAULT_READING_MODE,
-
+	type PlanNodeStatus,
 	type ReadingProposition,
 	type ReadingRecord,
 	type ReadingRequest,
@@ -151,9 +152,9 @@ export function createReading(req: ReadingRequest): ReadingRecord {
 			sessionTitle: chat.title,
 		});
 	} else {
-		// A primer from a bare topic (before any session).
+		// A primer or overview from a bare topic (before any session).
 		snapshot = {};
-		title = provisionalTitle("primer", { topic: base.topic });
+		title = provisionalTitle(base.kind, { topic: base.topic });
 	}
 
 	const now = new Date().toISOString();
@@ -203,8 +204,11 @@ export function listReadings(filter: { chatId?: string; nodeId?: string } = {}):
 	return all.map((r) => withCost(r, titles));
 }
 
-/** One reading in full, plus the live practice hand-off set. */
-export function getReading(id: string): (ReadingRecord & { costUsd: number | null; practice: ReadingProposition[]; chatTitle?: string }) | null {
+/** One reading in full, plus the live practice hand-off set and, for an
+ *  overview, its tagged plan nodes' statuses in the session right now. */
+export function getReading(
+	id: string,
+): (ReadingRecord & { costUsd: number | null; practice: ReadingProposition[]; chatTitle?: string; planStatus?: Record<string, PlanNodeStatus> }) | null {
 	const found = stores.readingStore.getReading(id);
 	if (!found) return null;
 	const r = readingsPipeline.settleIfOrphaned(found);
@@ -216,8 +220,17 @@ export function getReading(id: string): (ReadingRecord & { costUsd: number | nul
 		: r.anchor.chatId
 			? bornIn(r.anchor.chatId)
 			: [];
-	const chatTitle = r.anchor.chatId ? stores.chatStore.getChat(r.anchor.chatId)?.title : undefined;
-	return { ...r, costUsd: r.usage ? jobCost({ usage: r.usage }) : null, practice, ...(chatTitle ? { chatTitle } : {}) };
+	const chat = r.anchor.chatId ? stores.chatStore.getChat(r.anchor.chatId) : undefined;
+	const chatTitle = chat?.title;
+	const tagged = (r.sections ?? []).flatMap((sec) => sec.planNodeIds ?? []);
+	const planStatus = chat && tagged.length > 0 ? planNodeStatuses(chat, tagged) : undefined;
+	return {
+		...r,
+		costUsd: r.usage ? jobCost({ usage: r.usage }) : null,
+		practice,
+		...(chatTitle ? { chatTitle } : {}),
+		...(planStatus ? { planStatus } : {}),
+	};
 }
 
 /** Delete: a live run is stopped first. */

@@ -78,6 +78,15 @@ class ReadingsCliTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("format 2", err)
 
+    def test_read_renders_overview_sections_verbatim(self):
+        sections = [{"heading": "The map", "body": "Parts and links.", "planNodeIds": ["limits"]}]
+        (self.root / "readings" / "rd_o.json").write_text(json.dumps(reading("rd_o", kind="overview", sections=sections)), encoding="utf-8")
+        code, out, _ = self.run_cli("--data-dir", str(self.root), "read", "rd_o")
+        self.assertEqual(code, 0)
+        self.assertIn("## Section: The map (verbatim)", out)
+        self.assertIn("Plan nodes: limits", out)
+        self.assertIn("Parts and links.", out)
+
 
 if __name__ == "__main__":
     unittest.main()

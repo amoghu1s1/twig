@@ -2,9 +2,10 @@
  * Readings contracts — opt-in companion documents (docs/readings.md).
  *
  * A READING is a learner-facing document the learner opts into: a primer
- * of terms before teaching, a deep dive on one idea during a lesson, a
- * recap of what a session built (with further reading), or a deep dive
- * anchored on graph propositions. Written in the background by the
+ * of terms before teaching, an overview of the whole topic (the map, not
+ * the mechanism), a deep dive on one idea during a lesson, a recap of what
+ * a session built (with further reading), or a deep dive anchored on graph
+ * propositions. Written in the background by the
  * writer sub-agent, from model knowledge or from web research with
  * verified citations.
  *
@@ -17,16 +18,17 @@
 
 import type { JobUsage } from "./jobs.ts";
 
-export type ReadingKind = "primer" | "deep-dive" | "recap" | "node";
+export type ReadingKind = "primer" | "overview" | "deep-dive" | "recap" | "node";
 export type ReadingMode = "researched" | "model";
 export type ReadingStatus = "queued" | "writing" | "ready" | "error";
 
-export const READING_KINDS: readonly ReadingKind[] = ["primer", "deep-dive", "recap", "node"];
+export const READING_KINDS: readonly ReadingKind[] = ["primer", "overview", "deep-dive", "recap", "node"];
 export const READING_MODES: readonly ReadingMode[] = ["researched", "model"];
 
 /** The learner-facing name of each kind (one vocabulary, every surface). */
 export const READING_KIND_LABEL: Readonly<Record<ReadingKind, string>> = {
 	primer: "Primer",
+	overview: "Overview",
 	"deep-dive": "Deep dive",
 	recap: "Recap",
 	node: "Deep dive",
@@ -37,7 +39,7 @@ export const DEFAULT_READING_MODE: ReadingMode = "researched";
 
 /** What the reading is about / where it was asked from. */
 export interface ReadingAnchor {
-	/** The session it was asked from (primer, deep-dive, recap). */
+	/** The session it was asked from (primer, overview, deep-dive, recap). */
 	chatId?: string;
 	/** Plan-tree slug a deep dive is about. */
 	planNodeId?: string;
@@ -49,7 +51,7 @@ export interface ReadingAnchor {
 	passage?: string;
 	/** Graph propositions it is about (node readings), frozen at creation. */
 	nodeIds?: string[];
-	/** Free-text topic (a primer requested before any session exists). */
+	/** Free-text topic (a primer or overview requested before any session exists). */
 	topic?: string;
 	/** The teacher's suggest_reading call this reading answers, if any. */
 	suggestionCallId?: string;
@@ -76,10 +78,12 @@ export interface ReadingSnapshot {
 	plan?: string;
 	/** For deep dives: the anchored node's title + summary. */
 	focus?: { title: string; summary?: string };
-	/** For deep dives: titles of plan nodes not yet reached (the
-	 *  "deeper, not further" fence — the writer may name them, never
-	 *  explain them). */
+	/** For deep dives and overviews: titles of plan nodes not yet reached
+	 *  (the fence — a deep dive may name them, never explain them; an
+	 *  overview may map them, never derive them). */
 	upcoming?: string[];
+	/** For overviews: the plan nodes a section may tag (id + title). */
+	planNodes?: Array<{ id: string; title: string }>;
 	/** The transcript (markdown), possibly budget-trimmed. */
 	transcript?: string;
 	/** True when the transcript was trimmed to the budget. */
@@ -106,6 +110,16 @@ export interface GlossaryTerm {
 	definition: string;
 }
 
+/** One section of an overview: a part of the topic's map, tagged with
+ *  the plan nodes that teach it (when the session has a plan). */
+export interface OverviewSection {
+	heading: string;
+	/** Markdown + LaTeX + mermaid. */
+	body: string;
+	/** Plan-tree slugs this section maps to (ids from snapshot.planNodes). */
+	planNodeIds?: string[];
+}
+
 export interface ReadingRecord {
 	id: string;
 	kind: ReadingKind;
@@ -117,10 +131,13 @@ export interface ReadingRecord {
 	anchor: ReadingAnchor;
 	snapshot: ReadingSnapshot;
 	/** Markdown + LaTeX + mermaid (the app's standard rendering contract).
-	 *  Primers carry a short intro here and the glossary in `terms`. */
+	 *  Primers carry a short intro here and the glossary in `terms`;
+	 *  overviews an intro here and the article in `sections`. */
 	body?: string;
 	/** Primers: the glossary. */
 	terms?: GlossaryTerm[];
+	/** Overviews: the article, section by section. */
+	sections?: OverviewSection[];
 	/** Sources cited in the body (researched mode only). */
 	sources?: ReadingSource[];
 	/** Recaps: annotated further reading, research-verified. */
@@ -141,7 +158,7 @@ export interface ReadingRecord {
 export const CURRENT_READING_VERSION = 1;
 
 /** The list view's row — the record minus its heavy fields. */
-export type ReadingSummary = Omit<ReadingRecord, "snapshot" | "body" | "terms" | "furtherReading" | "sources"> & {
+export type ReadingSummary = Omit<ReadingRecord, "snapshot" | "body" | "terms" | "sections" | "furtherReading" | "sources"> & {
 	/** Read-time cost (server-side pricing), null when unknown. */
 	costUsd?: number | null;
 	/** The anchor session's current title (library rows). */

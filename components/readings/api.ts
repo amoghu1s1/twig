@@ -7,11 +7,17 @@
  */
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import type { ReadingMode, ReadingProposition, ReadingRecord, ReadingRequest, ReadingSummary } from "@/src/core";
+import type { PlanNodeStatus, ReadingMode, ReadingProposition, ReadingRecord, ReadingRequest, ReadingSummary } from "@/src/core";
 import { DEFAULT_READING_MODE } from "@/src/core";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 
-export type FullReading = ReadingRecord & { costUsd: number | null; practice: ReadingProposition[]; chatTitle?: string };
+export type FullReading = ReadingRecord & {
+	costUsd: number | null;
+	practice: ReadingProposition[];
+	chatTitle?: string;
+	/** Overviews: each tagged plan node's status in the session now. */
+	planStatus?: Record<string, PlanNodeStatus>;
+};
 
 /** POST /api/readings → the new id, or the server's refusal text. */
 export async function requestReading(req: ReadingRequest): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
@@ -136,6 +142,12 @@ export function useReading(id: string | null): FullReading | null | "missing" | 
 		refresh();
 	}, [refresh]);
 	useReadingsPoke(refresh);
+	// An overview's node statuses follow the lesson: refetch when a turn
+	// in its session settles (the plan position may have moved).
+	const followChat = reading && typeof reading === "object" && reading.planStatus ? reading.anchor.chatId : undefined;
+	useServerEvent("turn-settled", ({ chatId }) => {
+		if (followChat && chatId === followChat) refresh();
+	});
 	return reading;
 }
 

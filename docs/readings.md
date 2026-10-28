@@ -2,6 +2,8 @@
 
 Status: **IMPLEMENTED (P1 + P2), 2026-10-27.** Drafted the same day from a read of the as-built system (`architecture.md`, `vision.md`, `probe-teach-split.md`, `teaching-methodology.md`, the teacher/prober/practice prompts, and the code). Where docs and code disagree this follows the code (practice is a chat kind seeded by graph-context picks; the graph carries no understanding levels since 2026-09-27).
 
+**Overview kind added (2026-10-27, owner rulings):** a fifth kind, the topic-wide article — see §13.
+
 **Rulings taken (2026-10-27):** scope P1 + P2; researched is the default source mode (§11 Q1); readings sit in a side tray beside the lesson (§11 Q8); the teacher gets no marker when a reading is requested (§11 Q2 — stricter than the proposal: the teacher never learns a reading exists). The remaining §11 questions were built at the proposal's defaults and are still open for an owner ruling. See §12 for what was built where.
 
 Supersedes the `curriculum.md` direction: rather than a structure that steers sessions, readings sit **beside** them and never steer anything.
@@ -10,11 +12,12 @@ Supersedes the `curriculum.md` direction: rather than a structure that steers se
 
 ## 1. The idea
 
-A **reading** is a learner-facing document the learner opts into: a deeper written treatment of something, produced in the background by a writer agent, from model knowledge or from web research with citations. Four kinds, one mechanism:
+A **reading** is a learner-facing document the learner opts into: a deeper written treatment of something, produced in the background by a writer agent, from model knowledge or from web research with citations. Five kinds, one mechanism:
 
 | Kind | When | What it is |
 |---|---|---|
 | **Primer** | before teaching — at plan presentation, or from the new-session screen | the terms the lesson will use, as plain definitions — no derivations |
+| **Overview** | before or during a session — the tray, the new-session screen, the library | the map of the whole topic: what each part is, why it exists, how the parts connect — sections tagged with the plan nodes that teach them (§13) |
 | **Deep dive** | during a lesson — on a plan node (or a passage) | the fuller story of one idea: history, motivation, edge cases, worked examples, connections beyond the lesson's path |
 | **Recap** | any time, typically at the end of a session | what the session actually built, step by step as taught — plus **further reading** |
 | **Node reading** | from the knowledge graph — a node, chain, or cluster | a deep dive anchored on graph objects instead of a session |
@@ -270,3 +273,18 @@ Deviations from the proposal, kept deliberately small:
 - **No per-role model override for the writer yet.** `writer` resolves from the strong slot (`ROLE_SLOT`) but is not in `BACKGROUND_MODEL_ROLES`, so the settings screen shows no separate row for it — adding it is a settings-UI change for the owner to rule on.
 - **Reading prompts are not yet editable in settings.** They compose from source files like the other agents, but the prompt-override UI only lists teacher/prober/shared; adding a "Readings" section is the natural follow-up.
 - **The writer holds one background permit for its whole run.** A researched reading is a long agent loop; it shares the 3-permit pool with extraction rather than getting a private lane (the semaphore's own ruling).
+
+---
+
+## 13. The overview (added 2026-10-27)
+
+Why: a primer is a glossary by design (§2) and a deep dive covers one plan node, so nothing gave the learner a full, illustrated article on a whole topic. The overview fills that gap without loosening the primer.
+
+**Owner rulings:**
+
+- **A new kind, `overview`** ("Overview" in the UI); the primer stays definitions-only.
+- **Map, not mechanism.** The overview may describe every part of the topic, reached or not — what it is, why it exists, how it connects — but never derives a part the lesson hasn't reached. This is the one carve-out from §2 rule 3; the writer still gets the `upcoming` list.
+- **Entry points:** wherever the primer is offered — the session tray's kind picker (fitted to the probe and the plan), **Overview first** on the new-session screen, and the library's topic box (topic text only). Not teacher-offerable: `suggest_reading` is unchanged.
+- **Diagrams encouraged, not enforced.** 1200–2500 words.
+- **Plan-node links.** The writer submits `sections[]` (`heading`, `body`, `planNodeIds`) with a short intro in `body`; the validator accepts only ids from `snapshot.planNodes` (none at all without a plan). The reader shows each section's nodes as chips with a **Read deeper** action (a deep dive on that node).
+- **Live status on the chips.** `GET /api/readings/[id]` adds `planStatus` — each tagged node's visited / current / upcoming status in the anchor session *now* (`planNodeStatuses`, derived at read time, never stored). The reader refetches when a turn in that session settles. A node gone from the plan shows its title only, without Read deeper.

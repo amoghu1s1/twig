@@ -5,7 +5,8 @@
  * tray (compact) and the full page /readings/[id]. Status-aware: a reading
  * being written shows its live activity line and a Stop control; a failed
  * one says why and offers a re-run; a ready one renders the document —
- * body, glossary, sources, further reading — with the actions: Practice
+ * body, glossary or overview sections (each tagged with its plan nodes,
+ * live status + Read deeper), sources, further reading — with the actions: Practice
  * this (the existing practice entry), Re-run (either source mode),
  * Download (.md), Delete.
  *
@@ -17,12 +18,22 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { BookOpenIcon, DownloadIcon, DumbbellIcon, ExternalLinkIcon, RotateCcwIcon, SquareIcon, Trash2Icon } from "lucide-react";
-import { READING_KIND_LABEL, readingMarkdown, subscriptionLabel, type ReadingMode } from "@/src/core";
+import { READING_KIND_LABEL, readingMarkdown, subscriptionLabel, type OverviewSection, type PlanNodeStatus, type ReadingMode } from "@/src/core";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { BrailleSpinner } from "@/components/braille-spinner";
 import { downloadFile, slugFilename } from "@/components/artifacts/download";
 import { planCostLabel } from "@/components/usage-format";
-import { ago, deleteReadingRequest, requestReading, startPractice, stopReading, useReading, type FullReading } from "@/components/readings/api";
+import {
+	ago,
+	deleteReadingRequest,
+	requestReading,
+	startPractice,
+	stopReading,
+	useReading,
+	useReadingMode,
+	useSessionReadings,
+	type FullReading,
+} from "@/components/readings/api";
 
 export function ModeToggle({
 	mode,
@@ -194,6 +205,13 @@ export function ReadingDocument({
 							<MessageResponse>{r.body}</MessageResponse>
 						</div>
 					)}
+					{r.sections && r.sections.length > 0 && (
+						<div data-testid="reading-sections" className="flex flex-col gap-6">
+							{r.sections.map((sec, i) => (
+								<OverviewSectionView key={`${i}:${sec.heading}`} section={sec} reading={r} />
+							))}
+						</div>
+					)}
 					{r.terms && r.terms.length > 0 && (
 						<dl data-testid="reading-terms" className="flex flex-col gap-3">
 							{r.terms.map((t) => (
@@ -311,5 +329,84 @@ export function ReadingDocument({
 				</span>
 			</footer>
 		</article>
+	);
+}
+
+const STATUS_LABEL: Record<PlanNodeStatus, string> = { visited: "Visited", current: "Current", upcoming: "Upcoming" };
+const STATUS_CLASS: Record<PlanNodeStatus, string> = {
+	visited: "text-muted-foreground",
+	current: "text-primary",
+	upcoming: "text-muted-foreground/70",
+};
+
+/** One overview section: heading, its plan-node chips, then the prose. */
+function OverviewSectionView({ section, reading: r }: { section: OverviewSection; reading: FullReading }) {
+	const titles = new Map((r.snapshot.planNodes ?? []).map((n) => [n.id, n.title] as const));
+	const ids = section.planNodeIds ?? [];
+	return (
+		<section data-testid="reading-section" className="flex flex-col gap-2">
+			<h2 className="text-lg font-semibold leading-snug">{section.heading}</h2>
+			{ids.length > 0 && (
+				<div className="flex flex-wrap gap-1.5">
+					{ids.map((id) => (
+						<NodeChip key={id} nodeId={id} title={titles.get(id) ?? id} status={r.planStatus?.[id]} chatId={r.anchor.chatId} />
+					))}
+				</div>
+			)}
+			<div className="text-[0.95rem]">
+				<MessageResponse>{section.body}</MessageResponse>
+			</div>
+		</section>
+	);
+}
+
+/** A plan node a section maps to: its live status in the lesson and a
+ *  Read deeper action (a deep dive on that node). A node no longer in
+ *  the plan (no status) shows its title only — a deep dive needs it. */
+function NodeChip({ nodeId, title, status, chatId }: { nodeId: string; title: string; status?: PlanNodeStatus; chatId?: string }) {
+	const router = useRouter();
+	const seam = useSessionReadings();
+	const [mode] = useReadingMode();
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const readDeeper = async () => {
+		setBusy(true);
+		setError(null);
+		if (seam && seam.chatId === chatId) {
+			// In the session's tray: the seam opens the new reading in place.
+			const err = await seam.request({ kind: "deep-dive", planNodeId: nodeId });
+			setBusy(false);
+			if (err) setError(err);
+			return;
+		}
+		const res = await requestReading({ kind: "deep-dive", chatId, planNodeId: nodeId, mode });
+		setBusy(false);
+		if (!res.ok) return setError(res.error);
+		router.push(`/readings/${res.id}`);
+	};
+	return (
+		<span
+			data-testid="reading-node-chip"
+			data-status={status ?? "gone"}
+			title={error ?? undefined}
+			className="inline-flex items-center gap-1.5 rounded-full border border-border/80 py-0.5 pl-2.5 pr-1 font-ui text-xs"
+		>
+			<span className="text-foreground">{title}</span>
+			{status && <span className={STATUS_CLASS[status]}>· {STATUS_LABEL[status]}</span>}
+			{status && chatId ? (
+				<button
+					type="button"
+					data-testid="reading-node-deeper"
+					disabled={busy}
+					onClick={() => void readDeeper()}
+					className={`flex items-center gap-1 rounded-full px-1.5 py-0.5 transition-colors hover:bg-accent hover:text-foreground disabled:opacity-60 ${error ? "text-destructive" : "text-muted-foreground"}`}
+				>
+					{busy ? <BrailleSpinner label="Starting" /> : <BookOpenIcon className="size-3" aria-hidden />}
+					Read deeper
+				</button>
+			) : (
+				<span className="pr-1.5" />
+			)}
+		</span>
 	);
 }

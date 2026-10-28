@@ -14,7 +14,7 @@
  */
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
-import { ArrowLeftIcon, BookOpenIcon, LibraryIcon, NotebookTextIcon, ScrollTextIcon, SparklesIcon, XIcon } from "lucide-react";
+import { ArrowLeftIcon, BookOpenIcon, LibraryIcon, MapIcon, NotebookTextIcon, ScrollTextIcon, SparklesIcon, XIcon } from "lucide-react";
 import Link from "next/link";
 import type { PlanTree, ReadingKind, ReadingRequest, ReadingSummary } from "@/src/core";
 import { READING_KIND_LABEL } from "@/src/core";
@@ -58,6 +58,7 @@ export function SessionReadingsProvider({ seam, children }: { seam: SessionReadi
 
 const KIND_ICON: Record<ReadingKind, typeof BookOpenIcon> = {
 	primer: NotebookTextIcon,
+	overview: MapIcon,
 	"deep-dive": BookOpenIcon,
 	recap: ScrollTextIcon,
 	node: BookOpenIcon,
@@ -140,7 +141,7 @@ function TrayList({
 	tree: PlanTree | null;
 	onOpenReading: (id: string) => void;
 }) {
-	const [kind, setKind] = useState<"recap" | "primer" | "deep-dive">("recap");
+	const [kind, setKind] = useState<"recap" | "primer" | "overview" | "deep-dive">("recap");
 	const [nodeId, setNodeId] = useState<string>("");
 	const [requestText, setRequestText] = useState("");
 	const [busy, setBusy] = useState(false);
@@ -161,9 +162,10 @@ function TrayList({
 		else setRequestText("");
 	};
 
-	const KINDS: Array<{ k: "recap" | "primer" | "deep-dive"; label: string; hint: string }> = [
+	const KINDS: Array<{ k: "recap" | "primer" | "overview" | "deep-dive"; label: string; hint: string }> = [
 		{ k: "recap", label: "Recap", hint: "What this session built so far, plus further reading" },
 		{ k: "primer", label: "Primer", hint: "The lesson's key terms, as definitions" },
+		{ k: "overview", label: "Overview", hint: "The map of the whole topic: its parts, why each exists, how they connect" },
 		{ k: "deep-dive", label: "Deep dive", hint: "The fuller story of one idea from the plan" },
 	];
 

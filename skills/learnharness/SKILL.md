@@ -154,7 +154,7 @@ python3 -B scripts/readings.py read rd_EXAMPLE --include-snapshot
 ```
 
 Readings are opt-in companion documents the learner asked for — primers of
-terms, deep dives on one idea, recaps of a session with further reading, and
+terms, overviews mapping a whole topic, deep dives on one idea, recaps of a session with further reading, and
 deep dives on graph propositions. They are **AI-written and never evidence of
 understanding**: nothing records whether a reading was opened or read, and
 model-mode readings were not source-checked. Use them to see what the learner

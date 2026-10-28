@@ -226,13 +226,15 @@ Practice does not itself write new propositions to the graph.
 
 ## Readings: learner-requested documents, not evidence
 
-`readings/rd_*.json` holds one reading each: `kind` (`primer` | `deep-dive` |
-`recap` | `node`), `mode` (`researched` — every cited URL was fetched by the
+`readings/rd_*.json` holds one reading each: `kind` (`primer` | `overview` |
+`deep-dive` | `recap` | `node`), `mode` (`researched` — every cited URL was fetched by the
 writer; `model` — written from model knowledge, not source-checked), `status`
 (`queued` | `writing` | `ready` | `error`), `title`, `anchor` (the session,
 plan node, selected passage, picked proposition ids, or a bare topic it was
 asked from), the frozen `snapshot` the writer saw, and the output: `body`
-(markdown), `terms` (primers), `sources`, `furtherReading` (recaps). A re-run
+(markdown), `terms` (primers), `sections` (overviews: `heading`, `body`, and
+`planNodeIds` — the plan nodes the section maps to), `sources`,
+`furtherReading` (recaps). A re-run
 points at the reading it replaces with `supersedes`.
 
 A reading shows what the learner chose to read more about. It never shows what
