@@ -76,6 +76,7 @@ import { useServerEvent, useServerResync } from "./server-events";
 import { TopBar } from "@/components/top-bar";
 import { DeleteSourceDialog } from "@/components/delete-source-dialog";
 import { LatexGlyph } from "@/components/latex-glyph";
+import { useNodeDeepDive } from "@/components/readings/node-readings";
 
 /** The sortable columns (owner ruling: all three — consistency). */
 export type ChainSortCol = "name" | "props" | "created";
@@ -128,6 +129,8 @@ export function ChainTableBody({
 	onToggleFolder = () => {},
 	keyboardActive = true,
 	sourceInventoryPending = false,
+	onDeepDive,
+	deepDiveError,
 }: {
 	sourceInventoryPending?: boolean;
 	keyboardActive?: boolean;
@@ -162,6 +165,10 @@ export function ChainTableBody({
 	 *  selection becomes. */
 	selectMode?: boolean;
 	onSelect?: () => void;
+	/** Readings (docs/readings.md §6.1): a deep dive on every proposition
+	 *  in the selected sources (folders select their contained sources). */
+	onDeepDive?: (nodeIds: string[]) => void;
+	deepDiveError?: string | null;
 }) {
 	const [creatingFolder, setCreatingFolder] = useState(false);
 	const tableRef = useRef<HTMLDivElement>(null);
@@ -204,6 +211,7 @@ export function ChainTableBody({
 		}
 		return membership;
 	}, [sourceChains, byId]);
+	const deepDiveIds = [...new Set([...selectedSources].flatMap((birth) => [...(allSourceNodes.get(birth) ?? [])]))];
 
 	// The fuzzy filter: a chain is visible when ANY member matches on
 	// name, aliases, or statement; chains rank by best member score.
@@ -608,6 +616,18 @@ export function ChainTableBody({
 							</button>
 						) : (
 							<>
+							{onDeepDive && deepDiveIds.length > 0 && (
+								<button
+									type="button"
+									data-testid="chain-deep-dive"
+									onClick={() => onDeepDive(deepDiveIds)}
+									className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+								>
+									<BookOpenIcon aria-hidden="true" className="size-3.5 text-primary" />
+									Deep dive
+								</button>
+							)}
+							{deepDiveError && <span className="max-w-[16rem] truncate text-xs text-destructive" title={deepDiveError}>{deepDiveError}</span>}
 							{/* The danger fence (owner ruling): a divider quarantines
 								    the destructive action at the bar's right end — the
 								    safe actions and the kill switch never blend. The
@@ -786,6 +806,7 @@ export function ChainTableOverlay({
 	const toggleEntries = (kind: "source" | "folder", id: string, checked: boolean) => {
 		if (visibleDirectory) setEntrySelection((previous) => toggleSourceEntries(visibleDirectory, previous, kind, id, checked));
 	};
+	const deepDive = useNodeDeepDive();
 
 	// Controlled when the caller lifts the selection (the practice pick
 	// set); internal (uncontrolled) otherwise — the delete flow's own.
@@ -877,6 +898,8 @@ export function ChainTableOverlay({
 					onClose={onClose}
 					selectMode={selectMode}
 					onSelect={onClose}
+					onDeepDive={deepDive.busy ? undefined : (nodeIds) => void deepDive.start(nodeIds)}
+					deepDiveError={deepDive.error}
 				/>
 			</div>
 			{!selectMode && <DeleteSourceDialog open={deleteOpen}

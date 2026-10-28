@@ -14,6 +14,8 @@ import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { SessionStarter } from "@/components/start-session";
+import { NotebookTextIcon } from "lucide-react";
+import { requestReading, useReadingMode } from "@/components/readings/api";
 import type { ChatSettings, GraphSnapshot } from "@/src/core";
 
 /** The draft's pick set (owner round 10): the SAME shape the home pick
@@ -80,6 +82,7 @@ export function DraftShell({
 	onOpenPicker,
 	onClearPicks,
 	overlay,
+	primerAction,
 }: {
 	busy: boolean;
 	text: string;
@@ -107,6 +110,9 @@ export function DraftShell({
 	 *  the graph view (the overlay fills its column, never the sidebar).
 	 *  Passed as a node so the pick state stays in NewSession. */
 	overlay?: ReactNode;
+	/** Readings (docs/readings.md §6.1): "Primer first" — the key terms of
+	 *  the typed topic, as a reading, before starting the session. */
+	primerAction?: ReactNode;
 }) {
 	// Voice dictation (STT wave, 2026-09-17): finals append at the end of the
 	// draft text (via the parent's onChange — the truth lives there); the
@@ -183,9 +189,16 @@ export function DraftShell({
 						<div className="bg-background pb-4">
 							<div className={DOCK}>
 								<ComposerActions
-									picker={(picks.length > 0 || mode === "practice") && (
-										<NodePickerControl count={picks.length} onOpen={onOpenPicker} onClear={onClearPicks} />
-									)}
+									picker={
+										(picks.length > 0 || mode === "practice" || primerAction) && (
+											<>
+												{(picks.length > 0 || mode === "practice") && (
+													<NodePickerControl count={picks.length} onOpen={onOpenPicker} onClear={onClearPicks} />
+												)}
+												{primerAction}
+											</>
+										)
+									}
 									setup={setupCta}
 								/>
 								{startError && <p role="alert" className="pointer-events-auto mb-2 text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
@@ -245,6 +258,10 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 	const startingRef = useRef(false);
 	const starterRef = useRef(new SessionStarter());
 	const [startError, setStartError] = useState(false);
+	// Readings: the "Primer first" chip's state (docs/readings.md §6.1).
+	const [primerBusy, setPrimerBusy] = useState(false);
+	const [primerError, setPrimerError] = useState<string | null>(null);
+	const [readingMode] = useReadingMode();
 	// THE PICK BAR (owner round 10): the draft's lifted pick set + the
 	// snapshot the standalone chain-table picker reads. Lazy — the graph
 	// is fetched on FIRST open only, then reused.
@@ -330,6 +347,32 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				picks={picks}
 				onOpenPicker={openPicker}
 				onClearPicks={() => applyPicks([])}
+				primerAction={
+					mode === "teach" && text.trim().length > 0 ? (
+						<button
+							type="button"
+							data-testid="primer-first"
+							disabled={primerBusy}
+							title="Write a primer of this topic's key terms first — the session waits until you start it"
+							onClick={async () => {
+								if (!configured) {
+									setSetupOpen(true);
+									return;
+								}
+								setPrimerBusy(true);
+								setPrimerError(null);
+								const res = await requestReading({ kind: "primer", topic: textRef.current.trim(), mode: readingMode });
+								setPrimerBusy(false);
+								if (!res.ok) return setPrimerError(res.error);
+								router.push(`/readings/${res.id}`);
+							}}
+							className="flex cursor-pointer items-center gap-1.5 rounded-full border border-dashed border-border/80 px-3 py-1.5 font-ui text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-60"
+						>
+							<NotebookTextIcon aria-hidden="true" className="size-3.5" />
+							{primerError ?? "Primer first"}
+						</button>
+					) : undefined
+				}
 				overlay={
 					// THE PICKER (owner round 10b): hosted INSIDE the content
 					// column — absolute inset-0 resolves to the column's relative

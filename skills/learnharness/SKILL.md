@@ -79,7 +79,7 @@ The default is the normal installed application's data folder:
 | Windows | `%APPDATA%\LearnHarness\data` |
 | Linux | `$XDG_CONFIG_HOME/LearnHarness/data`, or `~/.config/LearnHarness/data` |
 
-This is the directory **containing** `chats/` and `graph/`, not their parent
+This is the directory **containing** `chats/`, `graph/`, and (when used) `readings/`, not their parent
 `LearnHarness/` profile directory. For a moved installation, backup, development
 copy, or an app configured with `LH_DATA_DIR`, use `--data-dir` explicitly. Readers
 print the selected directory and never create a missing folder or silently switch
@@ -144,6 +144,22 @@ sources, including later encounters.
 a substring search; `*` is the only wildcard. Quote patterns so the shell does not
 expand them. `chains --node` selects chains containing the proposition as a premise
 or conclusion; it does not calculate a transitive neighborhood or mastery score.
+
+### Readings
+
+```sh
+python3 -B scripts/readings.py list
+python3 -B scripts/readings.py read rd_EXAMPLE
+python3 -B scripts/readings.py read rd_EXAMPLE --include-snapshot
+```
+
+Readings are opt-in companion documents the learner asked for — primers of
+terms, deep dives on one idea, recaps of a session with further reading, and
+deep dives on graph propositions. They are **AI-written and never evidence of
+understanding**: nothing records whether a reading was opened or read, and
+model-mode readings were not source-checked. Use them to see what the learner
+was curious about, never as a record of what they hold. `--include-snapshot`
+adds the frozen context the writer was given (often a transcript excerpt).
 
 ## Understand the files directly
 

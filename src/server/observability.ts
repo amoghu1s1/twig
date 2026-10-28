@@ -25,6 +25,7 @@ import { graphRevision } from "./graph.ts";
 import { catalogContextLimits } from "./model-catalog.ts";
 import { listJobs } from "./jobs.ts";
 import { jobCost } from "./pricing.ts";
+import { readingActivity } from "./readings.ts";
 import type { JobRecord } from "../core/contracts.ts";
 
 export { abortExtraction, extractionStatuses, type ExtractionPhase, type RunningExtraction } from "../agent/subagents/extraction.ts";
@@ -66,9 +67,20 @@ export interface ActivityExtraction {
  *  graph changed underneath me" (a merge landed, a deletion purged) and
  *  refetch clusters/layout. Reads never move it; the DELETE response
  *  returns the same stamp. */
+/** A reading being written (docs/readings.md): the writer's run row. */
+export interface ActivityReading {
+	id: string;
+	title: string;
+	chatId?: string;
+	startedAt: number;
+	activity: string;
+	costUsd: number | null;
+}
+
 export function activityFeed(): {
 	jobs: ActivityJob[];
 	extractions: ActivityExtraction[];
+	readings: ActivityReading[];
 	graphRevision: number;
 } {
 	const chats = chatStore.listChats();
@@ -104,6 +116,7 @@ export function activityFeed(): {
 	return {
 		jobs,
 		extractions: extractions.sort((a, b) => a.startedAt - b.startedAt),
+		readings: readingActivity(),
 		graphRevision: graphRevision(),
 	};
 }

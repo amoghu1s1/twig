@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { MaximizeIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
+import { BookOpenIcon, MaximizeIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 // The placement engine — literally mermaid's: dagre-d3-es, the fork
 // mermaid 11 ships with (owner, plan-graph round 8: same engine as the
@@ -482,6 +482,7 @@ export function PlanDiagram({
 	naturalSize,
 	monochrome,
 	fill,
+	pickedId,
 }: {
 	nodes: readonly LayoutNode[];
 	edges: ReadonlyArray<{ from: string; to: string }>;
@@ -508,6 +509,8 @@ export function PlanDiagram({
 	 *  dock band's marginalia mode, where the diagram must fit BOTH the
 	 *  flank's width and the band's height rather than run width-first. */
 	fill?: boolean;
+	/** The popup's picked node (Read deeper): drawn with a primary outline. */
+	pickedId?: string | null;
 }) {
 	const layout = useMemo(() => blockLayout(nodes, edges), [nodes, edges]);
 	// Pad only the full-extent render — the plan window's override viewBox is
@@ -648,6 +651,17 @@ export function PlanDiagram({
 								filter={`url(#${markerId}-glow)`}
 							/>
 						)}
+						{pickedId === n.id && !monochrome && (
+							<rect
+								x={-3}
+								y={-3}
+								width={w + 6}
+								height={h + 6}
+								className="fill-none stroke-primary"
+								strokeWidth={1.5}
+								data-testid="plan-picked-outline"
+							/>
+						)}
 						{lines.map((line, i) => (
 							<text
 								key={i}
@@ -748,7 +762,22 @@ const POPUP_PAD = GLOW_REACH;
  * territory. Surface 80% + blur (owner decision): the transcript ghosts
  * through while the focus owns the session area.
  */
-export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessage[]; onClose: () => void }) {
+export function PlanPopup({
+	messages,
+	onClose,
+	onReadDeeper,
+}: {
+	messages: readonly PopupMessage[];
+	onClose: () => void;
+	/** Readings (docs/readings.md §6.1): click a node → "Read deeper".
+	 *  Absent = nodes aren't pickable (practice, previews). */
+	onReadDeeper?: (nodeId: string) => Promise<string | null>;
+}) {
+	// The picked node (a click without a drag) + the action's state.
+	const [picked, setPicked] = useState<string | null>(null);
+	const [readBusy, setReadBusy] = useState(false);
+	const [readError, setReadError] = useState<string | null>(null);
+	const downRef = useRef<{ node: string | null; x: number; y: number } | null>(null);
 	const tree = useMemo(() => latestTree(messages), [messages]);
 	const statuses = useMemo(
 		() => (tree ? derivePlanStatuses(tree, messages as Parameters<typeof derivePlanStatuses>[1]) : null),
@@ -913,9 +942,31 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 					"relative min-h-0 flex-1 touch-none overflow-hidden rounded-xl border select-none",
 					atFloor ? "cursor-default" : "cursor-grab",
 				)}
-				onPointerDown={startDrag}
+				onPointerDown={(e) => {
+					// Controls (the Read deeper pill, zoom/fit) are not picks.
+					if (e.button !== 0 || (e.target as Element).closest?.("button")) {
+						downRef.current = null;
+						startDrag(e);
+						return;
+					}
+					const node = onReadDeeper
+						? ((e.target as Element).closest?.("[data-testid^='plan-node-']")?.getAttribute("data-testid")?.slice("plan-node-".length) ?? null)
+						: null;
+					downRef.current = { node, x: e.clientX, y: e.clientY };
+					startDrag(e);
+				}}
 				onPointerMove={moveDrag}
-				onPointerUp={endDrag}
+				onPointerUp={(e) => {
+					const down = downRef.current;
+					downRef.current = null;
+					endDrag(e);
+					if (!onReadDeeper || !down) return;
+					const still = Math.hypot(e.clientX - down.x, e.clientY - down.y) < 5;
+					if (still) {
+						setPicked(down.node);
+						setReadError(null);
+					}
+				}}
 				onPointerCancel={endDrag}
 			>
 				{tree ? (
@@ -944,8 +995,41 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 								markerId={markerId}
 								pad={POPUP_PAD}
 								naturalSize
+								pickedId={picked}
 							/>
 						</div>
+						{onReadDeeper && (
+							<div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center p-2">
+								{picked && tree.nodes.some((n) => n.id === picked) ? (
+									<div
+										data-testid="plan-read-deeper"
+										className="pointer-events-auto flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 font-ui text-xs shadow-lg"
+									>
+										<span className="max-w-[18rem] truncate font-medium">{tree.nodes.find((n) => n.id === picked)!.title}</span>
+										<button
+											type="button"
+											disabled={readBusy}
+											onClick={async () => {
+												setReadBusy(true);
+												setReadError(null);
+												const err = await onReadDeeper(picked);
+												setReadBusy(false);
+												if (err) setReadError(err);
+												else onClose();
+											}}
+											className="flex items-center gap-1.5 rounded-full bg-primary px-2.5 py-1 font-medium text-primary-foreground hover:bg-primary/80 disabled:opacity-60"
+										>
+											<BookOpenIcon className="size-3.5" /> Read deeper
+										</button>
+										{readError && <span className="text-destructive">{readError}</span>}
+									</div>
+								) : (
+									<span className="rounded-full bg-background/70 px-2.5 py-1 font-ui text-xs text-muted-foreground/70">
+										Click an idea to read deeper on it
+									</span>
+								)}
+							</div>
+						)}
 						<div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between p-2">
 							<span className="text-xs text-muted-foreground/60">Drag to pan · scroll to zoom</span>
 							<div className="flex gap-1">

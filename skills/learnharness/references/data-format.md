@@ -21,6 +21,7 @@ graph/coverage.jsonl       Extraction fingerprints, NOT learner assessment
 graph/positions.json      Canvas layout, not semantic relationships
 graph/render-settings.json  Presentation preferences, not learning evidence
 jobs/<job-id>.json        Background work records; delivered artifacts also appear in sessions
+readings/<reading-id>.json  Opt-in companion documents (AI-written; NOT learning evidence)
 ```
 
 `settings.json`, downloaded models, caches, and provider debug logs are not needed
@@ -222,6 +223,23 @@ Graph `sessions.jsonl` records extraction checkpoints, and `coverage.jsonl` reco
 fingerprints of extracted teacher text. Neither is a session catalog, quiz-event
 ledger, mastery scale, or record of every idea the learner personally endorsed.
 Practice does not itself write new propositions to the graph.
+
+## Readings: learner-requested documents, not evidence
+
+`readings/rd_*.json` holds one reading each: `kind` (`primer` | `deep-dive` |
+`recap` | `node`), `mode` (`researched` — every cited URL was fetched by the
+writer; `model` — written from model knowledge, not source-checked), `status`
+(`queued` | `writing` | `ready` | `error`), `title`, `anchor` (the session,
+plan node, selected passage, picked proposition ids, or a bare topic it was
+asked from), the frozen `snapshot` the writer saw, and the output: `body`
+(markdown), `terms` (primers), `sources`, `furtherReading` (recaps). A re-run
+points at the reading it replaces with `supersedes`.
+
+A reading shows what the learner chose to read more about. It never shows what
+they read or understood — nothing records opening a reading, and readings never
+feed the graph. The teacher's `suggest_reading` calls in a session are offers
+only; whether one was accepted is visible as a reading whose
+`anchor.suggestionCallId` matches the call id.
 
 ## Reader limits
 

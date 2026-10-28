@@ -26,6 +26,7 @@ import type {
 	SessionCheckpoint,
 	TurnUsage,
 	NotesSource,
+	ReadingRecord,
 } from "./contracts.ts";
 import type { UserSettings } from "./settings.ts";
 
@@ -233,3 +234,25 @@ export interface AuthStore {
 	deleteAuthVar(name: string): void;
 }
 
+
+// ─── ReadingStore — opt-in companion documents (data/readings) ──────────────
+// docs/readings.md: one JSON file per reading, whole-file read-modify-write
+// (the chat/job idiom). Sole writer: the readings pipeline (create, the
+// writer's progress/terminal writes, the boot sweep) and the DELETE route.
+
+export interface ReadingStore {
+	/** Persist a new record (status queued). */
+	createReading(record: ReadingRecord): void;
+	/** The full record, or null (unknown id, corrupt file, or a format
+	 *  newer than this build — refused, never rewritten). */
+	getReading(id: string): ReadingRecord | null;
+	/** Merge a patch (identity fields immutable); bumps updatedAt. */
+	updateReading(
+		id: string,
+		patch: Partial<Omit<ReadingRecord, "id" | "kind" | "createdAt">>,
+	): ReadingRecord | null;
+	/** Every readable record, newest first. */
+	listReadings(): ReadingRecord[];
+	/** Remove one record. False when unknown. */
+	deleteReading(id: string): boolean;
+}

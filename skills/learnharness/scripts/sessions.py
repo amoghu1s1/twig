@@ -22,6 +22,9 @@ LEARNING_TOOLS = QUESTION_TOOLS | {"problem", "conclude", "probe_done", "plan_in
 OPERATION_TOOLS = {
     "read", "ls", "grep", "find", "bash", "write", "edit", "list_sessions",
     "list_propositions", "get_session", "get_proposition", "search", "web_search", "web_fetch",
+    # The teacher's reading OFFER: no learning content; readings themselves
+    # live in readings/ (scripts/readings.py), never in the transcript.
+    "suggest_reading",
 }
 MARKERS = {
     "graph-context", "probe-handoff", "subagent-steer", "subagent-abort", "plan-block",

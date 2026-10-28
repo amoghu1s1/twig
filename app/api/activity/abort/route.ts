@@ -17,7 +17,7 @@
  * Extraction abort is idempotent by design (aborting with nothing in
  * flight is success — the blob is gone either way) -> 200.
  */
-import { abortExtraction, abortJob, abortTurn } from "@/src/server";
+import { abortExtraction, abortJob, abortReading, abortTurn } from "@/src/server";
 
 export async function POST(req: Request) {
 	let body: unknown;
@@ -27,8 +27,8 @@ export async function POST(req: Request) {
 		return Response.json({ error: "Invalid JSON body" }, { status: 400 });
 	}
 	const { kind, id } = (body ?? {}) as { kind?: string; id?: string };
-	if ((kind !== "job" && kind !== "extraction" && kind !== "turn") || typeof id !== "string" || id === "") {
-		return Response.json({ error: 'Body must be {kind: "job"|"extraction"|"turn", id: string}' }, { status: 400 });
+	if ((kind !== "job" && kind !== "extraction" && kind !== "turn" && kind !== "reading") || typeof id !== "string" || id === "") {
+		return Response.json({ error: 'Body must be {kind: "job"|"extraction"|"turn"|"reading", id: string}' }, { status: 400 });
 	}
 	if (!/^[A-Za-z0-9:_-]+$/.test(id)) {
 		return Response.json({ error: "Invalid id" }, { status: 400 });
@@ -40,6 +40,12 @@ export async function POST(req: Request) {
 			const status = outcome.reason === "not_found" ? 404 : 409;
 			return Response.json({ ok: false, reason: outcome.reason }, { status });
 		}
+		return Response.json({ ok: true });
+	}
+	if (kind === "reading") {
+		// A reading's writer (docs/readings.md): not_running → 409, like a turn.
+		const outcome = abortReading(id);
+		if (!outcome.ok) return Response.json({ ok: false, reason: outcome.reason }, { status: 409 });
 		return Response.json({ ok: true });
 	}
 	if (kind === "turn") {
