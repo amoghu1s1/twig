@@ -12,13 +12,35 @@
  *
  * The doctrine fence is visible in the chrome: AI-only readings carry the
  * "not source-checked" label on their face.
+ *
+ * DISCUSS (docs/readings.md §14): a ready reading renders block by block
+ * (passage threads sit after their block) and carries the Discuss side
+ * chat — a column beside it on the full page, a toggled view in the tray.
  */
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { BookOpenIcon, DownloadIcon, DumbbellIcon, ExternalLinkIcon, RotateCcwIcon, SquareIcon, Trash2Icon } from "lucide-react";
-import { READING_KIND_LABEL, readingMarkdown, subscriptionLabel, type OverviewSection, type PlanNodeStatus, type ReadingMode } from "@/src/core";
+import { useMemo, useRef, useState } from "react";
+import {
+	ArrowLeftIcon,
+	BookOpenIcon,
+	DownloadIcon,
+	DumbbellIcon,
+	ExternalLinkIcon,
+	MessagesSquareIcon,
+	RotateCcwIcon,
+	SquareIcon,
+	Trash2Icon,
+} from "lucide-react";
+import {
+	discussionMarkdown,
+	READING_KIND_LABEL,
+	readingMarkdown,
+	subscriptionLabel,
+	type OverviewSection,
+	type PlanNodeStatus,
+	type ReadingMode,
+} from "@/src/core";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { BrailleSpinner } from "@/components/braille-spinner";
 import { downloadFile, slugFilename } from "@/components/artifacts/download";
@@ -34,6 +56,8 @@ import {
 	useSessionReadings,
 	type FullReading,
 } from "@/components/readings/api";
+import { useDiscussion } from "@/components/readings/discussion-api";
+import { blockKeys, DiscussPanel, DiscussProvider, PassageAsk, ReadingBlocks } from "@/components/readings/discussion";
 
 export function ModeToggle({
 	mode,
@@ -127,6 +151,42 @@ export function ReadingDocument({
 	const [confirmDelete, setConfirmDelete] = useState(false);
 	const [rerunMode, setRerunMode] = useState<ReadingMode>(r.mode);
 	const live = r.status === "queued" || r.status === "writing";
+	const ready = r.status === "ready";
+
+	// Discuss: the discussion, the block keys this reading renders (where
+	// passage threads can sit), and — in the tray — the toggled view.
+	const discussion = useDiscussion(ready ? r.id : null);
+	const renderedBlocks = useMemo(
+		() =>
+			new Set(
+				ready
+					? [
+							...blockKeys(r.body, "body"),
+							...(r.sections ?? []).flatMap((sec, i) => blockKeys(sec.body, `sec:${i}`)),
+							...(r.terms ?? []).flatMap((t, i) => blockKeys(t.definition, `term:${i}`)),
+						]
+					: [],
+			),
+		[ready, r.body, r.sections, r.terms],
+	);
+	const [discussOpen, setDiscussOpen] = useState(false);
+	const articleRef = useRef<HTMLElement>(null);
+	const contentRef = useRef<HTMLDivElement>(null);
+	const readingScroll = useRef(0);
+	// The tray swaps views inside one scroll container: remember where the
+	// reading was, and land back there.
+	const showDiscuss = (open: boolean) => {
+		const scroller = scrollParent(articleRef.current);
+		if (open) {
+			readingScroll.current = scroller?.scrollTop ?? 0;
+			setDiscussOpen(true);
+			requestAnimationFrame(() => scroller?.scrollTo({ top: 0 }));
+		} else {
+			setDiscussOpen(false);
+			requestAnimationFrame(() => scroller?.scrollTo({ top: readingScroll.current }));
+		}
+	};
+	const tray = compact === true;
 
 	const rerun = async () => {
 		setBusy("rerun");
@@ -152,8 +212,16 @@ export function ReadingDocument({
 		else setError("Couldn't delete the reading");
 	};
 
-	return (
-		<article data-testid="reading-view" data-status={r.status} className={compact ? "flex flex-col gap-4 px-4 pb-6" : "flex flex-col gap-5"}>
+	const askedCount = discussion ? discussion.side.exchanges.length + discussion.threads.reduce((n, t) => n + t.exchanges.length, 0) : 0;
+
+	const article = (
+		<article
+			ref={articleRef}
+			data-testid="reading-view"
+			data-status={r.status}
+			hidden={tray && discussOpen}
+			className={compact ? "flex flex-col gap-4 px-4 pb-6" : "flex min-w-0 flex-col gap-5"}
+		>
 			<header className="flex flex-col gap-1.5">
 				<div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-ui text-xs">
 					<span className="flex items-center gap-1 rounded-full border border-border/80 px-2 py-0.5 uppercase tracking-wide text-muted-foreground">
@@ -163,6 +231,17 @@ export function ReadingDocument({
 					<ModeLabel mode={r.mode} />
 					<span className="text-muted-foreground/70">· {ago(r.createdAt)}</span>
 					{r.usage && <span className="tabular-nums text-muted-foreground/70">· {planCostLabel(r.costUsd, subscriptionLabel(r.usage.model))}</span>}
+					{tray && ready && (
+						<button
+							type="button"
+							data-testid="reading-discuss"
+							onClick={() => showDiscuss(true)}
+							className="ml-auto flex items-center gap-1 rounded-full border border-border/80 px-2 py-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+						>
+							<MessagesSquareIcon className="size-3" aria-hidden /> Discuss
+							{askedCount > 0 && <span className="tabular-nums">· {askedCount}</span>}
+						</button>
+					)}
 				</div>
 				<h1 className={compact ? "text-lg font-semibold leading-snug" : "font-title text-3xl tracking-tight"}>{r.title}</h1>
 				{!compact && r.anchor.chatId && r.chatTitle && (
@@ -199,28 +278,24 @@ export function ReadingDocument({
 			)}
 
 			{r.status === "ready" && (
-				<>
-					{r.body && (
-						<div className="text-[0.95rem]">
-							<MessageResponse>{r.body}</MessageResponse>
-						</div>
-					)}
+				<div ref={contentRef} className={compact ? "flex flex-col gap-4" : "flex flex-col gap-5"}>
+					{r.body && <ReadingBlocks markdown={r.body} keyPrefix="body" className="text-[0.95rem]" />}
 					{r.sections && r.sections.length > 0 && (
 						<div data-testid="reading-sections" className="flex flex-col gap-6">
 							{r.sections.map((sec, i) => (
-								<OverviewSectionView key={`${i}:${sec.heading}`} section={sec} reading={r} />
+								<OverviewSectionView key={`${i}:${sec.heading}`} section={sec} index={i} reading={r} />
 							))}
 						</div>
 					)}
 					{r.terms && r.terms.length > 0 && (
 						<dl data-testid="reading-terms" className="flex flex-col gap-3">
-							{r.terms.map((t) => (
+							{r.terms.map((t, i) => (
 								<div key={t.term} className="rounded-lg border border-border/60 px-3 py-2">
 									<dt className="font-semibold">
 										<MessageResponse>{t.term}</MessageResponse>
 									</dt>
 									<dd className="mt-0.5 text-sm text-muted-foreground">
-										<MessageResponse>{t.definition}</MessageResponse>
+										<ReadingBlocks markdown={t.definition} keyPrefix={`term:${i}`} />
 									</dd>
 								</div>
 							))}
@@ -257,7 +332,7 @@ export function ReadingDocument({
 							</ol>
 						</section>
 					)}
-				</>
+				</div>
 			)}
 
 			{error && <div className="font-ui text-xs text-destructive">{error}</div>}
@@ -278,7 +353,9 @@ export function ReadingDocument({
 				{r.status === "ready" && (
 					<button
 						type="button"
-						onClick={() => downloadFile(`${slugFilename(r.title)}.md`, readingMarkdown(r), "text/markdown")}
+						onClick={() =>
+							downloadFile(`${slugFilename(r.title)}.md`, [readingMarkdown(r), discussionMarkdown(discussion)].filter(Boolean).join("\n"), "text/markdown")
+						}
 						className="flex items-center gap-1 rounded-full px-2.5 py-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					>
 						<DownloadIcon className="size-3.5" /> Download
@@ -330,6 +407,67 @@ export function ReadingDocument({
 			</footer>
 		</article>
 	);
+
+	return (
+		<DiscussProvider
+			readingId={r.id}
+			readingMode={r.mode}
+			discussion={discussion}
+			renderedBlocks={renderedBlocks}
+			onDraftInSide={tray ? () => showDiscuss(true) : undefined}
+		>
+			{tray ? (
+				<>
+					{article}
+					{discussOpen && (
+						<div data-testid="discuss-view" className="flex flex-col gap-4 px-4 pb-6">
+							<div className="flex items-center gap-2 font-ui text-xs">
+								<button
+									type="button"
+									data-testid="discuss-back"
+									onClick={() => showDiscuss(false)}
+									className="flex items-center gap-1 rounded-md px-1.5 py-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+								>
+									<ArrowLeftIcon className="size-3.5" /> Reading
+								</button>
+								<span className="flex items-center gap-1.5 uppercase tracking-widest text-muted-foreground">
+									<MessagesSquareIcon className="size-3.5" /> Discuss
+								</span>
+							</div>
+							<h2 className="text-base font-semibold leading-snug">{r.title}</h2>
+							<DiscussPanel renderedBlocks={renderedBlocks} />
+						</div>
+					)}
+				</>
+			) : ready ? (
+				<div className="lg:grid lg:grid-cols-[minmax(0,1fr)_20rem] lg:gap-10">
+					{article}
+					<aside
+						data-testid="discuss-column"
+						aria-label="Discuss"
+						className="mt-10 flex flex-col gap-3 self-start border-t border-border/60 pt-6 lg:sticky lg:top-0 lg:mt-0 lg:max-h-[calc(100dvh-8rem)] lg:overflow-y-auto lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0"
+					>
+						<h2 className="flex items-center gap-1.5 font-ui text-xs uppercase tracking-widest text-muted-foreground">
+							<MessagesSquareIcon className="size-3.5" /> Discuss
+						</h2>
+						<DiscussPanel renderedBlocks={renderedBlocks} />
+					</aside>
+				</div>
+			) : (
+				<div className="mx-auto w-full max-w-3xl">{article}</div>
+			)}
+			{ready && <PassageAsk rootRef={contentRef} />}
+		</DiscussProvider>
+	);
+}
+
+/** The nearest scrolling ancestor (the tray's or the page's scroller). */
+function scrollParent(el: HTMLElement | null): HTMLElement | null {
+	for (let cur = el?.parentElement ?? null; cur; cur = cur.parentElement) {
+		const overflow = getComputedStyle(cur).overflowY;
+		if (overflow === "auto" || overflow === "scroll") return cur;
+	}
+	return null;
 }
 
 const STATUS_LABEL: Record<PlanNodeStatus, string> = { visited: "Visited", current: "Current", upcoming: "Upcoming" };
@@ -340,7 +478,7 @@ const STATUS_CLASS: Record<PlanNodeStatus, string> = {
 };
 
 /** One overview section: heading, its plan-node chips, then the prose. */
-function OverviewSectionView({ section, reading: r }: { section: OverviewSection; reading: FullReading }) {
+function OverviewSectionView({ section, index, reading: r }: { section: OverviewSection; index: number; reading: FullReading }) {
 	const titles = new Map((r.snapshot.planNodes ?? []).map((n) => [n.id, n.title] as const));
 	const ids = section.planNodeIds ?? [];
 	return (
@@ -353,9 +491,7 @@ function OverviewSectionView({ section, reading: r }: { section: OverviewSection
 					))}
 				</div>
 			)}
-			<div className="text-[0.95rem]">
-				<MessageResponse>{section.body}</MessageResponse>
-			</div>
+			<ReadingBlocks markdown={section.body} keyPrefix={`sec:${index}`} className="text-[0.95rem]" />
 		</section>
 	);
 }

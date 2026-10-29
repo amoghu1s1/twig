@@ -187,7 +187,7 @@ export function ReadingPage({ id }: { id: string }) {
 				</button>
 			</TopBar>
 			<div className="min-h-0 flex-1 overflow-y-auto">
-				<div className="mx-auto w-full max-w-3xl px-4 py-8">
+				<div className="mx-auto w-full max-w-6xl px-4 py-8">
 					<ReadingView id={id} onDeleted={() => router.push("/readings")} />
 				</div>
 			</div>

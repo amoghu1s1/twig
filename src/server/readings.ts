@@ -34,6 +34,7 @@ import { stores } from "./stores.ts";
 import { providerKeyPresent } from "./keys.ts";
 import { searchProvider } from "./search.ts";
 import { jobCost } from "./pricing.ts";
+import { deleteDiscussionOf } from "./reading-discussions.ts";
 
 export type { RunningReading };
 
@@ -233,10 +234,13 @@ export function getReading(
 	};
 }
 
-/** Delete: a live run is stopped first. */
+/** Delete: a live run is stopped first; the reading's discussion goes
+ *  with it (owner ruling, docs/readings.md §14). */
 export function deleteReading(id: string): boolean {
 	readingsPipeline.abort(id);
-	return stores.readingStore.deleteReading(id);
+	const deleted = stores.readingStore.deleteReading(id);
+	if (deleted) deleteDiscussionOf(id);
+	return deleted;
 }
 
 /** The dock's END control. */

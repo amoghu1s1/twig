@@ -29,6 +29,7 @@ OPERATION_TOOLS = {
 MARKERS = {
     "graph-context", "probe-handoff", "subagent-steer", "subagent-abort", "plan-block",
     "practice-thinking", "practice-next", "problem-dismissed", "compaction",
+    "reading-discussion",
 }
 ACCOUNTING = {
     "provider", "api", "model", "usage", "stopReason", "thinkingSignature",

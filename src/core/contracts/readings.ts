@@ -11,7 +11,9 @@
  *
  * The doctrine fence (docs/readings.md §2): readings never steer a
  * lesson and never count as evidence of understanding. Nothing about a
- * reading reaches the graph, any assessment, or the teacher's context.
+ * reading reaches the graph, any assessment, or the teacher's context —
+ * except the learner's own Discuss exchanges, which the teacher is told
+ * about as signal, never evidence (docs/readings.md §14).
  *
  * Pure types + tiny pure helpers; type-only imports.
  */

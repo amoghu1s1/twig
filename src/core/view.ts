@@ -452,6 +452,17 @@ function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[]): void {
 			});
 			return;
 		}
+		case "reading-discussion": {
+			// A Discuss exchange the teacher was told about (docs/readings.md
+			// §14): a quiet centered system line that opens the reading — the
+			// Q&A itself is never repeated in the lesson.
+			out.push({
+				id: marker.id,
+				role: "user",
+				parts: [{ type: "data-reading-discussion", id: `rd_${marker.id}`, data: marker.details }],
+			});
+			return;
+		}
 		case "problem-dismissed":
 			// UI-only (the ask-style dismissal): the synthesized conclude
 			// pair — which rides the NEXT input — carries the record's face.

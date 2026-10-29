@@ -6,7 +6,8 @@
  * Two views in one panel: the LIST (new-reading controls + this session's
  * readings) and the READER (one reading, live). The lesson stays visible
  * and running behind it; nothing here writes into the transcript, and the
- * teacher never learns a reading exists (owner ruling: no marker).
+ * teacher never learns a reading was requested (owner ruling: no marker) —
+ * only a Discuss exchange reaches it, as a held note (docs/readings.md §14).
  *
  * Also the provider of the session's readings seam (SessionReadingsContext)
  * so the plan popup, the passage action, and the teacher's offer cards can

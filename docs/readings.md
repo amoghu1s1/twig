@@ -4,6 +4,8 @@ Status: **IMPLEMENTED (P1 + P2), 2026-10-27.** Drafted the same day from a read 
 
 **Overview kind added (2026-10-27, owner rulings):** a fifth kind, the topic-wide article — see §13.
 
+**Discuss added (2026-10-28, owner rulings):** questions inside a reading — passage threads and a side chat, answered by a reading companion; the teacher is told about each exchange (a held note, never a wake) — see §14. This narrows the Q2 ruling below: the teacher still never learns that a reading was *requested*.
+
 **Rulings taken (2026-10-27):** scope P1 + P2; researched is the default source mode (§11 Q1); readings sit in a side tray beside the lesson (§11 Q8); the teacher gets no marker when a reading is requested (§11 Q2 — stricter than the proposal: the teacher never learns a reading exists). The remaining §11 questions were built at the proposal's defaults and are still open for an owner ruling. See §12 for what was built where.
 
 Supersedes the `curriculum.md` direction: rather than a structure that steers sessions, readings sit **beside** them and never steer anything.
@@ -177,7 +179,7 @@ A `suggest_reading` teacher tool: `{ kind, planNodeId?, title, why }`. It render
 
 ### 6.3 Does the teacher know?
 
-Proposed (§11 Q2): when the learner requests a session-anchored reading, a one-line **reading marker** joins the transcript at the next turn boundary — "Learner requested a deep dive on ‹node›" — so the teacher can acknowledge curiosity and avoid duplicating it. The reading's *content* never enters the teacher's context (the reading is not lesson material, and the teacher must not assume it was read).
+*Ruled 2026-10-27: no request marker. Narrowed 2026-10-28 by §14: a learner's Discuss exchange (question + answer) does reach the teacher.* Proposed (§11 Q2): when the learner requests a session-anchored reading, a one-line **reading marker** joins the transcript at the next turn boundary — "Learner requested a deep dive on ‹node›" — so the teacher can acknowledge curiosity and avoid duplicating it. The reading's *content* never enters the teacher's context (the reading is not lesson material, and the teacher must not assume it was read).
 
 ---
 
@@ -288,3 +290,47 @@ Why: a primer is a glossary by design (§2) and a deep dive covers one plan node
 - **Diagrams encouraged, not enforced.** 1200–2500 words.
 - **Plan-node links.** The writer submits `sections[]` (`heading`, `body`, `planNodeIds`) with a short intro in `body`; the validator accepts only ids from `snapshot.planNodes` (none at all without a plan). The reader shows each section's nodes as chips with a **Read deeper** action (a deep dive on that node).
 - **Live status on the chips.** `GET /api/readings/[id]` adds `planStatus` — each tagged node's visited / current / upcoming status in the anchor session *now* (`planNodeStatuses`, derived at read time, never stored). The reader refetches when a turn in that session settles. A node gone from the plan shows its title only, without Read deeper.
+
+---
+
+## 14. Discuss — questions inside a reading (added 2026-10-28)
+
+Why: a reading is a wall of text the learner can't question. Discuss lets them ask about it where they read it, without leaving the reading or derailing the lesson.
+
+**Owner rulings:**
+
+- **Who answers:** a dedicated **reading companion** (not the teacher), on the `writer` role (strong slot). It sees the reading (body, sections, terms, sources), what it was written from (the frozen snapshot, minus the transcript — the reading already distils it), and the conversation so far in *that* thread.
+- **Two entry points:**
+  - **Passage threads.** Selecting text in a ready reading offers **Ask about this**. The thread renders **inline, right after the block the selection ends in** (paragraph, list, table, glossary definition — blocks are the renderer's own split, keyed `body:i`, `sec:s:i`, `term:t:i`). Each thread has follow-ups (Reply). When its block can't be found at render, the thread shows in the side chat instead.
+  - **The side chat ("Discuss").** One running conversation per reading. On the full page it is a column beside the reading; in the session tray a **Discuss** button toggles the tray between the reading and the chat (the reading's scroll position is kept).
+- **Source mode per question:** the ask box carries the Researched / AI only toggle, defaulting to the reading's own mode.
+- **No fence:** an explicit question about something the lesson hasn't reached gets a full answer (the explicit ask wins over "deeper, not further").
+- **Streaming:** answers stream token by token (an SSE stream per answer; a reconnect replays the answer so far).
+- **Citations from the fetch log:** a streamed answer is visible before it could be validated, so there is no submit/retry. The answer's **Sources** are the URLs it links that the run actually fetched; any other link is stored as unverified and renders unlinked with an "unverified link" mark.
+- **The background pool:** answers take a permit of the shared 3-permit background-LLM pool and may queue ("Queued…").
+- **Teacher awareness — question AND answer, never a wake.** For a session-anchored reading (teaching session still present), every finished exchange queues a `reading-discussion` marker: the reading's title, the passage (if any), the question, and the answer as shown. It is a **held note** in the steer registry: it joins a live teacher run at its next boundary, otherwise it waits for the learner's next send — it never starts a turn. The lesson shows a quiet line ("You asked about ‹reading›") that opens the reading; the Q&A is not repeated. Teacher doctrine: `prompts/teacher/45-readings.md` (signal, not evidence).
+- **The graph:** untouched. Discussions live outside `data/chats`, and extraction reads teacher prose only (custom markers are invisible to it). A Discuss answer can reach the map only through what the teacher later teaches.
+- **Storage + lifecycle:** `data/reading-discussions/<readingId>.json` (its own store and sole writer). A re-run starts the new version with no discussion (the old version keeps its own); deleting a reading deletes its discussion and stops live answers.
+- **Export:** the markdown download appends a "Discussion" section (passage threads quoted, then the side chat).
+- **Naming:** UI "Ask about this" / "Discuss"; code "reading discussion" (`ReadingDiscussionRecord`, `DiscussionThread`, `DiscussionExchange`).
+
+**As built:**
+
+| Piece | Where |
+|---|---|
+| Contracts | `src/core/contracts/reading-discussions.ts` |
+| Pure core | `src/core/reading-discussions.ts` — ask grammar, citations from the fetch log, unverified-link rendering, placement, the marker, the export section |
+| Port + adapter | `ReadingDiscussionStore` in `src/core/ports.ts`; `src/store/reading-discussions.ts`; wired in `src/server/stores.ts` |
+| Companion | `src/agent/subagents/reading-discussions.ts` — run registry (`__lhDiscussionRuns`) with a live view per answer, shared bg pool, instrumented web/pdf tools; prompts in `src/agent/prompts/discuss/` |
+| Held note | `deliverHeldNote` in `src/server/jobs.ts` (the pump parks when only held notes remain) |
+| Server | `src/server/reading-discussions.ts` (ask/get/abort, the delete cascade, dock rows, the SSE answer stream, the teacher's marker) |
+| Routes | `app/api/readings/[id]/discussion` (GET, POST → 202), `…/discussion/stream?exchange=` (SSE); abort via `POST /api/activity/abort {kind: "discussion"}` |
+| UI | `components/readings/discussion.tsx` (blocks, inline threads, side chat, ask box, selection action), `discussion-api.ts`, `discussed-line.tsx`; wired in `reading-view.tsx`, `chat.tsx`, `activity-dock.tsx` |
+| Tests | `tests/reading-discussions.test.ts`, `tests/readings-ui.test.tsx` |
+
+Known limits, kept deliberately small:
+
+- **A held note is memory-only** (like user steers): a server restart before the teacher's next run drops an undelivered note. The exchange itself is durable.
+- **The consent gate applies:** on a subscription connection without background consent, held notes wait exactly like job results.
+- **The golden fixtures carry no `reading-discussion` marker yet** — they are real data; the coverage list gains the kind when a real session with one is captured.
+

@@ -93,6 +93,9 @@ interface QueuedSteer {
 	wakeAgent?: Agent;
 	/** A failed start waits for a learner run or process restart, not a timer. */
 	deferred?: boolean;
+	/** A HELD NOTE (reading discussions, docs/readings.md §14): rides a live
+	 *  run at its next boundary or the learner's next run — never a wake. */
+	held?: boolean;
 	resolve: () => void;
 	reject: (reason: Error) => void;
 	/** The live agent this marker was steered into (agent.steer) — set by
@@ -222,6 +225,20 @@ function finalizeSteer(steer: SteerMessage): void {
 export function deliverJobResult(steer: SteerMessage): Promise<void> {
 	const chatId = chatIdOf(steer);
 	const entry = queueSteer(chatId, steer);
+	void pump(chatId);
+	return entry.promise;
+}
+
+/** Queue a HELD NOTE (owner ruling 2026-10-28, reading discussions): the
+ * marker joins a live run at its next boundary, or waits for the learner's
+ * next send — it never fires a wake turn of its own. Same registry, same
+ * idempotency (deterministic id), same settlement reconciliation; the pump
+ * simply parks when only held notes remain. Memory-only like user steers:
+ * a server restart drops an undelivered note. */
+export function deliverHeldNote(steer: SteerMessage): Promise<void> {
+	const chatId = chatIdOf(steer);
+	const entry = queueSteer(chatId, steer);
+	entry.held = true;
 	void pump(chatId);
 	return entry.promise;
 }
@@ -451,7 +468,7 @@ export function abortJob(jobId: string): AbortOutcome {
 function chatIdOf(steer: SteerMessage): string {
 	// The probe handoff carries its chat directly in the marker details (the
 	// job record would say it too, but the details are the cheap path).
-	if (steer.customType === "probe-handoff") {
+	if (steer.customType === "probe-handoff" || steer.customType === "reading-discussion") {
 		return (steer.details as { chatId: string }).chatId;
 	}
 	// The chat is resolvable from the job record; the steer's details
@@ -529,6 +546,14 @@ async function pump(chatId: string): Promise<void> {
 				}
 			}
 
+			// Held notes never wake the teacher: with nothing else pending,
+			// park — the next run (live boundary or the learner's send) takes
+			// them through registerLiveAgent's hand-off.
+			if (stillPending.every((entry) => entry.held)) {
+				parked = true;
+				return;
+			}
+
 			// VEHICLE 2 — THE IDLE WAKE: one server-side turn carrying EVERY
 			// pending marker as its input appends (the handler write-ahead
 			// persists them under the wake's own turn claim).
@@ -554,7 +579,7 @@ async function pump(chatId: string): Promise<void> {
 			// A live run may have delivered some markers while the gates were
 			// closed — re-check: only still-missing markers ride the wake.
 			noteSteersDurable(chatId, fresh.messages);
-			const fire = (s.queues.get(chatId) ?? []).filter((entry) => !entry.waking && !entry.deferred && !entry.handedTo);
+			const fire = (s.queues.get(chatId) ?? []).filter((entry) => !entry.waking && !entry.deferred && !entry.handedTo && !entry.held);
 			if (fire.length === 0) return;
 
 			// THE DISMISSAL PAUSE (owner design 2026-10-03, "A2"): the record
@@ -611,7 +636,7 @@ async function pump(chatId: string): Promise<void> {
 		// a live run are NOT stragglers (settleSteers owns their resurrection)
 		// — restarting for them would just park in waitForIdle forever.
 		const q = state().queues.get(chatId) ?? [];
-		if (!parked && automaticFollowUpAllowed(chatId, state().liveAgents.get(chatId)) && q.some((e) => e.handedTo === undefined && !e.waking && !e.deferred)) void pump(chatId);
+		if (!parked && automaticFollowUpAllowed(chatId, state().liveAgents.get(chatId)) && q.some((e) => e.handedTo === undefined && !e.waking && !e.deferred && !e.held)) void pump(chatId);
 	}
 }
 
@@ -697,7 +722,7 @@ function restorePendingDeliveries(chatId: string): void {
 async function waitForIdle(chatId: string): Promise<void> {
 	for (;;) {
 		const record = stores.chatStore.getChat(chatId);
-		if (!record || !(state().queues.get(chatId) ?? []).some((entry) => !entry.waking && !entry.deferred && !entry.handedTo)) return;
+		if (!record || !(state().queues.get(chatId) ?? []).some((entry) => !entry.waking && !entry.deferred && !entry.handedTo && !entry.held)) return;
 		const blocked = isTurnRunning(chatId) || hasUnresolvedQuestion(record.messages);
 		if (!blocked) {
 			await delay(GRACE_MS);

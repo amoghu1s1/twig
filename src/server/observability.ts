@@ -26,6 +26,7 @@ import { catalogContextLimits } from "./model-catalog.ts";
 import { listJobs } from "./jobs.ts";
 import { jobCost } from "./pricing.ts";
 import { readingActivity } from "./readings.ts";
+import { discussionActivity } from "./reading-discussions.ts";
 import type { JobRecord } from "../core/contracts.ts";
 
 export { abortExtraction, extractionStatuses, type ExtractionPhase, type RunningExtraction } from "../agent/subagents/extraction.ts";
@@ -77,10 +78,23 @@ export interface ActivityReading {
 	costUsd: number | null;
 }
 
+/** A Discuss answer being written (docs/readings.md §14): id is the
+ *  exchange (the abort target), readingId opens the reading. */
+export interface ActivityDiscussion {
+	id: string;
+	readingId: string;
+	title: string;
+	chatId?: string;
+	startedAt: number;
+	activity: string;
+	costUsd: number | null;
+}
+
 export function activityFeed(): {
 	jobs: ActivityJob[];
 	extractions: ActivityExtraction[];
 	readings: ActivityReading[];
+	discussions: ActivityDiscussion[];
 	graphRevision: number;
 } {
 	const chats = chatStore.listChats();
@@ -117,6 +131,15 @@ export function activityFeed(): {
 		jobs,
 		extractions: extractions.sort((a, b) => a.startedAt - b.startedAt),
 		readings: readingActivity(),
+		discussions: discussionActivity().map(({ id, readingId, title, chatId, startedAt, activity, costUsd }) => ({
+			id,
+			readingId,
+			title,
+			...(chatId ? { chatId } : {}),
+			startedAt,
+			activity,
+			costUsd,
+		})),
 		graphRevision: graphRevision(),
 	};
 }
