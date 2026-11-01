@@ -29,6 +29,25 @@ export function formatDue(dueAt: number, now: number): string {
 	return `in ${Math.ceil(diff / DAY)}d`;
 }
 
+/** "today" / "3d ago" — the why-due line's last-attempt age. */
+export function formatAgo(at: number | null, now: number): string {
+	if (at === null) return "never";
+	const days = Math.floor((now - at) / DAY);
+	return days <= 0 ? "today" : `${days}d ago`;
+}
+
+/** The evidence line: the last countable attempt, then the state it left. */
+export function whyDue(item: ReviewItem, now: number): string {
+	const parts: string[] = [];
+	if (item.lastOutcome) {
+		parts.push(`last ${item.lastOutcome === "solvedWithHints" ? "solved with hints" : item.lastOutcome}`);
+	}
+	parts.push(formatAgo(item.lastAttemptAt, now));
+	parts.push(`S ${Math.round(item.stability)}d`);
+	parts.push(`${item.lapses} ${item.lapses === 1 ? "lapse" : "lapses"}`);
+	return parts.join(" · ");
+}
+
 /** The session's title and first message (owner, 2026-10-23). */
 export function reviewSessionText(items: readonly Pick<ReviewItem, "name">[]): string {
 	return `Review: ${items.map((i) => i.name).join(", ")}`;
@@ -81,8 +100,16 @@ function ItemRow({
 			<div className="min-w-0 flex-1">
 				<p className="truncate text-sm">{item.name}</p>
 				<p className="line-clamp-2 text-xs text-muted-foreground">{item.statement}</p>
+				<p data-testid={`review-why-${item.id}`} className="mt-0.5 text-[11px] text-muted-foreground/80">
+					{whyDue(item, now)}
+				</p>
 			</div>
 			<span className="shrink-0 text-xs text-muted-foreground">
+				{item.leech && (
+					<span data-testid={`review-leech-${item.id}`} className="mr-2 text-foreground">
+						re-learn
+					</span>
+				)}
 				{item.verifying && (
 					<span data-testid={`review-verifying-${item.id}`} className="mr-2 text-foreground">
 						re-check
@@ -111,7 +138,7 @@ export function ReviewBody({
 	if (payload === null) {
 		return <p className="text-sm text-muted-foreground">Loading…</p>;
 	}
-	const { due, upcoming, now } = payload;
+	const { due, upcoming, now, forecast, dailyLimit } = payload;
 	return (
 		<div data-testid="review-body" className="flex flex-col gap-8">
 			<section aria-label="Due now">
@@ -129,6 +156,19 @@ export function ReviewBody({
 						</button>
 					)}
 				</div>
+				{forecast.some((day) => day.count > 0) && (
+					<p data-testid="review-forecast" className="mt-2 text-xs text-muted-foreground">
+						Next 7 days:{" "}
+						{forecast
+							.map((day) => `${day.daysFromNow === 0 ? "today" : `+${day.daysFromNow}d`} ${day.count}`)
+							.join(" · ")}
+					</p>
+				)}
+				{due.length > dailyLimit && (
+					<p data-testid="review-over-target" className="mt-1 text-xs text-muted-foreground">
+						Today&rsquo;s target is {dailyLimit} — the remaining {due.length - dailyLimit} can wait.
+					</p>
+				)}
 				{due.length === 0 ? (
 					<p data-testid="review-empty" className="mt-3 text-sm text-muted-foreground">
 						Nothing is due. Propositions you practice will return here when recall is due.

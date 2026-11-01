@@ -18,17 +18,44 @@ import {
 	reviewSessionText,
 	toggleSelection,
 } from "../components/review-view.tsx";
-import { REVIEW_SESSION_MAX, type ReviewItem, type ReviewPayload } from "../src/core/index.ts";
+import {
+	REVIEW_DAILY_LIMIT,
+	REVIEW_FORECAST_DAYS,
+	REVIEW_SESSION_MAX,
+	type ReviewItem,
+	type ReviewPayload,
+} from "../src/core/index.ts";
 
 const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 9, 23, 12);
 
-function item(id: string, dueAt: number, name = `Name ${id}`): ReviewItem {
-	return { id, name, statement: `statement ${id}`, dueAt, stability: 3, reps: 1, lapses: 0, verifying: false };
+function item(id: string, dueAt: number, name = `Name ${id}`, over: Partial<ReviewItem> = {}): ReviewItem {
+	return {
+		id,
+		name,
+		statement: `statement ${id}`,
+		dueAt,
+		stability: 3,
+		reps: 1,
+		lapses: 0,
+		verifying: false,
+		leech: false,
+		lastOutcome: "solved",
+		lastAttemptAt: NOW - DAY,
+		...over,
+	};
 }
 
 function payload(over: Partial<ReviewPayload> = {}): ReviewPayload {
-	return { now: NOW, due: [], upcoming: [], sessionSize: 8, ...over };
+	return {
+		now: NOW,
+		due: [],
+		upcoming: [],
+		sessionSize: 8,
+		forecast: Array.from({ length: REVIEW_FORECAST_DAYS }, (_, daysFromNow) => ({ daysFromNow, count: 0 })),
+		dailyLimit: REVIEW_DAILY_LIMIT,
+		...over,
+	};
 }
 
 function body(p: ReviewPayload | null, selected: string[] = [], busy = false): string {
@@ -130,6 +157,49 @@ describe("ReviewBody", () => {
 		assert.ok(html.includes("Upcoming · 1"));
 		assert.ok(html.includes("in 4d"));
 		assert.ok(!html.includes('type="checkbox"'));
+	});
+
+	it("a leech row is marked 're-learn'; other rows are not", () => {
+		const html = body(payload({ due: [item("l", NOW - DAY, "Leech", { leech: true }), item("p", NOW - DAY)] }));
+		assert.ok(html.includes('data-testid="review-leech-l"'));
+		assert.ok(!html.includes('data-testid="review-leech-p"'));
+		assert.ok(html.includes("re-learn"));
+	});
+
+	it("every row states why it is due: last outcome, age, stability and lapses", () => {
+		const html = body(payload({ due: [item("a", NOW - DAY)] }));
+		assert.ok(html.includes('data-testid="review-why-a"'));
+		assert.ok(html.includes("last solved"));
+		assert.ok(html.includes("1d ago"));
+		assert.ok(html.includes("S 3d"));
+		assert.ok(html.includes("0 lapses"));
+		assert.ok(!html.includes("last solved with hints"));
+	});
+
+	it("labels a hinted solve in the why line", () => {
+		const html = body(payload({ due: [item("h", NOW - DAY, "Hinted", { lastOutcome: "solvedWithHints" })] }));
+		assert.ok(html.includes("last solved with hints"));
+	});
+
+	it("shows the seven-day forecast and the daily target when the due pile exceeds it", () => {
+		const forecast = Array.from({ length: REVIEW_FORECAST_DAYS }, (_, daysFromNow) => ({
+			daysFromNow,
+			count: daysFromNow === 0 ? 3 : daysFromNow === 1 ? 1 : 0,
+		}));
+		const html = body(
+			payload({
+				due: [item("a", NOW - 2 * DAY), item("b", NOW - DAY)],
+				forecast,
+				dailyLimit: 1,
+			}),
+		);
+		assert.ok(html.includes('data-testid="review-forecast"'));
+		assert.ok(html.includes("Next 7 days:"));
+		assert.ok(html.includes("today 3"));
+		assert.ok(html.includes("+1d 1"));
+		assert.ok(html.includes('data-testid="review-over-target"'));
+		assert.ok(html.includes("target is 1"));
+		assert.ok(html.includes("remaining 1 can wait"));
 	});
 });
 

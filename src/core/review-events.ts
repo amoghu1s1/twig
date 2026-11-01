@@ -10,7 +10,7 @@
  * 2026-10-23). Untagged problems (no `target`) carry no node-level signal.
  */
 
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import {
 	PRACTICE_CONCLUDE_TOOL,
 	PRACTICE_PROBLEM_TOOL,
@@ -33,12 +33,22 @@ export type ReviewMissClass = "cue" | "discrimination" | "structural" | "executi
 export interface ReviewEvent {
 	/** Graph proposition id (canonical — normalized at pose time). */
 	nodeId: string;
-	/** Epoch ms of the conclude call. */
+	/** Epoch ms of the conclude call's toolResult (when the result exists —
+	 *  the call completed THEN, not when the assistant stamped the call;
+	 *  the assistant message's timestamp is the fallback). */
 	at: number;
 	outcome: ReviewOutcome;
 	rung: ReviewRung;
 	/** null = no miss recorded (or an unrecognized value). */
 	missClass: ReviewMissClass | null;
+	/** How many target ids the paired problem carried (1 for a single
+	 *  target): a multi-target miss may concern only SOME of them, so the
+	 *  grader treats a multi-target surrender as ambiguous. */
+	targetCount: number;
+	/** conclude.retest: the problem was marked for a fresh-surface retest
+	 *  later in the same session — that retest is the confirming
+	 *  observation, so this marked event should defer to it. */
+	retest: boolean;
 	/** The practice chat the event came from — review rules treat events of
 	 *  one session as one sitting (docs/review-plan.md §13). */
 	session: string;
@@ -74,6 +84,16 @@ function targetIds(raw: unknown): string[] {
  */
 export function reviewEventsFromMessages(messages: readonly LhMessage[], session: string): ReviewEvent[] {
 	const clean = cleanToolCallIds(messages);
+	// The events' clock is the conclude call's toolResult: a call completes
+	// when its result lands, not when the assistant stamped it. (A conclude
+	// with NO result at all never emits events — the clean-pairing gate —
+	// so the fallback below guards the timestamp-less legacy result.)
+	const resultAt = new Map<string, number>();
+	for (const m of messages) {
+		if ((m as { role?: string }).role !== "toolResult") continue;
+		const result = m as ToolResultMessage;
+		if (typeof result.timestamp === "number") resultAt.set(result.toolCallId, result.timestamp);
+	}
 	const events: ReviewEvent[] = [];
 	let targets: string[] = [];
 	for (const m of messages) {
@@ -90,8 +110,10 @@ export function reviewEventsFromMessages(messages: readonly LhMessage[], session
 			if (typeof outcome === "string" && EVIDENCE_OUTCOMES.has(outcome)) {
 				const rung = parseRung(block.arguments?.rung);
 				const missClass = parseMissClass(block.arguments?.missClass);
+				const retest = block.arguments?.retest === true;
+				const at = resultAt.get(block.id) ?? assistant.timestamp;
 				for (const nodeId of targets) {
-					events.push({ nodeId, at: assistant.timestamp, outcome: outcome as ReviewOutcome, rung, missClass, session });
+					events.push({ nodeId, at, outcome: outcome as ReviewOutcome, rung, missClass, targetCount: targets.length, retest, session });
 				}
 			}
 			targets = [];

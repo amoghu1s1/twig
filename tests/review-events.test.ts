@@ -7,24 +7,71 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { concludedByDismissalPair } from "../src/core/native-messages.ts";
+import { concludedByDismissalPair, PRACTICE_CONCLUDE_TOOL } from "../src/core/native-messages.ts";
 import { reviewEventsFromMessages } from "../src/core/review-events.ts";
-import { conclude, pose } from "./review-fixtures.ts";
+import { call, conclude, pose } from "./review-fixtures.ts";
 
 describe("reviewEventsFromMessages", () => {
 	it("no messages → no events", () => {
 		assert.deepEqual(reviewEventsFromMessages([], "s1"), []);
 	});
 
-	it("a solved problem yields one event per target, stamped at the conclude call", () => {
+	it("a solved problem yields one event per target, stamped at the conclude call's result", () => {
 		const messages = [
 			...pose("p1", ["n_a", "n_b"], 10),
 			...conclude("c1", { outcome: "solved", rung: null }, 20),
 		];
 		assert.deepEqual(reviewEventsFromMessages(messages, "s1"), [
-			{ nodeId: "n_a", at: 20, outcome: "solved", rung: null, missClass: null, session: "s1" },
-			{ nodeId: "n_b", at: 20, outcome: "solved", rung: null, missClass: null, session: "s1" },
+			{ nodeId: "n_a", at: 21, outcome: "solved", rung: null, missClass: null, targetCount: 2, retest: false, session: "s1" },
+			{ nodeId: "n_b", at: 21, outcome: "solved", rung: null, missClass: null, targetCount: 2, retest: false, session: "s1" },
 		]);
+	});
+
+	it("targetCount is the paired problem's target count (1 when single-target)", () => {
+		const messages = [...pose("p1", ["n_a"], 1), ...conclude("c1", { outcome: "solved", rung: null }, 2)];
+		assert.deepEqual(
+			reviewEventsFromMessages(messages, "s1").map((e) => [e.nodeId, e.targetCount]),
+			[["n_a", 1]],
+		);
+	});
+
+	const retestCases: Array<[unknown, boolean]> = [
+		[true, true],
+		[false, false],
+		["yes", false],
+		[1, false],
+	];
+	for (const [raw, expected] of retestCases) {
+		it(`retest ${JSON.stringify(raw)} parses to ${expected}`, () => {
+			const messages = [...pose("p1", ["n_a"], 1), ...conclude("c1", { outcome: "solved", rung: null, retest: raw }, 2)];
+			assert.equal(reviewEventsFromMessages(messages, "s1")[0]?.retest, expected);
+		});
+	}
+
+	it("an absent retest parses to false", () => {
+		const messages = [
+			...pose("p1", ["n_a"], 1),
+			...call(PRACTICE_CONCLUDE_TOOL, "c1", { outcome: "solved", rung: null }, 2),
+		];
+		assert.equal(reviewEventsFromMessages(messages, "s1")[0]?.retest, false);
+	});
+
+	it("at comes from the conclude's toolResult timestamp when the result exists", () => {
+		const messages = [...pose("p1", ["n_a"], 10), ...conclude("c1", { outcome: "solved", rung: null }, 20)];
+		// The fixtures stamp the result one ms after its call.
+		assert.equal(reviewEventsFromMessages(messages, "s1")[0]?.at, 21);
+	});
+
+	it("at falls back to the assistant timestamp when the result has no timestamp", () => {
+		const messages = [
+			...pose("p1", ["n_a"], 10),
+			...conclude("c1", { outcome: "solved", rung: null }, 20),
+		];
+		const result = messages.find(
+			(m) => (m as { role?: string }).role === "toolResult" && (m as { toolCallId?: string }).toolCallId === "c1",
+		) as { timestamp?: number };
+		delete result.timestamp;
+		assert.equal(reviewEventsFromMessages(messages, "s1")[0]?.at, 20);
 	});
 
 	const rungCases: Array<[unknown, number | null]> = [
@@ -135,8 +182,8 @@ describe("reviewEventsFromMessages", () => {
 		assert.deepEqual(
 			reviewEventsFromMessages(messages, "s1").map((e) => [e.at, e.outcome]),
 			[
-				[20, "solved"],
-				[40, "solvedWithHints"],
+				[21, "solved"],
+				[41, "solvedWithHints"],
 			],
 		);
 	});

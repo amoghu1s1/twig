@@ -24,8 +24,15 @@
 import { createEmptyCard, fsrs, generatorParameters, Rating, type Card, type Grade } from "ts-fsrs";
 import { getGraph } from "./graph.ts";
 import type { ChatStore, GraphStore } from "./ports.ts";
-import { reviewEventsFromMessages, type ReviewEvent } from "./review-events.ts";
-import { REVIEW_SESSION_SIZE, type ReviewItem, type ReviewPayload } from "./review-payload.ts";
+import { reviewEventsFromMessages, type ReviewEvent, type ReviewOutcome } from "./review-events.ts";
+import {
+	REVIEW_DAILY_LIMIT,
+	REVIEW_FORECAST_DAYS,
+	REVIEW_SESSION_SIZE,
+	type ReviewForecastDay,
+	type ReviewItem,
+	type ReviewPayload,
+} from "./review-payload.ts";
 
 /** Target probability of recall at the due date. */
 export const REVIEW_RETENTION = 0.9;
@@ -37,6 +44,12 @@ export const ESTABLISHED_STABILITY_DAYS = 7;
 
 /** How long a provisional failure waits before the node is due again. */
 const VERIFY_DELAY_MS = 86_400_000;
+
+const DAY = 86_400_000;
+
+/** A node whose FSRS lapse count reaches this is a leech: more retrieval
+ *  practice on it is not working, so the page suggests re-learning instead. */
+export const LEECH_LAPSES = 3;
 
 const scheduler = fsrs(
 	generatorParameters({
@@ -53,15 +66,18 @@ const HELPED_RUNG = 2;
 
 /**
  * Practice event → FSRS grade (owner, 2026-10-23: no Easy).
- *   - surrendered → Again, always.
+ *   - surrendered → Again; on a MULTI-target problem the surrender is
+ *     ambiguous (the miss may concern only one of the propositions), so it
+ *     downgrades to Hard. A solve is unchanged — solving a joint problem
+ *     is positive evidence for every constituent.
  *   - R1: a solve whose miss was `execution` or `careless` is Good — the
  *     proposition was retrieved; the rung it needed is not evidence of
  *     forgetting.
  *   - otherwise a solve with no hint or only R0–R1 is Good; one that needed
  *     R2+ or ended `solvedWithHints` is Hard.
  */
-export function gradeOf(event: Pick<ReviewEvent, "outcome" | "rung" | "missClass">): Grade {
-	if (event.outcome === "surrendered") return Rating.Again;
+export function gradeOf(event: Pick<ReviewEvent, "outcome" | "rung" | "missClass" | "targetCount">): Grade {
+	if (event.outcome === "surrendered") return event.targetCount > 1 ? Rating.Hard : Rating.Again;
 	if (event.missClass === "execution" || event.missClass === "careless") return Rating.Good;
 	if (event.outcome === "solvedWithHints") return Rating.Hard;
 	return event.rung !== null && event.rung >= HELPED_RUNG ? Rating.Hard : Rating.Good;
@@ -79,6 +95,13 @@ export interface NodeReview {
 	lapses: number;
 	/** R2: a provisional failure is waiting to be confirmed or cleared. */
 	verifying: boolean;
+	/** Enough repeated forgetting that the fix is teaching, not more review. */
+	leech: boolean;
+	/** The last countable evidence event's outcome, for the why-this-is-due line. */
+	lastOutcome: ReviewOutcome | null;
+	/** When that last countable event happened (a provisional failure counts:
+	 *  it is an attempt, even though the FSRS card stays untouched). */
+	lastAttemptAt: number | null;
 }
 
 /** A first failure on an established node, awaiting a later session. */
@@ -90,6 +113,8 @@ interface Pending {
 interface Replayed {
 	card: Card;
 	pending: Pending | null;
+	lastOutcome: ReviewOutcome | null;
+	lastAttemptAt: number | null;
 }
 
 function advance(card: Card, at: number, grade: Grade): Card {
@@ -97,7 +122,12 @@ function advance(card: Card, at: number, grade: Grade): Card {
 }
 
 /**
- * Replay one proposition's events (already time-ordered). R2 (§13–14):
+ * Replay one proposition's events (already time-ordered). The retest
+ * lookahead runs first: an event marked `retest` (the conclude wanted a
+ * fresh-surface retest later in the same session) is dropped when the
+ * NEXT event of the same session exists — the retest is the session's
+ * confirming observation; with no same-session successor the marked event
+ * stands. R2 (§13–14) then runs on the events that remain:
  *   - A failure on an established node (stability ≥ ESTABLISHED_STABILITY_DAYS)
  *     leaves the FSRS card untouched and becomes `pending`.
  *   - While pending, events of the SAME session are ignored — they follow the
@@ -106,26 +136,39 @@ function advance(card: Card, at: number, grade: Grade): Card {
  *     (Again); a success counts at most Hard.
  */
 function replay(events: readonly ReviewEvent[]): Replayed {
-	let card = createEmptyCard(new Date(events[0]!.at));
+	// Retest deferral: skip a retest-marked event that has a same-session
+	// successor (lookahead over the ordered list), keep the rest.
+	const counted = events.filter(
+		(event, index) => !(event.retest && events[index + 1]?.session === event.session),
+	);
+	let card = createEmptyCard(new Date(counted[0]!.at));
 	let pending: Pending | null = null;
-	for (const event of events) {
+	let lastOutcome: ReviewOutcome | null = null;
+	let lastAttemptAt: number | null = null;
+	for (const event of counted) {
 		const grade = gradeOf(event);
 		if (pending) {
 			if (event.session === pending.session) continue;
 			card = advance(card, event.at, Math.min(grade, Rating.Hard) as Grade);
 			pending = null;
+			lastOutcome = event.outcome;
+			lastAttemptAt = event.at;
 			continue;
 		}
 		if (grade === Rating.Again && card.stability >= ESTABLISHED_STABILITY_DAYS) {
 			pending = { at: event.at, session: event.session };
+			lastOutcome = event.outcome;
+			lastAttemptAt = event.at;
 			continue;
 		}
 		card = advance(card, event.at, grade);
+		lastOutcome = event.outcome;
+		lastAttemptAt = event.at;
 	}
-	return { card, pending };
+	return { card, pending, lastOutcome, lastAttemptAt };
 }
 
-function toNodeReview(nodeId: string, { card, pending }: Replayed): NodeReview {
+function toNodeReview(nodeId: string, { card, pending, lastOutcome, lastAttemptAt }: Replayed): NodeReview {
 	return {
 		nodeId,
 		dueAt: pending ? pending.at + VERIFY_DELAY_MS : card.due.getTime(),
@@ -135,6 +178,9 @@ function toNodeReview(nodeId: string, { card, pending }: Replayed): NodeReview {
 		reps: card.reps,
 		lapses: card.lapses,
 		verifying: pending !== null,
+		leech: card.lapses >= LEECH_LAPSES,
+		lastOutcome,
+		lastAttemptAt,
 	};
 }
 
@@ -174,6 +220,22 @@ export interface ReviewDeps {
 }
 
 /**
+ * Seven-day workload forecast by day offset: 0 = due now through the next
+ * 24 hours (overdue folds in), 1 = 24–48 hours, … 6 = 144–168 hours.
+ * Reviews beyond the horizon are not shown: this is a load signal, not an
+ * inventory.
+ */
+export function reviewForecast(reviews: readonly NodeReview[], now: number): ReviewForecastDay[] {
+	const forecast = Array.from({ length: REVIEW_FORECAST_DAYS }, (_, daysFromNow) => ({ daysFromNow, count: 0 }));
+	for (const review of reviews) {
+		const diff = review.dueAt - now;
+		const bucket = diff <= 0 ? 0 : Math.ceil(diff / DAY) - 1;
+		if (bucket >= 0 && bucket < forecast.length) forecast[bucket]!.count++;
+	}
+	return forecast;
+}
+
+/**
  * GET /api/review: every practice session's events, folded and split at
  * `now`. A PURE READ — nothing is written or cached. A proposition the
  * graph no longer holds is dropped; sessions that fail to load are
@@ -199,6 +261,9 @@ export function reviewPayload(deps: ReviewDeps, now: number): ReviewPayload {
 			reps: r.reps,
 			lapses: r.lapses,
 			verifying: r.verifying,
+			leech: r.leech,
+			lastOutcome: r.lastOutcome,
+			lastAttemptAt: r.lastAttemptAt,
 		};
 	};
 	return {
@@ -206,6 +271,8 @@ export function reviewPayload(deps: ReviewDeps, now: number): ReviewPayload {
 		due: dueReviews(reviews, now).map(item),
 		upcoming: upcomingReviews(reviews, now).map(item),
 		sessionSize: REVIEW_SESSION_SIZE,
+		forecast: reviewForecast(reviews, now),
+		dailyLimit: REVIEW_DAILY_LIMIT,
 	};
 }
 

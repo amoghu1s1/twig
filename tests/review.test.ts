@@ -14,13 +14,17 @@ import type { LhMessage } from "../src/core/native-messages.ts";
 import type { ReviewEvent, ReviewRung } from "../src/core/review-events.ts";
 import {
 	ESTABLISHED_STABILITY_DAYS,
+	LEECH_LAPSES,
 	dueReviews,
 	foldReviews,
 	gradeOf,
+	reviewForecast,
 	reviewPayload,
 	upcomingReviews,
+	type NodeReview,
 	type ReviewDeps,
 } from "../src/core/review.ts";
+import { REVIEW_DAILY_LIMIT, REVIEW_FORECAST_DAYS } from "../src/core/review-payload.ts";
 import { conclude, pose } from "./review-fixtures.ts";
 
 const DAY = 86_400_000;
@@ -33,8 +37,9 @@ function ev(
 	rung: ReviewRung = null,
 	missClass: ReviewEvent["missClass"] = null,
 	session = "s1",
+	extra: Partial<ReviewEvent> = {},
 ): ReviewEvent {
-	return { nodeId, at, outcome, rung, missClass, session };
+	return { nodeId, at, outcome, rung, missClass, session, targetCount: 1, retest: false, ...extra };
 }
 
 const LIVE = new Set(["n_a", "n_b", "n_c"]);
@@ -53,7 +58,7 @@ describe("gradeOf (owner, 2026-10-23: no Easy)", () => {
 	];
 	for (const [outcome, rung, expected] of cases) {
 		it(`${outcome} @ rung ${rung} → ${Rating[expected]}`, () => {
-			assert.equal(gradeOf({ outcome, rung, missClass: null }), expected);
+			assert.equal(gradeOf({ outcome, rung, missClass: null, targetCount: 1 }), expected);
 		});
 	}
 });
@@ -75,9 +80,24 @@ describe("R1 — slips are not forgetting (docs/review-plan.md §12)", () => {
 	];
 	for (const [outcome, rung, missClass, expected] of cases) {
 		it(`${outcome} @ rung ${rung}, miss ${missClass} → ${Rating[expected]}`, () => {
-			assert.equal(gradeOf({ outcome, rung, missClass }), expected);
+			assert.equal(gradeOf({ outcome, rung, missClass, targetCount: 1 }), expected);
 		});
 	}
+});
+
+describe("multi-target surrender is not Again (the miss may concern only one target)", () => {
+	it("several surrendering targets → Hard", () => {
+		assert.equal(gradeOf({ outcome: "surrendered", rung: 5, missClass: "cue", targetCount: 2 }), Rating.Hard);
+	});
+
+	it("a single surrendering target → Again", () => {
+		assert.equal(gradeOf({ outcome: "surrendered", rung: 5, missClass: "cue", targetCount: 1 }), Rating.Again);
+	});
+
+	it("a multi-target SOLVE is unchanged — success is positive evidence for every constituent", () => {
+		assert.equal(gradeOf({ outcome: "solved", rung: null, missClass: null, targetCount: 3 }), Rating.Good);
+		assert.equal(gradeOf({ outcome: "solvedWithHints", rung: 3, missClass: null, targetCount: 3 }), Rating.Hard);
+	});
 });
 
 describe("foldReviews", () => {
@@ -149,6 +169,11 @@ describe("foldReviews", () => {
 const ESTABLISHED = [ev("n_a", T0), ev("n_a", T0 + 2 * DAY), ev("n_a", T0 + 13 * DAY)];
 const fold = (events: ReviewEvent[]) => foldReviews(events, LIVE)[0]!;
 
+/** The FSRS-derived card state only. The why-due projection intentionally
+ *  differs between paths that reach the same card (a settled provisional
+ *  failure shows the failure as the last attempt). */
+const cardOnly = ({ lastOutcome: _outcome, lastAttemptAt: _at, ...card }: NodeReview) => card;
+
 describe("R2 — a first failure on an established node is provisional (§13–14)", () => {
 	const fail = (at: number, session: string, outcome: ReviewEvent["outcome"] = "surrendered") =>
 		ev("n_a", at, outcome, 5, "cue", session);
@@ -183,7 +208,7 @@ describe("R2 — a first failure on an established node is provisional (§13–1
 		const settled = fold([...ESTABLISHED, fail(T0 + 30 * DAY, "s2"), ev("n_a", T0 + 32 * DAY, "solved", null, null, "s3")]);
 		const asHard = fold([...ESTABLISHED, ev("n_a", T0 + 32 * DAY, "solvedWithHints", 3, "cue", "s3")]);
 		assert.equal(settled.verifying, false);
-		assert.deepEqual(settled, asHard);
+		assert.deepEqual(cardOnly(settled), cardOnly(asHard));
 	});
 
 	it("a Hard in a later session stays Hard", () => {
@@ -235,6 +260,49 @@ describe("R2 — a first failure on an established node is provisional (§13–1
 	});
 });
 
+describe("retest — a retest-marked event defers to its same-session successor", () => {
+	const day = (n: number) => T0 + n * DAY;
+
+	it("a marked surrender followed by a same-session solve: the marked one is skipped, the retest applies", () => {
+		const marked = ev("n_a", day(2), "surrendered", 5, "cue", "s2", { retest: true });
+		const retest = ev("n_a", day(2) + 600_000, "solved", null, null, "s2");
+		// Identical to having only the base solve and the retest — the marked
+		// surrender never reaches the card (reps 2, no lapse), not the three
+		// events both applied (reps 3).
+		assert.deepEqual(fold([ev("n_a", T0), marked, retest]), fold([ev("n_a", T0), retest]));
+		assert.equal(fold([ev("n_a", T0), marked, retest]).reps, 2);
+		assert.equal(fold([ev("n_a", T0), marked, retest]).lapses, 0);
+	});
+
+	it("skipping composes with R2: a marked surrender on an ESTABLISHED node with a same-session successor never verifies", () => {
+		const marked = ev("n_a", day(30), "surrendered", 5, "cue", "s2", { retest: true });
+		const retest = ev("n_a", day(30) + 600_000, "solved", null, null, "s2");
+		const folded = fold([...ESTABLISHED, marked, retest]);
+		assert.equal(folded.verifying, false);
+		assert.equal(folded.lapses, 0);
+	});
+
+	it("no same-session successor — the marked event stands", () => {
+		const marked = ev("n_a", day(30), "surrendered", 5, "cue", "s2", { retest: true });
+		assert.deepEqual(fold([...ESTABLISHED, marked]), fold([...ESTABLISHED, ev("n_a", day(30), "surrendered", 5, "cue", "s2")]));
+		assert.equal(fold([...ESTABLISHED, marked]).verifying, true);
+	});
+
+	it("the successor must be the SAME session — a later-session successor does not skip the marked event", () => {
+		const marked = ev("n_a", day(30), "surrendered", 5, "cue", "s2", { retest: true });
+		const folded = fold([...ESTABLISHED, marked, ev("n_a", day(32), "surrendered", 5, "cue", "s3")]);
+		// The marked failure stands (R2 pending), then the s3 failure confirms Again.
+		assert.equal(folded.lapses, 1);
+		assert.equal(folded.verifying, false);
+	});
+
+	it("a marked event with NO successor applies even on a young node", () => {
+		const marked = ev("n_a", T0 + 2 * DAY, "surrendered", 5, "cue", "s2", { retest: true });
+		const folded = fold([ev("n_a", T0), marked]);
+		assert.equal(folded.lapses, 1);
+	});
+});
+
 describe("due / upcoming partition", () => {
 	const reviews = foldReviews([ev("n_a", T0), ev("n_b", T0 + 30 * DAY)], LIVE);
 	const aDue = reviews.find((r) => r.nodeId === "n_a")!.dueAt;
@@ -252,6 +320,94 @@ describe("due / upcoming partition", () => {
 	it("the two lists partition the reviews", () => {
 		const now = aDue + DAY;
 		assert.equal(dueReviews(reviews, now).length + upcomingReviews(reviews, now).length, reviews.length);
+	});
+});
+
+describe("leech — repeated forgetting is a re-learn signal", () => {
+	const sequence = (failures: number): ReviewEvent[] => {
+		const events: ReviewEvent[] = [ev("n_a", T0)];
+		for (let i = 0; i < failures; i++) {
+			events.push(ev("n_a", T0 + (2 * i + 1) * DAY, "surrendered", null, "cue", `s${i}`));
+		}
+		return events;
+	};
+
+	it(`flags a node once its lapses reach ${LEECH_LAPSES}`, () => {
+		const reviewed = foldReviews(sequence(LEECH_LAPSES), LIVE)[0]!;
+		assert.equal(reviewed.lapses, LEECH_LAPSES);
+		assert.equal(reviewed.leech, true);
+	});
+
+	it("does not flag one lapse short", () => {
+		const reviewed = foldReviews(sequence(LEECH_LAPSES - 1), LIVE)[0]!;
+		assert.equal(reviewed.lapses, LEECH_LAPSES - 1);
+		assert.equal(reviewed.leech, false);
+	});
+});
+
+describe("why-due projection", () => {
+	it("carries the last countable outcome and its time", () => {
+		const reviewed = foldReviews(
+			[ev("n_a", T0), ev("n_a", T0 + DAY, "solvedWithHints", 2, null, "s2")],
+			LIVE,
+		)[0]!;
+		assert.equal(reviewed.lastOutcome, "solvedWithHints");
+		assert.equal(reviewed.lastAttemptAt, T0 + DAY);
+	});
+
+	it("a provisional failure is the last ATTEMPT even though the card's last review is older", () => {
+		const surrender = ev("n_a", T0 + 30 * DAY, "surrendered", null, "cue", "s9");
+		const reviewed = foldReviews([...ESTABLISHED, surrender], LIVE)[0]!;
+		assert.equal(reviewed.verifying, true);
+		assert.equal(reviewed.lastOutcome, "surrendered");
+		assert.equal(reviewed.lastAttemptAt, T0 + 30 * DAY);
+		assert.equal(reviewed.lastReviewAt, T0 + 13 * DAY, "the provisional failure leaves the FSRS card untouched");
+	});
+});
+
+describe("reviewForecast — the next seven days of load", () => {
+	const nr = (dueAt: number): NodeReview => ({
+		nodeId: "n",
+		dueAt,
+		lastReviewAt: dueAt,
+		stability: 1,
+		difficulty: 5,
+		reps: 1,
+		lapses: 0,
+		verifying: false,
+		leech: false,
+		lastOutcome: null,
+		lastAttemptAt: null,
+	});
+
+	it("buckets overdue and the next seven rolling days", () => {
+		const reviews = [
+			nr(T0 - DAY),
+			nr(T0 + 1),
+			nr(T0 + DAY),
+			nr(T0 + DAY + 1),
+			nr(T0 + 7 * DAY),
+			nr(T0 + 8 * DAY),
+		];
+		assert.deepEqual(
+			reviewForecast(reviews, T0).map((day) => [day.daysFromNow, day.count]),
+			[
+				[0, 3],
+				[1, 1],
+				[2, 0],
+				[3, 0],
+				[4, 0],
+				[5, 0],
+				[6, 1],
+			],
+		);
+	});
+
+	it("is empty when nothing is scheduled in the window", () => {
+		assert.deepEqual(
+			reviewForecast([], T0),
+			Array.from({ length: REVIEW_FORECAST_DAYS }, (_, daysFromNow) => ({ daysFromNow, count: 0 })),
+		);
 	});
 });
 
@@ -287,8 +443,15 @@ describe("reviewPayload (GET /api/review)", () => {
 		...conclude(`c_${id}`, { outcome: "solved", rung: null }, at + 10),
 	];
 
-	it("an empty store gives an empty payload carrying the clock and session size", () => {
-		assert.deepEqual(reviewPayload(deps([], []), T0), { now: T0, due: [], upcoming: [], sessionSize: 8 });
+	it("an empty store gives an empty payload carrying the clock, session size, forecast and daily target", () => {
+		assert.deepEqual(reviewPayload(deps([], []), T0), {
+			now: T0,
+			due: [],
+			upcoming: [],
+			sessionSize: 8,
+			forecast: Array.from({ length: REVIEW_FORECAST_DAYS }, (_, daysFromNow) => ({ daysFromNow, count: 0 })),
+			dailyLimit: REVIEW_DAILY_LIMIT,
+		});
 	});
 
 	it("splits practice events into due and upcoming, joined with the graph's name and statement", () => {
