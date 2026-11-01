@@ -111,6 +111,8 @@ A practice session can start with graph selections or free-form material. Sessio
 
 Practice outcomes are evidence in the session, not graph mastery levels, certification or a spaced-repetition state store. The normal turn-settlement path skips extraction for practice sessions. Problem/solution/outcome projection lives in `src/core/native-messages.ts` and `src/core/view.ts`; the tools live in `src/agent/tools/practice.ts`.
 
+**Review (Twig fork).** The fork derives a spaced-repetition schedule from that evidence without storing any of it: `reviewEventsFromMessages` folds practice records into one retrieval event per target proposition, `foldReviews` replays them through FSRS-6, and `GET /api/review` recomputes what is due on every request. Nothing is written back to the graph, and deleting a practice session deletes its review evidence. "Start review" opens an ordinary practice session seeded with the due propositions as graph context. See `docs/review-plan.md`.
+
 ## 5. Background work and delivery
 
 Researcher, PDF reader, demo builder and visual maker run independently (`src/agent/subagents/runner.ts`). Dispatch tools persist a job and its input, return an acknowledgement, then spawn the worker. Demos are executed through the browser helper before delivery; visual verification uses rendered images. PDF/SVG rendering and shared image postprocessing are native; demos use the app's Electron browser service with system Chrome as fallback, not an extra downloaded Chromium.
