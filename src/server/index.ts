@@ -5,6 +5,7 @@
  */
 
 export * from "./chat-handler.ts";
+export { ankiSyncErrorResponse, type AnkiStatus, type AnkiSyncResult } from "./anki-sync.ts";
 export * from "./events-stream.ts";
 export * from "./chats.ts";
 export * from "./graph.ts";

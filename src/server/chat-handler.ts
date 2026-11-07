@@ -14,6 +14,9 @@ import { SubscriptionRequestCycle, type SubscriptionDispatchLifecycle } from "..
 import { reconstructRequestCause } from "../core/native-messages.ts";
 import { createJobRunner } from "../agent/subagents/runner.ts";
 import { createExtractionPipeline } from "../agent/subagents/extraction.ts";
+import { createAnkiSync } from "./anki-sync.ts";
+import { ankiStore } from "../store/anki.ts";
+import * as path from "node:path";
 import type { ModelRole } from "../../config.ts";
 import {
 	deliverJobResult,
@@ -42,7 +45,7 @@ import {
 	resolveConversationSpec,
 	resolveRoleSpec,
 } from "../core/settings-resolution.ts";
-import { modelsNotConfigured, providerKeyMissing as providerKeyMissingEnvelope, ROLE_SLOT, type ModelSlotName, type ProviderKeyMissing } from "../core/settings.ts";
+import { ModelsNotConfiguredError, ProviderKeyMissingError, modelsNotConfigured, providerKeyMissing as providerKeyMissingEnvelope, ROLE_SLOT, type ModelSlotName, type ProviderKeyMissing } from "../core/settings.ts";
 import { beginTurn, endTurn } from "./turn-liveness.ts";
 import { applyParkedDismissal } from "./dismissal-park.ts";
 import { registerTurn, rememberTurnFailure, unregisterTurn } from "./turn-runs.ts";
@@ -133,6 +136,40 @@ export const extraction = createExtractionPipeline({
 	providerKeyMissing: (provider, tier) =>
 		providerKeyPresent(provider) ? null : providerKeyMissingEnvelope(provider, [tier]),
 });
+
+/** The graph → Anki channel (src/server/anki-sync.ts): the card writer
+ *  resolves like the extraction stages (role override → cheap slot →
+ *  nothing, read fresh), with the same key-presence refusal. Decks are
+ *  named after a proposition's birth source as the chains view shows it. */
+export const ankiSync = createAnkiSync({
+	graphStore: stores.graphStore,
+	ankiStore,
+	sourceTitle: (sourceId) => {
+		const renamed = stores.sourceOrganizationStore.read().placements[sourceId]?.name;
+		if (renamed) return renamed;
+		const chat = stores.chatStore.getChat(sourceId);
+		if (chat) return chat.title;
+		const notes = stores.graphStore.readSources().find((s) => s.id === sourceId);
+		return notes ? path.basename(notes.filePath).replace(/\.[^.]+$/, "") : undefined;
+	},
+	engineFor: (role) => resolveEngine(role),
+	providerKeyMissing: (provider, tier) =>
+		providerKeyPresent(provider) ? null : providerKeyMissingEnvelope(provider, [tier]),
+});
+
+/** Auto-sync after an extraction run that added propositions (graph
+ *  settings ankiSync). Fire-and-forget like the trigger itself: an
+ *  unconfigured card writer skips quietly; an unreachable Anki is not a
+ *  failure (the cards wait for the next sync). */
+function autoSyncAnki(): void {
+	void ankiSync.sync().catch((err) => {
+		if (err instanceof ModelsNotConfiguredError || err instanceof ProviderKeyMissingError) {
+			console.info(`[anki] auto-sync skipped — ${err.message}`);
+			return;
+		}
+		console.error("[anki] auto-sync failed:", err);
+	});
+}
 
 
 // Wake-pipeline wiring (contracts.ts "THE ASYNC PROTOCOL" §4): the pipeline
@@ -612,7 +649,8 @@ export async function handleChatInput(
 					// Fresh per-turn read of the graph section's chunk budget
 					// (extraction-UX redesign, 2026-09-24): the trigger compares
 					// against it and the pipeline's batches share it.
-					triggerExtraction(stores, extraction, chatId, effective.graph.extractionChunkTokens);
+					triggerExtraction(stores, extraction, chatId, effective.graph.extractionChunkTokens,
+						effective.graph.ankiSync ? autoSyncAnki : undefined);
 				}
 				// PARKED DISMISSAL (owner, 2026-10-04): a dismissal that arrived
 				// mid-turn was parked by the dismiss route (202); now that

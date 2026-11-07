@@ -52,7 +52,8 @@ export type ModelRole =
 	| "visualMaker"
 	| "pdfReader"
 	| "extractor"
-	| "auditor";
+	| "auditor"
+	| "cardWriter";
 
 /**
  * The LIVE graph store (src/store/graph.ts) — owned by the app's extraction
@@ -77,6 +78,10 @@ export const LEDGER_FILES = {
 export const SOURCES_FILE = path.join(PATHS.graph, "sources.json");
 /** Presentation-only source names/folder placement; never extraction identity. */
 export const SOURCE_ORGANIZATION_FILE = path.join(PATHS.graph, "source-organization.json");
+/** Flashcards made from the graph (core/anki.ts): nodeId → cards + delivery
+ *  state. Outside graph/ on purpose: Anki export is not part of the graph
+ *  family, so it never touches the graph format stamp. */
+export const ANKI_CARDS_FILE = path.join(PATHS.data, "anki", "cards.json");
 /** The layout ledger (read-modify-write like sources.json): nodeId →
  *  {x,y} resting positions from the incremental settle (core/layout.ts).
  *  Carries an updatedAt stamp for future live-physics conflict handling. */

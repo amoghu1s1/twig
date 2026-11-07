@@ -326,6 +326,7 @@ export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
 	demoBuilder: "cheap",
 	extractor: "cheap",
 	auditor: "cheap",
+	cardWriter: "cheap",
 	visualMaker: "vision",
 	pdfReader: "vision",
 };
@@ -448,6 +449,12 @@ export interface GraphSettings {
 	 *  delays extraction — the user's stated cost/thoroughness tradeoff,
 	 *  not a misconfiguration to police. */
 	extractionChunkTokens?: number;
+	/** ANKI SYNC: on = after each extraction run that adds propositions,
+	 *  the new propositions are carded (the cheap-slot card writer) and sent
+	 *  to Anki through AnkiConnect (src/server/anki-sync.ts); cards wait in
+	 *  data/anki when Anki is closed. Off = only the explicit Send to Anki
+	 *  actions card anything. Default off: carding costs model money. */
+	ankiSync?: boolean;
 }
 
 /**
@@ -524,7 +531,7 @@ export const FACTORY_SETTINGS: FactorySettings = {
 		sessionNameSerif: true,
 		mdRendering: { headingWeight: 900, boldColor: null, italicColor: null },
 	},
-	graph: { enabled: true, rendering: true, extractionChunkTokens: 4096 },
+	graph: { enabled: true, rendering: true, extractionChunkTokens: 4096, ankiSync: false },
 	compaction: { thresholdTokens: 150_000 },
 };
 
@@ -783,6 +790,8 @@ function sanitizeGraph(raw: Record<string, unknown>): GraphSettings {
 	if (enabled !== undefined) out.enabled = enabled;
 	const rendering = boolOrDrop(raw.rendering);
 	if (rendering !== undefined) out.rendering = rendering;
+	const ankiSync = boolOrDrop(raw.ankiSync);
+	if (ankiSync !== undefined) out.ankiSync = ankiSync;
 	const rawTokens = raw.extractionChunkTokens;
 	if (typeof rawTokens === "number" && Number.isFinite(rawTokens) && rawTokens > 0) {
 		out.extractionChunkTokens = Math.max(EXTRACTION_CHUNK_TOKENS_FLOOR, Math.floor(rawTokens));
