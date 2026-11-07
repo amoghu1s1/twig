@@ -228,6 +228,7 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			extractionChunkTokens: graph.extractionChunkTokens ?? FACTORY_SETTINGS.graph.extractionChunkTokens,
 			// Anki sync: carding costs model money, so it is opt-in.
 			ankiSync: graph.ankiSync ?? FACTORY_SETTINGS.graph.ankiSync,
+			obsidianSync: graph.obsidianSync ?? FACTORY_SETTINGS.graph.obsidianSync,
 		},
 		compaction: {
 			thresholdTokens: record?.compaction?.thresholdTokens ?? FACTORY_SETTINGS.compaction.thresholdTokens,

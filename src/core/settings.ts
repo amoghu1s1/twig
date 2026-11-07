@@ -456,6 +456,11 @@ export interface GraphSettings {
 	 *  data/anki when Anki is closed. Off = only the explicit Send to Anki
 	 *  actions card anything. Default off: carding costs model money. */
 	ankiSync?: boolean;
+	/** OBSIDIAN SYNC (fork, 2026-11-07): on = after each extraction run or
+	 *  tidy that changes the graph, the Obsidian vault is rewritten
+	 *  (src/server/obsidian-sync.ts). No model cost; off by default because
+	 *  it writes a folder outside the data dir. */
+	obsidianSync?: boolean;
 }
 
 /**
@@ -532,7 +537,7 @@ export const FACTORY_SETTINGS: FactorySettings = {
 		sessionNameSerif: true,
 		mdRendering: { headingWeight: 900, boldColor: null, italicColor: null },
 	},
-	graph: { enabled: true, rendering: true, extractionChunkTokens: 4096, ankiSync: false },
+	graph: { enabled: true, rendering: true, extractionChunkTokens: 4096, ankiSync: false, obsidianSync: false },
 	compaction: { thresholdTokens: 150_000 },
 };
 
@@ -793,6 +798,8 @@ function sanitizeGraph(raw: Record<string, unknown>): GraphSettings {
 	if (rendering !== undefined) out.rendering = rendering;
 	const ankiSync = boolOrDrop(raw.ankiSync);
 	if (ankiSync !== undefined) out.ankiSync = ankiSync;
+	const obsidianSync = boolOrDrop(raw.obsidianSync);
+	if (obsidianSync !== undefined) out.obsidianSync = obsidianSync;
 	const rawTokens = raw.extractionChunkTokens;
 	if (typeof rawTokens === "number" && Number.isFinite(rawTokens) && rawTokens > 0) {
 		out.extractionChunkTokens = Math.max(EXTRACTION_CHUNK_TOKENS_FLOOR, Math.floor(rawTokens));

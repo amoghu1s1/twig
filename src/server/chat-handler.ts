@@ -16,6 +16,7 @@ import { createJobRunner } from "../agent/subagents/runner.ts";
 import { createExtractionPipeline, extractionStatuses } from "../agent/subagents/extraction.ts";
 import { createAnkiSync } from "./anki-sync.ts";
 import { createGraphTidy } from "./graph-tidy.ts";
+import { createObsidianSync } from "./obsidian-sync.ts";
 import { tidyStore } from "../store/tidy.ts";
 import { TIDY_SOURCE_ID, TIDY_SOURCE_LABEL } from "../core/graph-tidy.ts";
 import { ankiStore } from "../store/anki.ts";
@@ -179,6 +180,18 @@ function autoSyncAnki(): void {
 	});
 }
 
+/** The Obsidian vault (src/server/obsidian-sync.ts): topics titled as the
+ *  chains view titles them. */
+export const obsidianSync = createObsidianSync({ graphStore: stores.graphStore, topicTitle: ankiSyncTitle });
+
+/** After the graph changed (an extraction run that added propositions, a
+ *  re-read, a tidy): the opt-in followers, read fresh from settings. */
+function afterGraphChange(grew: boolean): void {
+	const graph = effectiveSettings().graph;
+	if (grew && graph.ankiSync) autoSyncAnki();
+	if (graph.obsidianSync) void obsidianSync.write().catch((err) => console.error("[obsidian] vault write failed:", err));
+}
+
 /** Tidy graph (src/server/graph-tidy.ts): the tidier resolves like the
  *  other background roles (override → strong slot). An apply retires the
  *  merged-away nodes' Anki cards and, with Anki sync on, cards the new
@@ -195,7 +208,7 @@ export const graphTidy = createGraphTidy({
 		if (result.removedNodeIds.length > 0) {
 			void ankiSync.retire(result.removedNodeIds).catch((err) => console.error("[anki] retire failed:", err));
 		}
-		if (result.createdNodeIds.length > 0 && effectiveSettings().graph.ankiSync) autoSyncAnki();
+		afterGraphChange(result.createdNodeIds.length > 0);
 		emit("sources-changed", {});
 	},
 });
@@ -678,7 +691,7 @@ export async function handleChatInput(
 					// (extraction-UX redesign, 2026-09-24): the trigger compares
 					// against it and the pipeline's batches share it.
 					triggerExtraction(stores, extraction, chatId, effective.graph.extractionChunkTokens,
-						effective.graph.ankiSync ? autoSyncAnki : undefined);
+						effective.graph.ankiSync || effective.graph.obsidianSync ? () => afterGraphChange(true) : undefined);
 				}
 				// PARKED DISMISSAL (owner, 2026-10-04): a dismissal that arrived
 				// mid-turn was parked by the dismiss route (202); now that

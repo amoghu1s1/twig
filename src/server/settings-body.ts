@@ -328,6 +328,10 @@ export function parseGraphSettingsBody(body: unknown): SettingsBodyResult<GraphS
 		if (typeof raw.ankiSync !== "boolean") return { ok: false, error: "ankiSync must be a boolean" };
 		settings.ankiSync = raw.ankiSync;
 	}
+	if (raw.obsidianSync !== undefined) {
+		if (typeof raw.obsidianSync !== "boolean") return { ok: false, error: "obsidianSync must be a boolean" };
+		settings.obsidianSync = raw.obsidianSync;
+	}
 	if (raw.extractionChunkTokens !== undefined) {
 		if (typeof raw.extractionChunkTokens !== "number" || !Number.isFinite(raw.extractionChunkTokens)) {
 			return { ok: false, error: "extractionChunkTokens must be a number" };
