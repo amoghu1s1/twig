@@ -31,6 +31,10 @@ come to mind from the card's own cues, so:
 - Never announce the target. Prefer a concrete cue that needs the idea over "What is <name>?".
 - Never copy the proposition's statement as the question; rephrase around a fresh angle.
 - One idea per card, exactly one correct answer, and each card makes sense on its own months later.
+- Ask ONE thing. Never "which came first AND was national": a double question is two cards or none.
+- The front must not contain the answer or the facts that decide it. If the answer is a date, name or
+  number, that date, name or number appears only on the back; never print both dates in a "which came
+  first" question. A learner who has forgotten the idea must not be able to answer from the front.
 
 BREVITY (hard limits):
 - Front: one sentence, at most 25 words. Cut set-up; keep only the cue that matters.
@@ -56,7 +60,8 @@ Card kinds, one card of each that applies:
   the premises of one chain, compressed to a few words.
 - compose (when a listed chain has two or more premises): give the premises, ask what follows.
 - discriminate (when a nearby listed idea is easily confused with it): a near-twin case where only
-  this idea fits; the answer names it, the extra gives the separating feature.
+  this idea fits; the answer names it, the extra gives the separating feature. Describe the case, do
+  not list the two candidates with the feature that separates them.
 
 Write 2 to 4 cards per proposition; fewer only when the idea is genuinely simple. Submit every
 proposition's cards in one submit_cards call, keyed by the proposition's id.`;
@@ -108,6 +113,19 @@ export function cardWriterPrompt(nodes: ReadonlyArray<GraphNode>, chains: Readon
 
 const words = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
 
+const answerTerms = (text: string) =>
+	text.toLowerCase().replace(/\*\*/g, "").match(/\d+|[a-z\u00c0-\u024f]{4,}/g) ?? [];
+
+/** The front gives the answer away: every distinctive word or number of
+ *  the back already appears on the front (a "which came first, X (1980)
+ *  or Y (1982)?" card answered "1980"). */
+export function givesAwayAnswer(front: string, back: string): boolean {
+	const terms = answerTerms(back);
+	if (terms.length === 0) return false;
+	const shown = new Set(answerTerms(front));
+	return terms.every((t) => shown.has(t));
+}
+
 /** One card's shape law, by format. Limits sit a little above the prompt's
  *  so a near-miss is accepted and only a real wall of text is sent back. */
 export function cardProblem(card: CardSubmit["propositions"][number]["cards"][number]): string | null {
@@ -121,6 +139,9 @@ export function cardProblem(card: CardSubmit["propositions"][number]["cards"][nu
 	if (card.back.trim() === "") return "a card has an empty back";
 	if (words(card.back) > 15) return `back too long (${words(card.back)} words, keep it under 10): "${card.back.slice(0, 60)}…"`;
 	if (card.format === "type" && words(card.back) > 4) return "a type-in answer must be one to three exact words";
+	if (card.format !== "reverse" && givesAwayAnswer(card.front, card.back)) {
+		return `the front gives the answer away ("${card.back.slice(0, 40)}" is already on the front): ask without the deciding fact`;
+	}
 	return null;
 }
 

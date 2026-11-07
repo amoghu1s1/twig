@@ -24,7 +24,7 @@ import type { PiEngine } from "../src/agent/models.ts";
 import type { GraphChain, GraphNode } from "../src/core/contracts.ts";
 import { ankiField, deckName, renderAnkiTsv, toAnkiConnectNotes, type AnkiNoteRecord } from "../src/core/anki.ts";
 import { createAnkiStore } from "../src/store/anki.ts";
-import { cardProblem, cardWriterPrompt, validateCardSubmit } from "../src/agent/subagents/card-writer.ts";
+import { cardProblem, cardWriterPrompt, givesAwayAnswer, validateCardSubmit } from "../src/agent/subagents/card-writer.ts";
 import { createAnkiSync, type AnkiConnect } from "../src/server/anki-sync.ts";
 import { ModelsNotConfiguredError } from "../src/core/settings.ts";
 
@@ -308,5 +308,14 @@ describe("anki sync", () => {
 		state.reachable = false;
 		await assert.rejects(sync.rebuild());
 		assert.equal(store.readRecords().size, 3);
+	});
+});
+
+describe("card giveaways", () => {
+	it("refuses a front that already holds the answer", () => {
+		assert.ok(givesAwayAnswer("Which came first and was national: Enterprise Zones policy (1980) or the Isle of Dogs zone (1982)?", "The **national policy**, 1980"));
+		assert.ok(!givesAwayAnswer("When did the national Enterprise Zones policy begin?", "1980"));
+		assert.match(cardProblem({ kind: "discriminate", format: "basic", front: "Policy (1980) or zone (1982): which came first?", back: "1980" }) ?? "", /gives the answer away/);
+		assert.equal(cardProblem({ kind: "recall", format: "basic", front: "Which dock opened in 1802?", back: "West India Docks" }), null);
 	});
 });
