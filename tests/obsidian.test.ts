@@ -88,8 +88,8 @@ describe("server/obsidian-sync", () => {
 	});
 
 	it("picks the vault: env, then Obsidian's iCloud folder, then Documents", () => {
-		assert.equal(defaultVaultDir({ LH_OBSIDIAN_VAULT: "/v" } as NodeJS.ProcessEnv, "/h", () => true), "/v");
-		assert.equal(defaultVaultDir({} as NodeJS.ProcessEnv, "/h", () => true), "/h/Library/Mobile Documents/iCloud~md~obsidian/Documents/LearnHarness");
-		assert.equal(defaultVaultDir({} as NodeJS.ProcessEnv, "/h", () => false), "/h/Documents/LearnHarness Vault");
+		assert.equal(defaultVaultDir({ LH_OBSIDIAN_VAULT: "/v" }, "/h", () => true), "/v");
+		assert.equal(defaultVaultDir({}, "/h", () => true), "/h/Library/Mobile Documents/iCloud~md~obsidian/Documents/LearnHarness");
+		assert.equal(defaultVaultDir({}, "/h", () => false), "/h/Documents/LearnHarness Vault");
 	});
 });
