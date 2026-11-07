@@ -40,13 +40,16 @@ export function AnkiRows({ graph, onSectionChange }: { graph: GraphSettings | un
 		}
 	}, []);
 	useEffect(() => { void refresh(); }, [refresh]);
-	const sendAll = async () => {
+	const send = async (rebuild: boolean) => {
+		// A rebuild deletes the LearnHarness cards in Anki, review history included.
+		if (rebuild && !window.confirm("Delete every LearnHarness card in Anki (and its review history) and write new ones?")) return;
 		setSending(true);
-		setNote("Writing cards and sending to Anki…");
+		setNote(rebuild ? "Deleting old cards and writing new ones…" : "Writing cards and sending to Anki…");
 		try {
-			const response = await fetch("/api/anki", { method: "POST" });
-			const body = (await response.json()) as { error?: string; carded?: number; added?: number; waiting?: number };
-			setNote(response.ok ? `Carded ${body.carded} · added ${body.added} to Anki · ${body.waiting} waiting` : body.error ?? "Could not send to Anki.");
+			const response = await fetch("/api/anki", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(rebuild ? { rebuild: true } : {}) });
+			const body = (await response.json()) as { error?: string; carded?: number; added?: number; waiting?: number; removed?: number };
+			const removed = rebuild ? `removed ${body.removed} · ` : "";
+			setNote(response.ok ? `${removed}Carded ${body.carded} · added ${body.added} to Anki · ${body.waiting} waiting` : body.error ?? "Could not send to Anki.");
 		} catch (err) {
 			setNote(err instanceof Error ? err.message : String(err));
 		} finally {
@@ -65,8 +68,11 @@ export function AnkiRows({ graph, onSectionChange }: { graph: GraphSettings | un
 			</SettingsRow>
 			<SettingsRow label="Anki" hint={ankiStatusLine(status, note)} testid="graph-row-anki">
 				<span className="flex shrink-0 gap-1.5">
-					<button type="button" className={buttonClass} disabled={sending} onClick={() => void sendAll()} data-testid="anki-send-all">
+					<button type="button" className={buttonClass} disabled={sending} onClick={() => void send(false)} data-testid="anki-send-all">
 						Send all
+					</button>
+					<button type="button" className={buttonClass} disabled={sending} onClick={() => void send(true)} data-testid="anki-rebuild">
+						Rebuild
 					</button>
 					<a className={buttonClass} href="/api/anki?format=import" download data-testid="anki-download">
 						Import file

@@ -18,6 +18,7 @@ import type { GraphStore, AnkiStore } from "../core/ports.ts";
 import { getGraph } from "../core/graph.ts";
 import {
 	DEFAULT_ANKICONNECT_URL,
+	ankiModelDefinitions,
 	birthSource,
 	deckName,
 	nodeTag,
@@ -119,6 +120,10 @@ export interface AnkiSyncDeps {
 
 export interface AnkiSync {
 	sync(scope?: AnkiSyncScope): Promise<AnkiSyncResult>;
+	/** Delete the scope's cards from Anki and from the store, then card it
+	 *  afresh (a better card writer, or cards the learner disliked). Needs
+	 *  Anki reachable: deleting only the store would duplicate in Anki. */
+	rebuild(scope?: AnkiSyncScope): Promise<AnkiSyncResult & { removed: number }>;
 	status(): Promise<AnkiStatus>;
 	/** Every carded proposition as a File > Import text file. */
 	importFile(): string;
@@ -179,6 +184,7 @@ export function createAnkiSync(deps: AnkiSyncDeps): AnkiSync {
 		} catch (err) {
 			return { added: 0, alreadyInAnki: 0, waiting: pending.length, ankiReachable: false, ankiError: err instanceof Error ? err.message : String(err) };
 		}
+		if (pending.length > 0) await ensureModels();
 		let added = 0;
 		let alreadyInAnki = 0;
 		for (const deck of new Set(pending.map((r) => r.deck))) await anki.invoke("createDeck", { deck });
@@ -198,6 +204,38 @@ export function createAnkiSync(deps: AnkiSyncDeps): AnkiSync {
 		return { added, alreadyInAnki, waiting: 0, ankiReachable: true };
 	}
 
+	/** Create the LearnHarness note types when missing; restyle the ones
+	 *  that exist so template and CSS improvements reach old cards too. */
+	async function ensureModels(): Promise<void> {
+		const existing = new Set(await anki.invoke<string[]>("modelNames"));
+		for (const model of ankiModelDefinitions()) {
+			if (!existing.has(model.modelName)) {
+				await anki.invoke("createModel", { ...model });
+				continue;
+			}
+			await anki.invoke("updateModelStyling", { model: { name: model.modelName, css: model.css } });
+			await anki.invoke("updateModelTemplates", {
+				model: { name: model.modelName, templates: Object.fromEntries(model.cardTemplates.map((t) => [t.Name, { Front: t.Front, Back: t.Back }])) },
+			});
+		}
+	}
+
+	async function runRebuild(scope: AnkiSyncScope | undefined): Promise<AnkiSyncResult & { removed: number }> {
+		const graph = getGraph(deps.graphStore);
+		const inScopeIds = new Set(inScope(graph.nodes, scope).map((n) => n.id));
+		const records = [...deps.ankiStore.readRecords().values()].filter((r) => inScopeIds.has(r.nodeId));
+		await anki.invoke<number>("version"); // throws AnkiConnectError: never forget cards Anki still holds
+		const noteIds = new Set<number>();
+		for (const record of records) {
+			for (const id of record.noteIds ?? []) noteIds.add(id);
+			for (const id of await anki.invoke<number[]>("findNotes", { query: `"tag:${nodeTag(record.nodeId)}"` })) noteIds.add(id);
+		}
+		if (noteIds.size > 0) await anki.invoke("deleteNotes", { notes: [...noteIds] });
+		deps.ankiStore.deleteRecords(records.map((r) => r.nodeId));
+		console.info(`[anki] rebuild: removed ${noteIds.size} note(s) for ${records.length} proposition(s)`);
+		return { removed: noteIds.size, ...(await runSync(scope)) };
+	}
+
 	async function runSync(scope: AnkiSyncScope | undefined): Promise<AnkiSyncResult> {
 		const graph = getGraph(deps.graphStore);
 		const byId = new Map(graph.nodes.map((n) => [n.id, n]));
@@ -211,6 +249,11 @@ export function createAnkiSync(deps: AnkiSyncDeps): AnkiSync {
 	return {
 		sync(scope) {
 			const run = tail.catch(() => {}).then(() => runSync(scope));
+			tail = run;
+			return run;
+		},
+		rebuild(scope) {
+			const run = tail.catch(() => {}).then(() => runRebuild(scope));
 			tail = run;
 			return run;
 		},
@@ -245,6 +288,7 @@ export function ankiSyncErrorResponse(err: unknown): Response {
 	if (err instanceof ModelsNotConfiguredError || err instanceof ProviderKeyMissingError) {
 		return Response.json(err.envelope, { status: 503 });
 	}
+	if (err instanceof AnkiConnectError) return Response.json({ error: err.message }, { status: 502 });
 	console.error("[anki] sync failed:", err);
 	return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });
 }

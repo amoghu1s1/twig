@@ -24,7 +24,7 @@ import type { PiEngine } from "../src/agent/models.ts";
 import type { GraphChain, GraphNode } from "../src/core/contracts.ts";
 import { ankiField, deckName, renderAnkiTsv, toAnkiConnectNotes, type AnkiNoteRecord } from "../src/core/anki.ts";
 import { createAnkiStore } from "../src/store/anki.ts";
-import { cardWriterPrompt, validateCardSubmit } from "../src/agent/subagents/card-writer.ts";
+import { cardProblem, cardWriterPrompt, validateCardSubmit } from "../src/agent/subagents/card-writer.ts";
 import { createAnkiSync, type AnkiConnect } from "../src/server/anki-sync.ts";
 import { ModelsNotConfiguredError } from "../src/core/settings.ts";
 
@@ -57,7 +57,7 @@ function scriptedWriter(calls: string[][]): PiEngine {
 		const prompt = JSON.stringify(context.messages);
 		const ids = [...new Set(prompt.match(/n_\d+/g) ?? [])].filter((id) => prompt.includes(`[${id}]`));
 		calls.push(ids);
-		const input = { propositions: ids.map((id) => ({ id, cards: [{ kind: "recall", front: `When does ${id} apply?`, back: `${id}.` }, { kind: "why", front: `Why ${id}?`, back: "Because." }] })) };
+		const input = { propositions: ids.map((id) => ({ id, cards: [{ kind: "recall", format: "cloze", front: `{{c1::${id}}} applies here.`, back: "" }, { kind: "why", format: "basic", front: `Why ${id}?`, back: "Because." }] })) };
 		return fauxAssistantMessage([fauxToolCall("submit_cards", input as ToolCall["arguments"], { id: `submit-${calls.length}` })], { stopReason: "toolUse" });
 	};
 	faux.setResponses([step, step, step, step]);
@@ -66,7 +66,7 @@ function scriptedWriter(calls: string[][]): PiEngine {
 
 /** AnkiConnect fake: in-memory notes; `reachable` flips at will. */
 function fakeAnki() {
-	const state = { reachable: true, decks: new Set<string>(), notes: [] as Array<{ id: number; deck: string; tags: string[] }>, adds: 0 };
+	const state = { reachable: true, decks: new Set<string>(), notes: [] as Array<{ id: number; deck: string; tags: string[] }>, adds: 0, models: new Set<string>(), restyled: 0 };
 	const anki: AnkiConnect = {
 		async invoke<T>(action: string, params: Record<string, unknown> = {}): Promise<T> {
 			if (!state.reachable) throw new Error("connection refused");
@@ -77,11 +77,20 @@ function fakeAnki() {
 					const tag = /tag:([^"]+)/.exec(params.query as string)?.[1];
 					return state.notes.filter((n) => n.tags.includes(tag ?? "")).map((n) => n.id) as T;
 				}
+				case "modelNames": return [...state.models] as T;
+				case "createModel": state.models.add(params.modelName as string); return {} as T;
+				case "updateModelStyling": case "updateModelTemplates": state.restyled++; return null as T;
+				case "deleteNotes": {
+					const gone = new Set(params.notes as number[]);
+					state.notes = state.notes.filter((n) => !gone.has(n.id));
+					return null as T;
+				}
 				case "addNotes": {
-					const notes = params.notes as Array<{ deckName: string; tags: string[] }>;
+					const notes = params.notes as Array<{ deckName: string; tags: string[]; modelName: string }>;
+					for (const n of notes) assert.ok(state.models.has(n.modelName), `note type ${n.modelName} exists before add`);
 					state.adds += notes.length;
 					return notes.map((n) => {
-						const id = 1000 + state.notes.length;
+						const id = 1000 + state.adds + state.notes.length;
 						state.notes.push({ id, deck: n.deckName, tags: n.tags });
 						return id;
 					}) as T;
@@ -106,25 +115,52 @@ describe("core/anki", () => {
 		assert.equal(ankiField("costs $5 and $6"), "costs $5 and $6"); // prices are not math
 	});
 
-	it("builds Basic notes tagged with the node id", () => {
-		const record: AnkiNoteRecord = { nodeId: "n_1", sourceId: "chat_a", deck: "LearnHarness::Econ", createdAt: "x", cards: [{ kind: "recall", front: "Q", back: "A" }] };
-		const note = toAnkiConnectNotes(record, "Opportunity cost")[0]!;
-		assert.equal(note.deckName, "LearnHarness::Econ");
-		assert.equal(note.modelName, "Basic");
-		assert.deepEqual(note.tags, ["learnharness", "lh::n_1", "lh-card::recall"]);
-		assert.match(note.fields.Back, /^A<br><br><small>Opportunity cost · Econ<\/small>$/);
-		assert.equal(note.options.allowDuplicate, false);
+	it("turns **bold** and *italic* into markup", () => {
+		assert.equal(ankiField("the **decisive** word, *gently*"), "the <b>decisive</b> word, <i>gently</i>");
+		assert.equal(ankiField("2 * 3 * 4"), "2 * 3 * 4");
 	});
 
-	it("renders an import file whose header maps deck and tag columns", () => {
-		const record: AnkiNoteRecord = { nodeId: "n_1", sourceId: "chat_a", deck: "LearnHarness::Econ", createdAt: "x", cards: [{ kind: "recall", front: "Q\twith tab", back: "A" }] };
+	it("builds notes on the LearnHarness note type for each format", () => {
+		const record: AnkiNoteRecord = {
+			nodeId: "n_1", sourceId: "chat_a", deck: "LearnHarness::Econ", createdAt: "x",
+			cards: [
+				{ kind: "recall", front: "Q", back: "**A**" },
+				{ kind: "recall", format: "cloze", front: "The {{c1::opportunity cost}} is the best alternative.", back: "", extra: "Every yes is a no." },
+				{ kind: "recall", format: "type", front: "Name it", back: "**Sunk cost**" },
+				{ kind: "discriminate", format: "reverse", front: "Term", back: "Definition" },
+			],
+		};
+		const [basic, cloze, type, reverse] = toAnkiConnectNotes(record, "Opportunity cost");
+		assert.equal(basic!.deckName, "LearnHarness::Econ");
+		assert.equal(basic!.modelName, "LearnHarness Basic");
+		assert.deepEqual(basic!.tags, ["learnharness", "lh::n_1", "lh-card::recall", "lh-format::basic"]);
+		assert.equal(basic!.fields.Back, "<b>A</b>");
+		assert.equal(basic!.fields.Source, "Opportunity cost");
+		assert.match(basic!.fields.Context ?? "", /Econ<span class="lh-kind">Recall<\/span>/);
+		assert.equal(basic!.options.allowDuplicate, false);
+		assert.equal(cloze!.modelName, "LearnHarness Cloze");
+		assert.equal(cloze!.fields.Text, "The {{c1::opportunity cost}} is the best alternative.");
+		assert.equal(cloze!.fields.Extra, "Every yes is a no.");
+		assert.equal(type!.modelName, "LearnHarness Type-in");
+		assert.equal(type!.fields.Back, "Sunk cost"); // typed answers are compared as plain text
+		assert.equal(reverse!.modelName, "LearnHarness Reversed");
+		assert.match(reverse!.fields.Context ?? "", /Tell apart/);
+	});
+
+	it("renders an import file whose header maps note type, deck and tag columns", () => {
+		const record: AnkiNoteRecord = {
+			nodeId: "n_1", sourceId: "chat_a", deck: "LearnHarness::Econ", createdAt: "x",
+			cards: [{ kind: "recall", front: "Q\twith tab", back: "A" }, { kind: "recall", format: "cloze", front: "{{c1::X}} is Y", back: "" }],
+		};
 		const lines = renderAnkiTsv([record], new Map([["n_1", "Opportunity cost"]])).trimEnd().split("\n");
-		assert.deepEqual(lines.slice(0, 5), ["#separator:tab", "#html:true", "#notetype:Basic", "#deck column:1", "#tags column:4"]);
+		assert.deepEqual(lines.slice(0, 5), ["#separator:tab", "#html:true", "#notetype column:1", "#deck column:2", "#tags column:5"]);
 		const cells = lines[5]!.split("\t");
-		assert.equal(cells.length, 4);
-		assert.equal(cells[0], "LearnHarness::Econ");
-		assert.equal(cells[1], "Q with tab");
-		assert.equal(cells[3], "learnharness lh::n_1 lh-card::recall");
+		assert.equal(cells.length, 5);
+		assert.deepEqual(cells.slice(0, 3), ["Basic", "LearnHarness::Econ", "Q with tab"]);
+		assert.equal(cells[4], "learnharness lh::n_1 lh-card::recall lh-format::basic");
+		const clozeCells = lines[6]!.split("\t");
+		assert.equal(clozeCells[0], "Cloze");
+		assert.equal(clozeCells[2], "{{c1::X}} is Y");
 	});
 });
 
@@ -133,7 +169,7 @@ describe("store/anki", () => {
 		const file = path.join(tmp, "roundtrip.json");
 		const store = createAnkiStore(file);
 		assert.equal(store.readRecords().size, 0);
-		store.upsertRecords([{ nodeId: "n_1", sourceId: "chat_a", deck: "LearnHarness::X", createdAt: "t", cards: [{ kind: "why", front: "Q", back: "A" }] }]);
+		store.upsertRecords([{ nodeId: "n_1", sourceId: "chat_a", deck: "LearnHarness::X", createdAt: "t", cards: [{ kind: "why", format: "basic", front: "Q", back: "A" }] }]);
 		const raw = JSON.parse(fs.readFileSync(file, "utf8"));
 		raw.n_bad = { nodeId: "n_bad", cards: "nope" };
 		fs.writeFileSync(file, JSON.stringify(raw));
@@ -153,13 +189,25 @@ describe("card writer", () => {
 	});
 
 	it("accepts exactly the batch's ids", () => {
-		const card = { kind: "recall" as const, front: "Q", back: "A" };
+		const card = { kind: "recall" as const, format: "basic" as const, front: "Q", back: "A" };
 		const batch = new Set(["n_1", "n_2"]);
 		assert.equal(validateCardSubmit({ propositions: [{ id: "n_1", cards: [card] }, { id: "n_2", cards: [card] }] }, batch), null);
 		assert.match(validateCardSubmit({ propositions: [{ id: "n_1", cards: [card] }] }, batch) ?? "", /missing cards for: n_2/);
 		assert.match(validateCardSubmit({ propositions: [{ id: "n_9", cards: [card] }] }, batch) ?? "", /unknown proposition id/);
 		assert.match(validateCardSubmit({ propositions: [{ id: "n_1", cards: [card] }, { id: "n_1", cards: [card] }, { id: "n_2", cards: [card] }] }, batch) ?? "", /twice/);
-		assert.match(validateCardSubmit({ propositions: [{ id: "n_1", cards: [{ ...card, back: " " }] }, { id: "n_2", cards: [card] }] }, batch) ?? "", /empty card side/);
+		assert.match(validateCardSubmit({ propositions: [{ id: "n_1", cards: [{ ...card, back: " " }] }, { id: "n_2", cards: [card] }] }, batch) ?? "", /empty back/);
+	});
+});
+
+describe("card shape", () => {
+	it("keeps cards short and each format well-formed", () => {
+		const long = Array.from({ length: 40 }, () => "word").join(" ");
+		assert.equal(cardProblem({ kind: "recall", format: "cloze", front: "The {{c1::answer}} here.", back: "" }), null);
+		assert.match(cardProblem({ kind: "recall", format: "cloze", front: "No gap here.", back: "" }) ?? "", /cloze/);
+		assert.match(cardProblem({ kind: "recall", format: "basic", front: long, back: "A" }) ?? "", /front too long/);
+		assert.match(cardProblem({ kind: "recall", format: "basic", front: "Q", back: long }) ?? "", /back too long/);
+		assert.match(cardProblem({ kind: "recall", format: "type", front: "Q", back: "five words in this answer" }) ?? "", /type-in/);
+		assert.match(cardProblem({ kind: "recall", format: "basic", front: "Q", back: "A", extra: long }) ?? "", /extra too long/);
 	});
 });
 
@@ -225,5 +273,40 @@ describe("anki sync", () => {
 	it("refuses honestly with no card-writer model", async () => {
 		const sync = createAnkiSync({ graphStore: graphStore(), ankiStore: freshStore(), sourceTitle: () => "x", engineFor: () => undefined, anki: fakeAnki().anki });
 		await assert.rejects(sync.sync(), ModelsNotConfiguredError);
+	});
+
+	it("creates the note types once, then refreshes their styling", async () => {
+		const { anki, state } = fakeAnki();
+		const sync = createAnkiSync({ graphStore: graphStore(), ankiStore: freshStore(), sourceTitle: () => "Econ", cardWriter: scriptedWriter([]), anki });
+		await sync.sync({ nodeIds: ["n_1"] });
+		assert.deepEqual([...state.models].sort(), ["LearnHarness Basic", "LearnHarness Cloze", "LearnHarness Reversed", "LearnHarness Type-in"]);
+		assert.equal(state.restyled, 0);
+		await sync.sync({ nodeIds: ["n_2"] });
+		assert.ok(state.restyled > 0);
+	});
+
+	it("rebuild deletes the old notes and writes fresh cards", async () => {
+		const calls: string[][] = [];
+		const { anki, state } = fakeAnki();
+		const sync = createAnkiSync({ graphStore: graphStore(), ankiStore: freshStore(), sourceTitle: () => "Econ", cardWriter: scriptedWriter(calls), anki });
+		await sync.sync();
+		const before = state.notes.map((n) => n.id);
+		const result = await sync.rebuild();
+		assert.equal(result.removed, 6);
+		assert.equal(result.carded, 3);
+		assert.equal(result.added, 6);
+		assert.equal(calls.length, 2);
+		assert.equal(state.notes.length, 6);
+		assert.ok(state.notes.every((n) => !before.includes(n.id)));
+	});
+
+	it("rebuild refuses while Anki is closed and keeps the cards", async () => {
+		const { anki, state } = fakeAnki();
+		const store = freshStore();
+		const sync = createAnkiSync({ graphStore: graphStore(), ankiStore: store, sourceTitle: () => "Econ", cardWriter: scriptedWriter([]), anki });
+		await sync.sync();
+		state.reachable = false;
+		await assert.rejects(sync.rebuild());
+		assert.equal(store.readRecords().size, 3);
 	});
 });

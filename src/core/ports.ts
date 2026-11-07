@@ -248,4 +248,6 @@ export interface AnkiStore {
 	readRecords(): Map<string, AnkiNoteRecord>;
 	/** Insert or replace records by nodeId (others preserved). */
 	upsertRecords(records: ReadonlyArray<AnkiNoteRecord>): void;
+	/** Forget these nodes' records (a rebuild); answers how many existed. */
+	deleteRecords(nodeIds: ReadonlyArray<string>): number;
 }

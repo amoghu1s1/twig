@@ -8,7 +8,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { ANKI_CARDS_FILE } from "../../config.ts";
-import { ANKI_CARD_KINDS, type AnkiCard, type AnkiNoteRecord } from "../core/anki.ts";
+import { ANKI_CARD_FORMATS, ANKI_CARD_KINDS, type AnkiCard, type AnkiNoteRecord } from "../core/anki.ts";
 import type { AnkiStore } from "../core/ports.ts";
 import { writeFileAtomicSync } from "./atomic-write.ts";
 
@@ -16,7 +16,9 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 const isString = (v: unknown): v is string => typeof v === "string";
 
 function isCard(v: unknown): v is AnkiCard {
-	return isRecord(v) && (ANKI_CARD_KINDS as readonly unknown[]).includes(v.kind) && isString(v.front) && isString(v.back);
+	return isRecord(v) && (ANKI_CARD_KINDS as readonly unknown[]).includes(v.kind) && isString(v.front) && isString(v.back) &&
+		(v.format === undefined || (ANKI_CARD_FORMATS as readonly unknown[]).includes(v.format)) &&
+		(v.extra === undefined || isString(v.extra));
 }
 
 function isNoteRecord(v: unknown): v is AnkiNoteRecord {
@@ -49,6 +51,13 @@ export function createAnkiStore(file: string = ANKI_CARDS_FILE): AnkiStore {
 			for (const record of records) all.set(record.nodeId, record);
 			fs.mkdirSync(path.dirname(file), { recursive: true });
 			writeFileAtomicSync(file, JSON.stringify(Object.fromEntries(all), null, "\t"));
+		},
+		deleteRecords(nodeIds) {
+			const all = readMap(file);
+			let removed = 0;
+			for (const id of nodeIds) if (all.delete(id)) removed++;
+			if (removed > 0) writeFileAtomicSync(file, JSON.stringify(Object.fromEntries(all), null, "\t"));
+			return removed;
 		},
 	};
 }

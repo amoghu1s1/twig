@@ -5,11 +5,13 @@
  *                        are carded / waiting / not carded yet
  *   GET ?format=import   every carded proposition as an Anki File > Import
  *                        text file (the no-AnkiConnect fallback)
- *   POST {sourceIds?, nodeIds?}
+ *   POST {sourceIds?, nodeIds?, rebuild?}
  *                        card what is in scope (everything when both are
  *                        absent) and send every waiting card to Anki;
  *                        answers the sync result. Unconfigured or keyless
  *                        card writer = the usual 503 refusal envelope.
+ *                        rebuild: true first deletes the scope's cards from
+ *                        Anki and re-cards them (502 when Anki is closed).
  */
 import { ankiSync, ankiSyncErrorResponse } from "@/src/server";
 
@@ -38,12 +40,13 @@ export async function POST(request: Request) {
 	} catch {
 		return Response.json({ error: "Invalid JSON body" }, { status: 400 });
 	}
-	const { sourceIds, nodeIds } = (body ?? {}) as { sourceIds?: unknown; nodeIds?: unknown };
+	const { sourceIds, nodeIds, rebuild } = (body ?? {}) as { sourceIds?: unknown; nodeIds?: unknown; rebuild?: unknown };
 	if ((sourceIds !== undefined && !isStringArray(sourceIds)) || (nodeIds !== undefined && !isStringArray(nodeIds))) {
 		return Response.json({ error: "Body must be {sourceIds?: string[], nodeIds?: string[]}" }, { status: 400 });
 	}
 	try {
-		return Response.json(await ankiSync.sync({ sourceIds, nodeIds }));
+		const scope = { sourceIds, nodeIds };
+		return Response.json(rebuild === true ? await ankiSync.rebuild(scope) : await ankiSync.sync(scope));
 	} catch (err) {
 		return ankiSyncErrorResponse(err);
 	}
