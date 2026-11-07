@@ -31,16 +31,19 @@ owners were compensated £20 million"). Give each part as its own precise idea. 
 are genuinely separate facts that other topics could link to; do not split a single idea into
 paraphrases.
 
-CONNECT: the heart of this task. Find ideas from DIFFERENT topics that together entail something, or
-that one entails in another topic. A connection is a chain: premises (existing ids, from at least two
+CONNECT: the heart of this task. Work through every pair of topics and look for what they share: the
+same people, families, places, institutions, laws, money, trade goods, periods and events. Where two
+topics meet on one of these, there is usually a connection to draw. Find ideas from DIFFERENT topics
+that together entail something, or that one entails in another topic. A connection is a chain: premises (existing ids, from at least two
 topics between premises and conclusion) and EITHER an existing conclusion id OR a new bridge idea that
 follows from the premises. A bridge idea must be TRUE and must follow from its premises; it is the
 interesting link a thoughtful reader would draw ("Compensation paid to slave-owners in 1834 flowed to the
 same West India merchants who had built the West India Docks"). Never invent facts the premises do not
 support; never connect ideas merely because they share a theme or a word.
 
-Quality over quantity. Up to 10 merges, 10 splits, 12 connections, usually fewer; an empty list is
-fine. Each change carries a one-line reason written for the learner. Use ids verbatim. Submit all
+Every connection must be true and earned, but do not stop at the first one: when topics share a
+subject, find each distinct link (up to 12 connections, 10 merges, 10 splits). An empty list is fine
+only when the topics truly share nothing. Each change carries a one-line reason written for the learner. Use ids verbatim. Submit all
 changes in one submit_tidy call.`;
 
 const ideaSchema = Type.Object({

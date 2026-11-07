@@ -18,7 +18,7 @@ import { createAnkiSync } from "./anki-sync.ts";
 import { createGraphTidy } from "./graph-tidy.ts";
 import { createObsidianSync } from "./obsidian-sync.ts";
 import { tidyStore } from "../store/tidy.ts";
-import { TIDY_SOURCE_ID, TIDY_SOURCE_LABEL } from "../core/graph-tidy.ts";
+import { rehomeTidyConnections, TIDY_SOURCE_ID, TIDY_SOURCE_LABEL } from "../core/graph-tidy.ts";
 import { ankiStore } from "../store/anki.ts";
 import * as path from "node:path";
 import type { ModelRole } from "../../config.ts";
@@ -196,6 +196,16 @@ function afterGraphChange(grew: boolean): void {
  *  other background roles (override → strong slot). An apply retires the
  *  merged-away nodes' Anki cards and, with Anki sync on, cards the new
  *  ones. */
+// One-time repair at boot (sync, before any extraction can run): bridge
+// ideas the first tidy release filed under "Connections" move to the
+// topics they connect.
+try {
+	const moved = rehomeTidyConnections(stores.graphStore);
+	if (moved > 0) console.info(`[tidy] re-homed ${moved} connection line(s) under their topics`);
+} catch (err) {
+	console.error("[tidy] re-homing connections failed:", err);
+}
+
 export const graphTidy = createGraphTidy({
 	graphStore: stores.graphStore,
 	store: tidyStore,

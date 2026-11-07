@@ -10,7 +10,7 @@ LearnHarness can write your knowledge graph as an Obsidian vault: a folder of li
 | `Topics/<topic>.md` | One hub per lesson or notes source: its ideas with their statements, its reasoning chains, and **Links to other topics** (chains that pull in ideas from elsewhere). |
 | `Ideas/<idea>.md` | One note per proposition: the statement, **Follows from** (the premises of each chain that concludes it), **Leads to** (what it helps derive, and with what), other phrasings, and its topics. |
 
-Links are ordinary `[[wiki links]]`, so backlinks and Obsidian's graph view work straight away. Ideas that share a name get a short id suffix so every link stays exact. Ideas linked by **Tidy graph** appear under a **Connections** topic.
+Links are ordinary `[[wiki links]]`, so backlinks and Obsidian's graph view work straight away. Ideas that share a name get a short id suffix so every link stays exact.
 
 ## Where it goes
 

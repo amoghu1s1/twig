@@ -12,7 +12,7 @@ Suggestions come in three kinds. Each one has a one-line reason, with **Apply** 
 
 | Kind | What applying it does |
 | --- | --- |
-| **Connections** | Adds a chain whose premises come from different topics. It ends in an idea you already have, or in a new bridge idea that follows from the premises. Connections live under their own **Connections** source in the Chains view. |
+| **Connections** | Adds a chain whose premises come from different topics. It ends in an idea you already have, or in a new bridge idea that follows from the premises. A bridge idea is filed under the topics it joins, first the one that supplies most of its premises, so it appears in that topic in the Chains view and on the canvas. |
 | **Same idea twice** | Merges two ideas. The kept one keeps its name and statement; the other's wording becomes an alias, and every chain through it now runs through the kept one. |
 | **Bundled ideas** | Adds each part as its own idea, plus a chain from the parts to the original. Nothing is deleted. |
 
@@ -20,7 +20,7 @@ Run it again after new lessons. Each run replaces the suggestions still waiting;
 
 ## Anki
 
-With **Anki sync** on, new ideas from a tidy (split parts and bridge ideas) are carded and sent like any others. Bridge ideas land in the `LearnHarness::Connections` deck. A merged-away idea's cards are deleted from Anki, or on the next sync if Anki is closed.
+With **Anki sync** on, new ideas from a tidy (split parts and bridge ideas) are carded and sent like any others. Bridge ideas land in the deck of the topic they are filed under. A merged-away idea's cards are deleted from Anki, or on the next sync if Anki is closed.
 
 ## Limits
 

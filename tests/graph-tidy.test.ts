@@ -18,7 +18,7 @@ import { createFauxCore, fauxAssistantMessage, fauxToolCall, type ToolCall } fro
 import type { GraphChain, GraphNode } from "../src/core/contracts.ts";
 import type { GraphStore } from "../src/core/ports.ts";
 import { getGraph } from "../src/core/graph.ts";
-import { applyTidyChange, tidyProblem, TIDY_SOURCE_ID } from "../src/core/graph-tidy.ts";
+import { applyTidyChange, connectionTopics, rehomeTidyConnections, tidyProblem, TIDY_SOURCE_ID } from "../src/core/graph-tidy.ts";
 import { tidierPrompt, tidierProposals } from "../src/agent/subagents/tidier.ts";
 import { createGraphTidy, TidyBusyError, type TidyResolveResult } from "../src/server/graph-tidy.ts";
 import { createTidyStore } from "../src/store/tidy.ts";
@@ -103,13 +103,31 @@ describe("core/graph-tidy apply", () => {
 		assert.equal(part.provenance[0]?.chatId, DOCKS);
 	});
 
-	it("connect makes a cross-topic chain, ending in a new bridge idea owned by Connections", () => {
+	it("connect makes a cross-topic chain, ending in a new bridge idea filed under the topics it joins", () => {
 		const { store } = memoryStore(NODES, CHAINS);
 		const result = applyTidyChange(store, { kind: "connect", premises: ["n_abol2", "n_merch"], newIdea: { name: "Compensation to dock financiers", statement: "Compensation flowed to West India merchants." } });
 		const graph = getGraph(store);
 		const bridge = graph.nodes.find((n) => n.id === result.createdNodeIds[0])!;
-		assert.equal(bridge.provenance[0]?.chatId, TIDY_SOURCE_ID);
-		assert.ok(graph.chains.some((c) => c.conclusion === bridge.id && c.provenance[0]?.chatId === TIDY_SOURCE_ID));
+		assert.deepEqual(bridge.provenance.map((p) => p.chatId), [SLIGO, DOCKS]);
+		assert.ok(graph.chains.some((c) => c.conclusion === bridge.id));
+		assert.ok(!graph.nodes.some((n) => n.provenance.some((p) => p.chatId === TIDY_SOURCE_ID)));
+	});
+
+	it("files a bridge under the topic with most premises", () => {
+		const nodes = new Map(NODES.map((n) => [n.id, n]));
+		assert.deepEqual(connectionTopics(["n_abol2", "n_wid", "n_merch"], nodes).map((p) => p.chatId), [DOCKS, SLIGO]);
+	});
+
+	it("re-homes connections the first release filed under the pseudo-source", () => {
+		const tidyPoint = [{ chatId: TIDY_SOURCE_ID, messageId: "" }];
+		const bridge = { ...node("n_bridge", "Bridge", "A bridge idea.", TIDY_SOURCE_ID) };
+		const { store } = memoryStore([...NODES, bridge], [...CHAINS,
+			{ id: "arg_t", premises: ["n_abol2", "n_merch"], conclusion: "n_bridge", createdAt: "x", provenance: tidyPoint }]);
+		assert.equal(rehomeTidyConnections(store), 1);
+		const graph = getGraph(store);
+		assert.deepEqual(graph.nodes.find((n) => n.id === "n_bridge")!.provenance.map((p) => p.chatId), [SLIGO, DOCKS]);
+		assert.ok(!graph.chains.some((c) => c.provenance.some((p) => p.chatId === TIDY_SOURCE_ID)));
+		assert.equal(rehomeTidyConnections(store), 0);
 	});
 
 	it("refuses what no longer fits", () => {

@@ -16,9 +16,9 @@
  *            nothing is deleted, and the atoms can now be linked by later
  *            lessons.
  *   connect  a chain whose premises come from different topics, ending in
- *            an existing node or in a NEW bridge idea. Its provenance is
- *            the Connections pseudo-source, so it reads as the tidy pass's
- *            claim, never as something a lesson said.
+ *            an existing node or in a NEW bridge idea. A bridge idea is
+ *            filed under the topics it joins (the one with most premises
+ *            first), so it sits in a real topic, never in a group of its own.
  *
  * Every apply runs as ONE synchronous block (no awaits — atomic vs the
  * event loop, the deletion precedent), and re-checks its proposal against
@@ -112,6 +112,56 @@ function sourcePoints(points: ReadonlyArray<ProvenancePoint>): ProvenancePoint[]
 	return [...new Set(points.map((p) => p.chatId))].map((chatId) => ({ chatId, messageId: "" }));
 }
 
+/** Where a connection belongs: the topics of its premises, the one that
+ *  contributes most premises first (ties: first premise), so a bridge idea
+ *  sits under a real topic, and lists the other topics it joins. */
+export function connectionTopics(premises: ReadonlyArray<string>, nodes: ReadonlyMap<string, GraphNode>): ProvenancePoint[] {
+	const counts = new Map<string, number>();
+	for (const id of premises) {
+		const topic = birth(nodes.get(id));
+		if (topic && topic !== TIDY_SOURCE_ID) counts.set(topic, (counts.get(topic) ?? 0) + 1);
+	}
+	const order = [...counts.keys()];
+	order.sort((a, b) => counts.get(b)! - counts.get(a)! || order.indexOf(a) - order.indexOf(b));
+	return order.map((chatId) => ({ chatId, messageId: "" }));
+}
+
+/** Legacy repair: the first tidy release filed bridge ideas and their chains
+ *  under a "Connections" pseudo-source, which the chains view showed as an
+ *  unlabeled group. Re-home them under the topics they connect. Idempotent;
+ *  rewrites only when something is still filed under the pseudo-source. */
+export function rehomeTidyConnections(graphStore: GraphStore): number {
+	const nodeLines = graphStore.readNodes();
+	const chainLines = graphStore.readChains();
+	const isTidy = (points: ReadonlyArray<ProvenancePoint>) => points.some((p) => p.chatId === TIDY_SOURCE_ID);
+	if (!nodeLines.some((l) => isTidy(l.provenance)) && !chainLines.some((l) => isTidy(l.provenance))) return 0;
+	const nodes = new Map(getGraph(graphStore).nodes.map((n) => [n.id, n]));
+	const homeOf = new Map<string, ProvenancePoint[]>();
+	for (const line of chainLines) {
+		if (!isTidy(line.provenance)) continue;
+		const topics = connectionTopics(line.premises, nodes);
+		if (topics.length > 0 && !homeOf.has(line.conclusion)) homeOf.set(line.conclusion, topics);
+	}
+	const strip = (points: ReadonlyArray<ProvenancePoint>, home: ProvenancePoint[] | undefined) => {
+		const kept = points.filter((p) => p.chatId !== TIDY_SOURCE_ID);
+		const added = (home ?? []).filter((h) => !kept.some((k) => k.chatId === h.chatId));
+		return [...added, ...kept];
+	};
+	let moved = 0;
+	const outNodes = nodeLines.map((line) => {
+		if (!isTidy(line.provenance)) return line;
+		moved++;
+		return { ...line, provenance: strip(line.provenance, homeOf.get(line.id)) };
+	});
+	const outChains = chainLines.map((line) => {
+		if (!isTidy(line.provenance)) return line;
+		const home = connectionTopics(line.premises, nodes);
+		return { ...line, provenance: strip(line.provenance, home) };
+	});
+	graphStore.rewriteLedgers({ nodes: outNodes, chains: outChains });
+	return moved;
+}
+
 /** Apply ONE change. Throws with the reason when it no longer fits. */
 export function applyTidyChange(graphStore: GraphStore, change: TidyChange, now = new Date().toISOString()): TidyApplyResult {
 	const graph = getGraph(graphStore);
@@ -154,7 +204,7 @@ export function applyTidyChange(graphStore: GraphStore, change: TidyChange, now 
 			return { removedNodeIds: [], createdNodeIds: parts.map((p) => p.id), chainsAdded: 1 };
 		}
 		case "connect": {
-			const provenance: ProvenancePoint[] = [{ chatId: TIDY_SOURCE_ID, messageId: "" }];
+			const provenance = connectionTopics(change.premises, nodes);
 			let conclusion = change.conclusion;
 			const created: string[] = [];
 			if (conclusion === undefined) {
