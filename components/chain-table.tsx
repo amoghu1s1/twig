@@ -70,12 +70,15 @@ import {
 	XIcon,
 } from "lucide-react";
 import { chainsForSelection, chainSourceDirectory, folderEntryCheck, toggleSourceEntries, formatChainLine, fuzzyScore, sourceFileLabel } from "@/src/core";
+import { TIDY_SOURCE_ID, TIDY_SOURCE_LABEL } from "@/src/core";
 import type { GraphChain, GraphNode, SourceDirectory, SourceEntry, SourceFolder, SourceEntrySelection } from "@/src/core";
 import { EditableSourceName, SourceDragRow, sourceNameMatches, SourceFolderTree, type OrganizationChange } from "./source-folder-tree";
 import { chainRow, useChainNavigation } from "./chain-navigation";
 import { useServerEvent, useServerResync } from "./server-events";
 import { TopBar } from "@/components/top-bar";
 import { DeleteSourceDialog } from "@/components/delete-source-dialog";
+import { TidyGraphButton } from "@/components/graph-tidy";
+
 import { LatexGlyph } from "@/components/latex-glyph";
 
 /** The sortable columns (owner ruling: all three — consistency). */
@@ -254,7 +257,7 @@ export function ChainTableBody({
 			const key = birth ?? "\0unlabeled";
 			let group = map.get(key);
 			if (!group) {
-				const label = birth === null ? null : (sourceRecords.get(birth)?.label ?? sessions[birth] ?? (fileSources[birth] === undefined ? null : sourceFileLabel(fileSources[birth])));
+				const label = birth === null ? null : birth === TIDY_SOURCE_ID ? TIDY_SOURCE_LABEL : (sourceRecords.get(birth)?.label ?? sessions[birth] ?? (fileSources[birth] === undefined ? null : sourceFileLabel(fileSources[birth])));
 				const kind =
 					birth === null ? null : sessions[birth] !== undefined ? "chat" : fileSources[birth] !== undefined ? "notes" : null;
 				group = { key, birth, label, kind, chains: [], nodeIds: [], newestCreatedAt: "" };
@@ -328,6 +331,7 @@ export function ChainTableBody({
 				</span>
 				{onOrganizationChange && <button type="button" aria-label="Add folder" data-testid="add-source-folder"
 					onClick={() => setCreatingFolder(true)} className="lh-no-drag rounded-lg p-2 text-muted-foreground hover:bg-accent"><FolderPlusIcon className="size-4" /></button>}
+				{!selectMode && <TidyGraphButton nodes={nodes} />}
 				<div className="relative shrink-0">
 					<SearchIcon className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
 					<input

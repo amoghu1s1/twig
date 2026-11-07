@@ -89,3 +89,8 @@ export * from "./coverage.ts";
 // ONE session→markdown formatter — the extractor's view and the user-facing
 // export share it. Pure, browser-safe.
 export * from "./session-markdown.ts";
+
+// Tidy graph (fork, 2026-11-07): the client needs the pseudo-source and the
+// proposal shape; the apply code (graph-tidy.ts) stays server-side.
+export { TIDY_SOURCE_ID, TIDY_SOURCE_LABEL } from "./tidy-source.ts";
+export type { TidyChange, TidyProposal, TidyStatus as TidyProposalStatus } from "./graph-tidy.ts";

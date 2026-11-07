@@ -64,6 +64,9 @@ export interface AnkiNoteRecord {
 	/** Set once Anki holds this node's cards (added now, or found by tag). */
 	deliveredAt?: string;
 	noteIds?: number[];
+	/** Set when the node left the graph (a tidy merge): the next sync with
+	 *  Anki reachable deletes these cards and forgets the record. */
+	retiredAt?: string;
 }
 
 export const cardFormat = (card: Pick<AnkiCard, "format">): AnkiCardFormat => card.format ?? "basic";

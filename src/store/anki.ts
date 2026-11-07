@@ -25,6 +25,7 @@ function isNoteRecord(v: unknown): v is AnkiNoteRecord {
 	return isRecord(v) && isString(v.nodeId) && isString(v.sourceId) && isString(v.deck) && isString(v.createdAt) &&
 		Array.isArray(v.cards) && v.cards.every(isCard) &&
 		(v.deliveredAt === undefined || isString(v.deliveredAt)) &&
+		(v.retiredAt === undefined || isString(v.retiredAt)) &&
 		(v.noteIds === undefined || (Array.isArray(v.noteIds) && v.noteIds.every((n) => typeof n === "number")));
 }
 

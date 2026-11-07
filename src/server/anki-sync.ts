@@ -127,6 +127,9 @@ export interface AnkiSync {
 	status(): Promise<AnkiStatus>;
 	/** Every carded proposition as a File > Import text file. */
 	importFile(): string;
+	/** These nodes left the graph: their cards leave Anki on this or the
+	 *  next sync that reaches it. Answers the records marked. */
+	retire(nodeIds: ReadonlyArray<string>): Promise<number>;
 }
 
 export function createAnkiSync(deps: AnkiSyncDeps): AnkiSync {
@@ -184,6 +187,7 @@ export function createAnkiSync(deps: AnkiSyncDeps): AnkiSync {
 		} catch (err) {
 			return { added: 0, alreadyInAnki: 0, waiting: pending.length, ankiReachable: false, ankiError: err instanceof Error ? err.message : String(err) };
 		}
+		await removeRetired();
 		if (pending.length > 0) await ensureModels();
 		let added = 0;
 		let alreadyInAnki = 0;
@@ -202,6 +206,21 @@ export function createAnkiSync(deps: AnkiSyncDeps): AnkiSync {
 			deps.ankiStore.upsertRecords([{ ...record, deliveredAt: now(), noteIds }]);
 		}
 		return { added, alreadyInAnki, waiting: 0, ankiReachable: true };
+	}
+
+	/** Delete retired records' notes from Anki (reachable), then forget them. */
+	async function removeRetired(): Promise<number> {
+		const retired = [...deps.ankiStore.readRecords().values()].filter((r) => r.retiredAt);
+		if (retired.length === 0) return 0;
+		const noteIds = new Set<number>();
+		for (const record of retired) {
+			for (const id of record.noteIds ?? []) noteIds.add(id);
+			for (const id of await anki.invoke<number[]>("findNotes", { query: `"tag:${nodeTag(record.nodeId)}"` })) noteIds.add(id);
+		}
+		if (noteIds.size > 0) await anki.invoke("deleteNotes", { notes: [...noteIds] });
+		deps.ankiStore.deleteRecords(retired.map((r) => r.nodeId));
+		console.info(`[anki] retired ${retired.length} proposition(s), removed ${noteIds.size} note(s)`);
+		return noteIds.size;
 	}
 
 	/** Create the LearnHarness note types when missing; restyle the ones
@@ -272,6 +291,25 @@ export function createAnkiSync(deps: AnkiSyncDeps): AnkiSync {
 			} catch (err) {
 				return { ankiReachable: false, ankiError: err instanceof Error ? err.message : String(err), ...base };
 			}
+		},
+		retire(nodeIds) {
+			const run = tail.catch(() => {}).then(async () => {
+				const records = deps.ankiStore.readRecords();
+				const marked = nodeIds.flatMap((id) => {
+					const record = records.get(id);
+					return record && !record.retiredAt ? [{ ...record, retiredAt: now() }] : [];
+				});
+				deps.ankiStore.upsertRecords(marked);
+				try {
+					await anki.invoke<number>("version");
+					await removeRetired();
+				} catch {
+					// Anki closed: the next sync that reaches it removes them
+				}
+				return marked.length;
+			});
+			tail = run;
+			return run;
 		},
 		importFile() {
 			const graph = getGraph(deps.graphStore);

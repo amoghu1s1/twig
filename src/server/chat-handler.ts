@@ -13,8 +13,11 @@ import { chatGPTStreamError } from "../agent/chatgpt-stream.ts";
 import { SubscriptionRequestCycle, type SubscriptionDispatchLifecycle } from "../agent/subscription-request-cycle.ts";
 import { reconstructRequestCause } from "../core/native-messages.ts";
 import { createJobRunner } from "../agent/subagents/runner.ts";
-import { createExtractionPipeline } from "../agent/subagents/extraction.ts";
+import { createExtractionPipeline, extractionStatuses } from "../agent/subagents/extraction.ts";
 import { createAnkiSync } from "./anki-sync.ts";
+import { createGraphTidy } from "./graph-tidy.ts";
+import { tidyStore } from "../store/tidy.ts";
+import { TIDY_SOURCE_ID, TIDY_SOURCE_LABEL } from "../core/graph-tidy.ts";
 import { ankiStore } from "../store/anki.ts";
 import * as path from "node:path";
 import type { ModelRole } from "../../config.ts";
@@ -137,6 +140,17 @@ export const extraction = createExtractionPipeline({
 		providerKeyPresent(provider) ? null : providerKeyMissingEnvelope(provider, [tier]),
 });
 
+/** A source's display title, as the chains view shows it. */
+function ankiSyncTitle(sourceId: string): string | undefined {
+	if (sourceId === TIDY_SOURCE_ID) return TIDY_SOURCE_LABEL;
+	const renamed = stores.sourceOrganizationStore.read().placements[sourceId]?.name;
+	if (renamed) return renamed;
+	const chat = stores.chatStore.getChat(sourceId);
+	if (chat) return chat.title;
+	const notes = stores.graphStore.readSources().find((s) => s.id === sourceId);
+	return notes ? path.basename(notes.filePath).replace(/\.[^.]+$/, "") : undefined;
+}
+
 /** The graph → Anki channel (src/server/anki-sync.ts): the card writer
  *  resolves like the extraction stages (role override → cheap slot →
  *  nothing, read fresh), with the same key-presence refusal. Decks are
@@ -144,14 +158,8 @@ export const extraction = createExtractionPipeline({
 export const ankiSync = createAnkiSync({
 	graphStore: stores.graphStore,
 	ankiStore,
-	sourceTitle: (sourceId) => {
-		const renamed = stores.sourceOrganizationStore.read().placements[sourceId]?.name;
-		if (renamed) return renamed;
-		const chat = stores.chatStore.getChat(sourceId);
-		if (chat) return chat.title;
-		const notes = stores.graphStore.readSources().find((s) => s.id === sourceId);
-		return notes ? path.basename(notes.filePath).replace(/\.[^.]+$/, "") : undefined;
-	},
+	sourceTitle: ankiSyncTitle,
+
 	engineFor: (role) => resolveEngine(role),
 	providerKeyMissing: (provider, tier) =>
 		providerKeyPresent(provider) ? null : providerKeyMissingEnvelope(provider, [tier]),
@@ -171,6 +179,26 @@ function autoSyncAnki(): void {
 	});
 }
 
+/** Tidy graph (src/server/graph-tidy.ts): the tidier resolves like the
+ *  other background roles (override → strong slot). An apply retires the
+ *  merged-away nodes' Anki cards and, with Anki sync on, cards the new
+ *  ones. */
+export const graphTidy = createGraphTidy({
+	graphStore: stores.graphStore,
+	store: tidyStore,
+	topicTitle: (sourceId) => ankiSyncTitle(sourceId) ?? "Untitled",
+	engineFor: (role) => resolveEngine(role),
+	providerKeyMissing: (provider, tier) =>
+		providerKeyPresent(provider) ? null : providerKeyMissingEnvelope(provider, [tier]),
+	extractionRunning: () => extractionStatuses().length > 0,
+	onApplied: (result) => {
+		if (result.removedNodeIds.length > 0) {
+			void ankiSync.retire(result.removedNodeIds).catch((err) => console.error("[anki] retire failed:", err));
+		}
+		if (result.createdNodeIds.length > 0 && effectiveSettings().graph.ankiSync) autoSyncAnki();
+		emit("sources-changed", {});
+	},
+});
 
 // Wake-pipeline wiring (contracts.ts "THE ASYNC PROTOCOL" §4): the pipeline
 // delivers its steers through THIS composition root (one event: the steer

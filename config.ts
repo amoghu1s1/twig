@@ -53,7 +53,8 @@ export type ModelRole =
 	| "pdfReader"
 	| "extractor"
 	| "auditor"
-	| "cardWriter";
+	| "cardWriter"
+	| "tidier";
 
 /**
  * The LIVE graph store (src/store/graph.ts) — owned by the app's extraction
@@ -82,6 +83,8 @@ export const SOURCE_ORGANIZATION_FILE = path.join(PATHS.graph, "source-organizat
  *  state. Outside graph/ on purpose: Anki export is not part of the graph
  *  family, so it never touches the graph format stamp. */
 export const ANKI_CARDS_FILE = path.join(PATHS.data, "anki", "cards.json");
+/** Tidy-graph proposals (fork, 2026-11-07): a JSON list, not a ledger. */
+export const TIDY_FILE = path.join(PATHS.graph, "tidy.json");
 /** The layout ledger (read-modify-write like sources.json): nodeId →
  *  {x,y} resting positions from the incremental settle (core/layout.ts).
  *  Carries an updatedAt stamp for future live-physics conflict handling. */

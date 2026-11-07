@@ -77,19 +77,19 @@ export interface GraphDeps {
 }
 
 /** "n_" + 12 hex chars (contracts.ts GraphNode.id — store-assigned). */
-function newGraphNodeId(): string {
+export function newGraphNodeId(): string {
 	return `n_${randomBytes(6).toString("hex")}`;
 }
 
 /** "arg_" + 12 hex chars — the implication-node namespace (a chain's id
  *  IS its derived node's id; collision-free with n_ by construction). */
-function newGraphChainId(): string {
+export function newGraphChainId(): string {
 	return `arg_${randomBytes(6).toString("hex")}`;
 }
 
 /** A chain's merge key: sorted premises + conclusion — the identity an
  *  assertion re-stating the same argument merges under. */
-function chainKey(premises: ReadonlyArray<string>, conclusion: string): string {
+export function chainKey(premises: ReadonlyArray<string>, conclusion: string): string {
 	return `${[...premises].sort().join("+")}>${conclusion}`;
 }
 
