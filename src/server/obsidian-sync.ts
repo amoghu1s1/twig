@@ -23,8 +23,8 @@ import type { GraphStore } from "../core/ports.ts";
 
 const MANIFEST = path.join(".learnharness", "manifest.json");
 
-export function defaultVaultDir(env: { LH_OBSIDIAN_VAULT?: string } = process.env, home = os.homedir(), exists = fs.existsSync): string {
-	if (env.LH_OBSIDIAN_VAULT) return path.resolve(env.LH_OBSIDIAN_VAULT);
+export function defaultVaultDir(override: string | undefined = process.env.LH_OBSIDIAN_VAULT, home = os.homedir(), exists = fs.existsSync): string {
+	if (override) return path.resolve(override);
 	const icloud = path.join(home, "Library", "Mobile Documents", "iCloud~md~obsidian", "Documents");
 	if (exists(icloud)) return path.join(icloud, "LearnHarness");
 	return path.join(home, "Documents", "LearnHarness Vault");
