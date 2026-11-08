@@ -8,6 +8,7 @@ import { ActivityProvider } from "@/components/activity-dock";
 import { ServerEventsProvider } from "@/components/server-events";
 import { AppearanceProvider } from "@/components/settings/appearance";
 import UpdateBanner from "@/components/update-banner";
+import { CalculatorHost } from "@/components/calculator/calculator-host";
 import CopyMathAsTex from "@/components/copy-math-as-tex";
 import { SYSTEM_MODE_SCRIPT } from "@/src/core";
 import { readThemeBoot } from "@/src/server";
@@ -60,6 +61,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 			</ServerEventsProvider>
 			{/* Auto-update banner (Wave C): fixed card, Electron-only pushes. */}
 			<UpdateBanner />
+			{/* The floating calculator (Alt+C or the bar's calculator button). */}
+			<CalculatorHost />
 			{/* Global copy handler: rendered math pastes as its TeX source. Renders null. */}
 			<CopyMathAsTex />
 		</body>

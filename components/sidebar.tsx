@@ -13,6 +13,7 @@ import { LhMark } from "@/components/lh-mark";
 import { ReviewNavRow } from "@/components/review-nav-row";
 import { BrailleSpinner } from "@/components/braille-spinner";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
+import { ScratchpadHost } from "@/components/scratchpad/scratchpad-host";
 import { SettingsDialogProvider, useSettingsDialog } from "@/components/settings/settings-dialog.tsx";
 import { Hint } from "@/components/ui/hint";
 import { Button } from "@/components/ui/button";
@@ -962,12 +963,16 @@ function SessionsSidebar() {
 	);
 }
 
-/** The app frame: sidebar inline + content. Rendered once in the root layout. */
+/** The app frame: sidebar inline + content, and the scratchpad sidebar on
+ *  the right when it's open. Rendered once in the root layout. */
 export function AppShell({ children }: { children: React.ReactNode }) {
+	const pageRef = useRef<HTMLElement>(null);
 	return (
 		<SettingsDialogProvider>
 			<SessionsSidebar />
-			<FilePathDropZone className="relative min-w-0 flex-1">{children}</FilePathDropZone>
+			<FilePathDropZone mainRef={pageRef} className="relative min-w-0 flex-1">{children}</FilePathDropZone>
+			{/* Alt+P or the bar's pencil button; the page shrinks beside it. */}
+			<ScratchpadHost page={pageRef} />
 			{/* The single document-level keydown listener (keyboard wave A) —
 			    after the content in the tree, but it's window-level so order only
 			    matters for the events it dispatches, never for DOM priority. */}

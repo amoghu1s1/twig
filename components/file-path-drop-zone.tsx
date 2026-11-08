@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { FileSymlinkIcon, XIcon } from "lucide-react";
 import { directoryReferencePath, quoteFilePath } from "@/src/core";
 import { appendToPrimaryInput } from "@/components/dictation";
@@ -9,9 +9,23 @@ import { INSERT_FILE_PATHS_EVENT } from "@/components/path-input";
 export const BROWSER_NOTICE = "Local file paths can only be attached in the desktop app. You can paste a full path instead.";
 
 /** The content area only: the sidebar is deliberately outside this zone.
- * Existing files stay where they are; only quoted path strings enter drafts. */
-export function FilePathDropZone({ children, className }: { children: React.ReactNode; className?: string }) {
+ * Existing files stay where they are; only quoted path strings enter drafts.
+ * `mainRef` lets a sibling (the scratchpad sidebar) measure where the page
+ * starts without changing this zone's own drag handling. */
+export function FilePathDropZone({
+	children,
+	className,
+	mainRef,
+}: {
+	children: React.ReactNode;
+	className?: string;
+	mainRef?: RefObject<HTMLElement | null>;
+}) {
 	const root = useRef<HTMLElement>(null);
+	const setRoot = (node: HTMLElement | null) => {
+		root.current = node;
+		if (mainRef) mainRef.current = node;
+	};
 	const depth = useRef(0);
 	const [dragging, setDragging] = useState(false);
 	const [notice, setNotice] = useState("");
@@ -33,7 +47,7 @@ export function FilePathDropZone({ children, className }: { children: React.Reac
 	}, []);
 	return (
 		<main
-			ref={root}
+			ref={setRoot}
 			className={className}
 			data-testid="file-path-drop-zone"
 			onDragEnter={(event) => {

@@ -8,7 +8,7 @@ A background sub-agent builds a self-contained interactive demo (single-file HTM
 
 ### `visual` — precise static figures
 
-A background sub-agent hand-authors one SVG, renders it, **looks at the render**, and iterates until the picture is correct. Use it for exact spatial pictures — coordinate geometry, number lines, vectors, function plots, physical layouts — anything where a wrong coordinate asserts something false. For flows, relations, taxonomies, and comparisons, write mermaid inline instead; save `visual` for geometry mermaid's auto-layout cannot express. Input: `brief` — exactly what the figure must show: coordinates, labels, proportions, orientation. One idea per figure; the maker sees nothing else of the lesson.
+A background sub-agent hand-authors one SVG, renders it, **looks at the render**, and iterates until the picture is correct. Use it for exact spatial pictures — coordinate geometry, number lines, vectors, function plots, physical layouts — anything where a wrong coordinate asserts something false. For flows, relations, taxonomies, and comparisons, write mermaid inline instead. A quick figure, and any figure inside a question, is an inline ```svg block (see formatting); save `visual` for complex figures that need its render-and-check pass and can arrive as their own message. Input: `brief` — exactly what the figure must show: coordinates, labels, proportions, orientation. One idea per figure; the maker sees nothing else of the lesson.
 
 A figure the learner must read to *answer a question* goes in that question's own `figure` field instead — it arrives with the question; `visual` arrives later.
 
