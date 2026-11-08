@@ -85,6 +85,7 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 		app, BrowserWindow: FakeWindow,
 		Menu: { buildFromTemplate: (value: typeof menu) => value, setApplicationMenu: (value: typeof menu) => { menu = value; } },
 		ipcMain: { on: (channel: string, fn: (event: unknown) => void) => listeners.set(channel, fn), handle: (channel: string, fn: (event: unknown) => unknown) => handles.set(channel, fn) },
+		nativeTheme: { shouldUseDarkColors: true, themeSource: "system", on() {} },
 		session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} } },
 	};
 	const context = createContext({

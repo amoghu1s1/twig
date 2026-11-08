@@ -14,6 +14,7 @@
 import path from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { isHexColor, type ChatSettings } from "../core";
+import { COLOR_OVERRIDE_KEYS, isThemeId, type AppearanceColorOverrides, type ColorOverrideKey } from "../core/themes.ts";
 import type {
 	AgentSettings,
 	AppearanceSettings,
@@ -231,22 +232,42 @@ function parseHexOrNull(value: unknown, field: string): { color?: string | null;
 	return { color: value };
 }
 
-/** appearance: { mode?, background?, fontFamily?, proseFontSize?,
- *  sessionNameSerif?, mdRendering? } */
+/** appearance: { mode?, theme?, background?, colors?, fontFamily?,
+ *  proseFontSize?, sessionNameSerif?, mdRendering? } — `theme` is shape-
+ *  checked here (slug); whether it EXISTS is the route's check. */
 export function parseAppearanceSettingsBody(body: unknown): SettingsBodyResult<AppearanceSettings> {
 	const raw = asRecord(body);
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
 	const settings: AppearanceSettings = {};
+	// Display mode (light/system wave): dark | light | system (follow OS).
 	if (raw.mode !== undefined) {
-		if (raw.mode !== "dark" && raw.mode !== "light") {
-			return { ok: false, error: "mode must be \"dark\" or \"light\"" };
+		if (raw.mode !== "dark" && raw.mode !== "light" && raw.mode !== "system") {
+			return { ok: false, error: "mode must be \"dark\", \"light\" or \"system\"" };
 		}
 		settings.mode = raw.mode;
+	}
+	if (raw.theme !== undefined) {
+		if (!isThemeId(raw.theme)) return { ok: false, error: "theme must be a theme id (lowercase slug)" };
+		settings.theme = raw.theme;
 	}
 	if (raw.background !== undefined) {
 		const parsed = parseHexOrNull(raw.background, "background");
 		if (parsed.error) return { ok: false, error: parsed.error };
 		settings.background = parsed.color ?? null;
+	}
+	if (raw.colors !== undefined) {
+		const colors = asRecord(raw.colors);
+		if (!colors) return { ok: false, error: "colors must be an object" };
+		const out: AppearanceColorOverrides = {};
+		for (const [key, value] of Object.entries(colors)) {
+			if (!(COLOR_OVERRIDE_KEYS as readonly string[]).includes(key)) {
+				return { ok: false, error: `unknown color "${key}" (supported: ${COLOR_OVERRIDE_KEYS.join(", ")})` };
+			}
+			const parsed = parseHexOrNull(value, `colors.${key}`);
+			if (parsed.error) return { ok: false, error: parsed.error };
+			out[key as ColorOverrideKey] = parsed.color ?? null;
+		}
+		settings.colors = out;
 	}
 	if (raw.fontFamily !== undefined) {
 		if (raw.fontFamily !== null && (typeof raw.fontFamily !== "string" || !raw.fontFamily.trim())) {

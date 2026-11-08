@@ -13,6 +13,7 @@ import { jobStore } from "../store/jobs.ts";
 import { readingStore } from "../store/readings.ts";
 import { readingDiscussionStore } from "../store/reading-discussions.ts";
 import { settingsStore } from "../store/settings.ts";
+import { themeStore } from "../store/themes.ts";
 import { resolveSettings, type EffectiveSettings } from "../core/settings-resolution.ts";
 import { syncCustomProvider } from "./custom-provider.ts";
 /** The wired adapters. Satisfies core/graph.ts's GraphDeps structurally. */
@@ -24,6 +25,7 @@ export const stores = {
 	readingStore,
 	readingDiscussionStore,
 	settingsStore,
+	themeStore,
 };
 
 export type Stores = typeof stores;

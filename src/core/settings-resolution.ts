@@ -204,7 +204,9 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 		},
 		appearance: {
 			mode: appearance.mode ?? factoryAppearance.mode,
+			theme: appearance.theme ?? factoryAppearance.theme,
 			background: appearance.background ?? factoryAppearance.background,
+			colors: appearance.colors ?? factoryAppearance.colors,
 			fontFamily: appearance.fontFamily ?? factoryAppearance.fontFamily,
 			proseFontSize: appearance.proseFontSize ?? factoryAppearance.proseFontSize,
 			sessionNameSerif: appearance.sessionNameSerif ?? factoryAppearance.sessionNameSerif,
