@@ -133,7 +133,8 @@ jobs:
       - run: node scripts/smoke-provider-runtime.mjs
       - run: node scripts/build-server.mjs
       - run: node scripts/smoke-server.mjs --electron
-      - name: Validate macOS release secrets
+      - name: Detect macOS signing secrets
+        id: mac-signing
         if: github.event_name == 'push' && runner.os == 'macOS'
         env:
           CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
@@ -142,14 +143,18 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          missing=()
           for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
-            if [[ -z "${!name}" ]]; then
-              echo "::error::Missing signing/notarization secret: $name"
-              exit 1
-            fi
+            if [[ -z "${!name}" ]]; then missing+=("$name"); fi
           done
+          if (( ${#missing[@]} > 0 )); then
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Missing signing/notarization secret(s): ${missing[*]}. Publishing an unsigned macOS build; users will need to allow it in Gatekeeper."
+          else
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Signed and notarized macOS release → draft
-        if: github.event_name == 'push' && runner.os == 'macOS'
+        if: github.event_name == 'push' && runner.os == 'macOS' && steps.mac-signing.outputs.signed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
@@ -158,6 +163,12 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npx electron-builder ${{ matrix.builder_args }} --publish always -c.forceCodeSigning=true
+      - name: Unsigned macOS release → draft (signing secrets not configured)
+        if: github.event_name == 'push' && runner.os == 'macOS' && steps.mac-signing.outputs.signed != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder ${{ matrix.builder_args }} --publish always -c.mac.notarize=false
       - name: Windows/Linux release → draft
         if: github.event_name == 'push' && runner.os != 'macOS'
         env:
