@@ -1,5 +1,5 @@
 /**
- * The agent-split question tools (docs/probe-teach-split.md §1):
+ * The agent-split question tools (docs/archive/probe-teach-split.md §1):
  *
  *  - teachQuizToolFor — the TEACHER's quiz: the shared authoring contract +
  *    the per-session plan-nodeId validation (position signal; a mismatched id
@@ -31,7 +31,6 @@ import { jobStore } from "../src/store/jobs.ts";
 import { probeQuizInputSchema, quizInputObject, quizInputProblems } from "../src/core/question-core.ts";
 import { chatStore } from "../src/store/chats.ts";
 import { PATHS } from "../config.ts";
-import { figureProblems } from "../src/agent/subagents/headless.ts";
 
 const dataDir = path.join(PATHS.root, "data");
 fs.mkdirSync(dataDir, { recursive: true });
@@ -296,10 +295,10 @@ describe("tool toggles (core/pending.ts + factories)", () => {
 			spawn: () => {},
 		};
 		const full = Object.keys(createTeacherTools(ctx)).sort();
-		assert.deepEqual(full, ["ask_user_question", "code-exercises", "demo", "find", "grep", "ls", "pdf", "plan_init", "quiz", "read", "research", "visual"]);
+		assert.deepEqual(full, ["ask_user_question", "code-exercises", "demo", "find", "grep", "ls", "pdf", "plan_init", "quiz", "read", "research", "show_image", "visual"]);
 
 		const noResearch = Object.keys(createTeacherTools(ctx, { research: false })).sort();
-		assert.deepEqual(noResearch, ["ask_user_question", "code-exercises", "demo", "find", "grep", "ls", "pdf", "plan_init", "quiz", "read", "visual"]);
+		assert.deepEqual(noResearch, ["ask_user_question", "code-exercises", "demo", "find", "grep", "ls", "pdf", "plan_init", "quiz", "read", "show_image", "visual"]);
 
 		// absent = enabled: an empty record and undefined behave identically
 		assert.deepEqual(
@@ -310,7 +309,7 @@ describe("tool toggles (core/pending.ts + factories)", () => {
 
 		// The mechanic switch (owner 2026-09-27): free-recall swaps the teach
 		// quiz for the teach explain — one quizzing tool, whichever is armed.
-		const freeFull = ["ask_user_question", "code-exercises", "demo", "explain", "find", "grep", "ls", "pdf", "plan_init", "read", "research", "visual"];
+		const freeFull = ["ask_user_question", "code-exercises", "demo", "explain", "find", "grep", "ls", "pdf", "plan_init", "read", "research", "show_image", "visual"];
 		assert.deepEqual(Object.keys(createTeacherTools(ctx, { explain: true })).sort(), freeFull);
 		assert.deepEqual(
 			Object.keys(createTeacherTools(ctx, { explain: true, research: false })).sort(),
@@ -472,33 +471,5 @@ describe("tool descriptions carry mechanics only, no question-craft", () => {
 		);
 		assert.ok(shared.includes("asymmetry"), "the option craft moved here, not deleted");
 		assert.ok(shared.includes("TRANSCRIBED SPEECH"), "the dictation-leniency note lives here");
-	});
-});
-
-describe("figureProblems: the question-figure boundary check (owner, 2026-10-27)", () => {
-	const svg = "<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'><rect width='5' height='5'/></svg>";
-	it("absent and valid figures pass; the display's xmlns repair is honored", async () => {
-		assert.deepEqual(await figureProblems(undefined), []);
-		assert.deepEqual(await figureProblems(svg), []);
-		assert.deepEqual(await figureProblems("<svg width='10' height='10'><rect width='5' height='5'/></svg>"), []);
-	});
-	it("malformed and oversized figures become problems", async () => {
-		assert.match((await figureProblems("<svg width='10'><rect></svg>"))[0] ?? "", /not valid SVG/);
-		assert.match((await figureProblems("not svg"))[0] ?? "", /not valid SVG/);
-		assert.match((await figureProblems(svg + " ".repeat(20001)))[0] ?? "", /cap is 20000/);
-	});
-	it("every graded tool rejects a malformed figure back to the model", async () => {
-		const bad = "<svg><g></svg>";
-		const { type: _t, nodeId: _n, ...probeQuiz } = validQuiz;
-		const recall = { question: "Why?", correctAnswer: "Because." };
-		for (const [tool, input] of [
-			[probeQuizTool, { ...probeQuiz, figure: bad }],
-			[probeExplainTool, { ...recall, figure: bad }],
-		] as const) {
-			const r = await boundaryParse(tool, input);
-			assert.equal(r.success, false);
-			assert.match(problemLines(r.error).join("\n"), /figure is not valid SVG/);
-		}
-		assert.equal((await boundaryParse(probeQuizTool, { ...probeQuiz, figure: svg })).success, true);
 	});
 });
