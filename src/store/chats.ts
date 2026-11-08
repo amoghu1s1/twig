@@ -252,6 +252,18 @@ function updateSideChats(id: string, update: (threads: SideChatThread[]) => Side
 	return next;
 }
 
+/** Rewind to a retained prefix: messages and tree land in ONE write, so a
+ *  crash can never leave a tree that its own transcript does not imply. */
+function rewindMessages(id: string, messages: LhMessage[], tree: PlanTree | undefined): void {
+	const record = getChat(id);
+	if (!record) throw new Error(`Chat not found: ${id}`);
+	record.messages = messages;
+	if (tree) record.tree = tree;
+	else delete record.tree;
+	record.updatedAt = new Date().toISOString();
+	writeChat(record);
+}
+
 export const chatStore: ChatStore = {
 	createChat,
 	getChat,
@@ -259,6 +271,7 @@ export const chatStore: ChatStore = {
 	saveMessages,
 	saveImageSnapshot,
 	saveTree,
+	rewindMessages,
 	saveSettings,
 	renameChat,
 	saveNotes,
