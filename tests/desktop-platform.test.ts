@@ -58,6 +58,7 @@ describe("desktop development startup", () => {
 				requestSingleInstanceLock: () => false, quit() {}, on() {}, whenReady: async () => {},
 			},
 			BrowserWindow: FakeWindow,
+			nativeTheme: { shouldUseDarkColors: true, themeSource: "system", on() {} },
 			Menu: { buildFromTemplate() {}, setApplicationMenu() {} },
 			ipcMain: { handle() {}, on() {} },
 			session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} } },

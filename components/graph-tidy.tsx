@@ -131,7 +131,7 @@ export function TidyGraphButton({ nodes }: { nodes: GraphNode[] }) {
 						</button>
 					</div>
 					<div className="flex-1 overflow-y-auto px-3 py-2">
-						{status?.error && <p role="alert" className="pb-2 text-xs text-red-400">{status.error}</p>}
+						{status?.error && <p role="alert" className="pb-2 text-xs text-error">{status.error}</p>}
 						{note && <p className="pb-2 text-xs text-muted-foreground">{note}</p>}
 						{pending.length === 0 ? (
 							<p className="py-4 text-center text-xs text-muted-foreground">

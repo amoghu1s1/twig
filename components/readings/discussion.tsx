@@ -197,7 +197,7 @@ function ExchangeItem({ readingId, exchange: x }: { readingId: string; exchange:
 			{!live && (
 				<div className="flex flex-wrap items-center gap-x-2 font-ui text-[0.7rem] text-muted-foreground/80">
 					{x.mode === "model" ? (
-						<span className="text-amber-600 dark:text-amber-400/90" title="Answered from model knowledge — no sources were read">
+						<span className="text-warning" title="Answered from model knowledge — no sources were read">
 							AI only · not source-checked
 						</span>
 					) : (

@@ -257,7 +257,7 @@ export function SentenceReader({ text, onClose }: { text: string; onClose: () =>
 					Read aloud {prefs.autoRead ? "on" : "off"}
 				</button>
 				{prefs.cloud && fallbackNote !== null && (
-					<span className="text-amber-500" title={fallbackNote} data-testid="sentence-reader-fallback">
+					<span className="text-warning" title={fallbackNote} data-testid="sentence-reader-fallback">
 						Using browser voice
 					</span>
 				)}

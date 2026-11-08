@@ -98,7 +98,7 @@ export function ModeLabel({ mode }: { mode: ReadingMode }) {
 	return mode === "researched" ? (
 		<span className="text-muted-foreground">Researched</span>
 	) : (
-		<span className="text-amber-600 dark:text-amber-400/90" title="Written from model knowledge — no sources were read">
+		<span className="text-warning" title="Written from model knowledge — no sources were read">
 			AI only · not source-checked
 		</span>
 	);
