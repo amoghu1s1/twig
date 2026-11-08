@@ -46,14 +46,17 @@ export function formatProbeError(error, depth = 0) {
 	return lines.join("\n");
 }
 
-/** macOS unsigned builds cannot launch the helper reliably under Gatekeeper.
- *  The tag release only permits this path when signing secrets are absent;
- *  signed releases still fail closed. */
-function isUnsignedMacApp(standalone) {
+/** macOS builds without a Developer ID signature cannot launch the helper
+ *  reliably under Gatekeeper. The tag release only permits this path when
+ *  signing secrets are absent; Developer ID signed releases still fail
+ *  closed. Ad-hoc signatures (which electron-builder can leave behind) do
+ *  not count: the helper still hits Gatekeeper. */
+function isDeveloperIdSignedApp(standalone) {
 	if (process.platform !== "darwin") return false;
 	const app = path.resolve(standalone, "../../../..");
 	const result = spawnSync("codesign", ["-dv", "--verbose=2", app], { encoding: "utf8" });
-	return result.status !== 0;
+	if (result.status !== 0) return false;
+	return `${result.stdout ?? ""}\n${result.stderr ?? ""}`.includes("Authority=Developer ID Application");
 }
 
 export function verifyDemoRuntime(standalone, runtime = process.execPath, browser = false) {
@@ -67,8 +70,8 @@ export function verifyDemoRuntime(standalone, runtime = process.execPath, browse
 		});
 		if (result.status !== 0 || result.error) {
 			const error = new Error(`demo runtime probe failed (${result.error?.message ?? result.status}):\n${result.stdout ?? ""}${result.stderr ?? ""}`);
-			if (browser && isUnsignedMacApp(standalone)) {
-				console.warn(`[smoke-demo-runtime] WARN: unsigned macOS build; browser-service probe skipped: ${error.message.split("\n")[0]}`);
+			if (browser && !isDeveloperIdSignedApp(standalone)) {
+				console.warn(`[smoke-demo-runtime] WARN: macOS build is not Developer ID signed; browser-service probe skipped: ${error.message.split("\n")[0]}`);
 				return;
 			}
 			throw error;
