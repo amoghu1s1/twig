@@ -110,7 +110,11 @@ describe("parseCppRunBody", () => {
 	});
 });
 
-describe("runCpp", () => {
+// The fake compiler is a POSIX script; Windows cannot spawn it without a
+// shell, and this runner has no real C++ toolchain. Discovery on Windows is
+// covered by the win32 file-name branch above; the real route is exercised
+// on macOS/Linux (and by the Windows standalone job, which builds the app).
+describe("runCpp", { skip: process.platform === "win32" }, () => {
 	it("compiles and runs a graded exercise, then removes its temp dir", async () => {
 		const result = await runCpp(success, { compiler, tempRoot: runRoot });
 		assert.deepEqual(

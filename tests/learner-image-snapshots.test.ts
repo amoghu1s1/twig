@@ -162,13 +162,19 @@ describe("learner image source safety", () => {
 		await fs.writeFile(path.join(home, ".claude", "private.png"), picture());
 		await fs.symlink(path.join(home, ".claude"), path.join(home, "alias"));
 		const old = process.env.HOME;
+		const oldUserProfile = process.env.USERPROFILE;
 		try {
+			// os.homedir() reads USERPROFILE on Windows and HOME elsewhere.
 			process.env.HOME = home;
+			process.env.USERPROFILE = home;
 			const tool = createShowImageTool({ chatId: "never-written", chatStore: { saveImageSnapshot: () => assert.fail("must not save denied image") } });
 			await assert.rejects(tool.execute("denied", { path: "alias/private.png" }), /Access denied/);
 			const tools = jobTools({ chatId: "x", jobStore: { findJobByToolCallId: () => undefined } as unknown as JobStore, spawn: () => assert.fail("must not spawn") });
 			await assert.rejects(tools.visual!.execute("denied", { brief: "mark it", image: "alias/private.png" }), /Access denied/);
-		} finally { if (old === undefined) delete process.env.HOME; else process.env.HOME = old; }
+		} finally {
+			if (old === undefined) delete process.env.HOME; else process.env.HOME = old;
+			if (oldUserProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = oldUserProfile;
+		}
 	});
 
 	it("keeps visual dispatch idempotent if the source disappears after the first call", async () => {

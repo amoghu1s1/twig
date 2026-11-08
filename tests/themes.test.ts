@@ -91,7 +91,8 @@ function cssBlock(css: string, selector: string): Map<string, string> {
 
 describe("themeVars — the adapter", () => {
 	it("Default reproduces app/globals.css's literals exactly", () => {
-		const css = fs.readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+		// Normalize CRLF so Windows checkouts parse the same blocks.
+		const css = fs.readFileSync(new URL("../app/globals.css", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 		const block = cssBlock(css, ":root,\n.dark");
 		for (const [token, value] of Object.entries(themeVars(DEFAULT_THEME.colors, "dark"))) {
 			assert.equal(block.get(token), value, token);

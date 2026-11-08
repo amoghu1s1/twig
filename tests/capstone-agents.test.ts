@@ -24,7 +24,9 @@ import { isValidSegmentPath } from "../src/core/prompt-segments.ts";
 
 // ── fixtures ─────────────────────────────────────────────────────────────────
 
-const TMP = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "lh-capstone-")));
+// `realpathSync.native` also expands Windows 8.3 short names, so the
+// fixture root matches what the tools return from `fs.realpath`.
+const TMP = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "lh-capstone-")));
 const PROJECT = path.join(TMP, "project");
 const OUTSIDE = path.join(TMP, "outside");
 fs.mkdirSync(path.join(PROJECT, "src"), { recursive: true });

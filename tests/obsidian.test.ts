@@ -88,8 +88,8 @@ describe("server/obsidian-sync", () => {
 	});
 
 	it("picks the vault: env, then Obsidian's iCloud folder, then Documents", () => {
-		assert.equal(defaultVaultDir("/v", "/h", () => true), "/v");
-		assert.equal(defaultVaultDir(undefined, "/h", () => true), "/h/Library/Mobile Documents/iCloud~md~obsidian/Documents/Twig");
-		assert.equal(defaultVaultDir(undefined, "/h", () => false), "/h/Documents/Twig Vault");
+		assert.equal(defaultVaultDir("/v", "/h", () => true), path.resolve("/v"));
+		assert.equal(defaultVaultDir(undefined, "/h", () => true), path.join("/h", "Library", "Mobile Documents", "iCloud~md~obsidian", "Documents", "Twig"));
+		assert.equal(defaultVaultDir(undefined, "/h", () => false), path.join("/h", "Documents", "Twig Vault"));
 	});
 });
