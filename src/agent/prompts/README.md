@@ -10,6 +10,7 @@ The runtime composes prompts for **prober**, **teacher** and **practice** agents
 | Teacher | `system-prompt.md` → sorted `teacher/` fragments → sorted `shared/` fragments |
 | Practice | sorted `practice/` fragments → the curated shared appendix below; **no teaching base** |
 | Side questions | [`side-chat/00-base.md`](side-chat/00-base.md) → shared `10-voice.md`, `15-accuracy.md`, `40-formatting.md`; composed by [`src/agent/side-chat.ts`](../../side-chat.ts), not by the segment loader |
+| Capstone | sorted `capstone/` fragments → `10-voice.md`, `15-accuracy.md`, `40-formatting.md` from `shared/`; **no teaching base** |
 
 Directory discovery accepts only filenames matching `^\d+-[\w.-]+\.md$` and sorts them lexicographically by filename. Keep numeric prefixes consistently padded when order matters. The teaching base supplies the agent's purpose/philosophy; voice, accuracy, mental-model, question, confidence, file and formatting guidance are separate shared fragments. The teacher's method and planning/teaching doctrine live in its own directory; probing doctrine lives in `prober/`.
 

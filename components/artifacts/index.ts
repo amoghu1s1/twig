@@ -7,6 +7,7 @@ import { ImageCard } from "@/components/artifacts/image-card";
 import { ProbeDoneCard } from "@/components/artifacts/probe-done-card";
 import { ToolCallCard } from "@/components/artifacts/tool-call-card";
 import { ProblemCard, ConcludeCard } from "@/components/practice-cards";
+import { BriefCard, ReviewCard, EvaluateCard, GapReportCard } from "@/components/capstone-cards";
 import { ReadingOfferCard } from "@/components/readings/offer-card";
 
 /**
@@ -47,6 +48,13 @@ export const artifactRenderers: Record<string, ComponentType<ArtifactPartProps>>
 	// the conclusion carries the outcome + verdict + the reveal.
 	problem: ProblemCard,
 	conclude: ConcludeCard,
+	// The capstone set (2026-11-01): the accepted brief, checkpoint reviews,
+	// evaluations and the no-pitch gap report. The scoped read/ls/find/grep
+	// reuse the quiet tool-call cards registered above.
+	brief: BriefCard,
+	review: ReviewCard,
+	evaluate: EvaluateCard,
+	gap_report: GapReportCard,
 	// The prober's graph tools (wave 7): same quiet expandable card —
 	// collapsed one-liner (tool name + the session id for
 	// list_propositions), the tool's own compact row-per-line output

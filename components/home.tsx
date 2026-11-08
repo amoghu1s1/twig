@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CornerDownLeftIcon, DumbbellIcon } from "lucide-react";
+import { CornerDownLeftIcon, DumbbellIcon, HammerIcon } from "lucide-react";
 import { GraphView } from "@/components/graph-view";
 import { MinimalHome } from "@/components/minimal-home";
 import { SetupDialog } from "@/components/setup-dialog";
-import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
+import { CAPSTONE_PICK_HINT, ComposerActions, NodePickerControl } from "@/components/composer-actions";
 import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
 import { DictationBar, joinDictation, useDictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
@@ -92,11 +92,12 @@ export function Home({
 	 *  may carry proposition picks from the chain table (the chip above
 	 *  the composer opens the picker; the picks seed the opening prompt).
 	 *  Not enforcing any input format — the picks are a convenience. */
-	const [mode, setMode] = useState<"teach" | "practice">("teach");
+	const [mode, setMode] = useState<"teach" | "practice" | "capstone">("teach");
 	const [practiceProps, setPracticeProps] = useState<{ id: string; name: string; statement: string }[]>([]);
 	const [chainSelectOpen, setChainSelectOpen] = useState(false);
 	// The chain table is CONTROLLED off this id set (the lifted pick).
 	const pickedIds = useMemo(() => new Set(practiceProps.map((p) => p.id)), [practiceProps]);
+	const capstoneNeedsPicks = mode === "capstone" && practiceProps.length === 0;
 
 	/* FINISH DICTATION FIRST (owner, 2026-10-01): Enter may arrive while a
 	 * run is live with the topic still deferred in the run's buffer — stop
@@ -113,6 +114,9 @@ export function Home({
 	const begin = async () => {
 		const t = topicRef.current.trim();
 		if (!t || startingRef.current) return;
+		// CAPSTONE (2026-11-01): picks are required — nothing is created
+		// without them (the pill says why; the send button is disabled).
+		if (capstoneNeedsPicks) return;
 		// Unconfigured: the send INTERCEPTS into the setup flow (the draft
 		// stays in the textarea; the learner sends it after Save).
 		if (!configured) {
@@ -146,7 +150,7 @@ export function Home({
 			// chains among them); the prompt stays the learner's own words.
 			const target = await starterRef.current.start({
 				title: t,
-				...(mode === "practice" ? { kind: "practice" } : {}),
+				...(mode !== "teach" ? { kind: mode } : {}),
 				...(practiceProps.length > 0 ? { graphContext: { propositions: practiceProps } } : {}),
 			}, fetch, JSON.stringify(catalog?.slots.strong));
 			router.push(target);
@@ -220,8 +224,9 @@ export function Home({
 					    shows the pick HINT so the affordance is discoverable;
 					    teaching mode with nothing picked renders nothing. */}
 					<ComposerActions
-						picker={(practiceProps.length > 0 || mode === "practice") && (
+						picker={(practiceProps.length > 0 || mode !== "teach") && (
 							<NodePickerControl
+								emptyLabel={mode === "capstone" ? CAPSTONE_PICK_HINT : undefined}
 								count={practiceProps.length}
 								onOpen={() => setChainSelectOpen(true)}
 								onClear={() => setPracticeProps([])}
@@ -274,7 +279,7 @@ export function Home({
 								void start();
 							}
 						}}
-						placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
+						placeholder={mode === "practice" ? "What do you want to practice?" : mode === "capstone" ? "What would you build?" : "What do you want to learn?"}
 						autoFocus
 						className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
 					/>
@@ -284,7 +289,7 @@ export function Home({
 					<button
 						type="submit"
 						aria-label="Start session"
-						disabled={(!topic.trim() && !dictation.active) || busy}
+						disabled={(!topic.trim() && !dictation.active) || busy || capstoneNeedsPicks}
 						className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-40"
 					>
 						<CornerDownLeftIcon className="size-5" />
@@ -299,7 +304,7 @@ export function Home({
 						turns={[] as TurnUsage[]}
 						leadingSlot={
 							<div className="flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="home-mode-switch">
-								{(["teach", "practice"] as const).map((m) => (
+								{(["teach", "practice", "capstone"] as const).map((m) => (
 									<button
 										key={m}
 										type="button"
@@ -313,7 +318,8 @@ export function Home({
 										}
 									>
 										{m === "practice" ? <DumbbellIcon aria-hidden="true" className="size-3" /> : null}
-										{m === "teach" ? "Teach" : "Practice"}
+										{m === "capstone" ? <HammerIcon aria-hidden="true" className="size-3" /> : null}
+										{m === "teach" ? "Teach" : m === "practice" ? "Practice" : "Capstone"}
 									</button>
 								))}
 							</div>

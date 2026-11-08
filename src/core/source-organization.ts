@@ -34,9 +34,11 @@ export interface SourceDirectory {
 	sources: SourceEntry[];
 }
 /** Chains browsing and practice picking share this presentation inventory.
- * Keep the full organization: hidden sessions still own their placements. */
+ * Keep the full organization: hidden sessions still own their placements.
+ * Practice and capstone never write the graph, so neither appears as a
+ * source group. */
 export function chainSourceDirectory(directory: SourceDirectory): SourceDirectory {
-	return { ...directory, sources: directory.sources.filter((s) => s.chatKind !== "practice") };
+	return { ...directory, sources: directory.sources.filter((s) => s.chatKind !== "practice" && s.chatKind !== "capstone") };
 }
 export type OrganizationAction =
 	| { action: "create-folder"; name: string; parentId: string | null }

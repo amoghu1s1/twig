@@ -15,10 +15,11 @@ it("labels remove only the final extension, retaining spelling, punctuation and 
 	for (const [path, label] of [["notes/09_chapter3normal.md", "09_chapter3normal"], ["My_Notes.v2.pdf", "My_Notes.v2"], ["x/a-b.txt", "a-b"], [".hidden", ".hidden"], ["README", "README"]]) assert.equal(sourceFileLabel(path!), label);
 });
 
-it("chains projection hides only explicitly marked practice sources without mutating source or organization data", () => {
+it("chains projection hides only explicitly marked practice and capstone sources without mutating source or organization data", () => {
 	const state = placeImportedSource(emptySourceOrganization(), "practice", "A/practice.md", fresh);
 	const sources = [
 		{ id: "practice", kind: "chat" as const, chatKind: "practice" as const, label: "Practice", createdAt: "now" },
+		{ id: "capstone", kind: "chat" as const, chatKind: "capstone" as const, label: "Capstone", createdAt: "now" },
 		{ id: "teach", kind: "chat" as const, chatKind: "teach" as const, label: "Teach", createdAt: "now" },
 		{ id: "legacy", kind: "chat" as const, label: "Legacy teach", createdAt: "now" },
 		{ id: "notes", kind: "notes" as const, label: "Notes", createdAt: "now" },

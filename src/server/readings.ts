@@ -141,7 +141,7 @@ export function createReading(req: ReadingRequest): ReadingRecord {
 	} else if (base.chatId) {
 		const chat = stores.chatStore.getChat(base.chatId);
 		if (!chat) throw new ReadingRequestError("Unknown session", 404);
-		if (chat.kind === "practice") throw new ReadingRequestError("Readings attach to teaching sessions", 400);
+		if (chat.kind === "practice" || chat.kind === "capstone") throw new ReadingRequestError("Readings attach to teaching sessions", 400);
 		const built = buildSessionSnapshot(
 			base.kind,
 			chat,

@@ -69,6 +69,13 @@ describe("session kind (practice sessions, 2026-10-04)", () => {
 		assert.equal(listed?.kind, "practice");
 	});
 
+	it("createChat(kind: 'capstone') stamps the marker on record + list", () => {
+		const chat = chatStore.createChat("capstone session", "capstone");
+		assert.equal(chat.kind, "capstone");
+		const listed = chatStore.listChats().find((c) => c.id === chat.id);
+		assert.equal(listed?.kind, "capstone");
+	});
+
 	it("the summary projection NORMALIZES: absent record field reads as teach", () => {
 		const chat = chatStore.createChat("another plain one");
 		const listed = chatStore.listChats().find((c) => c.id === chat.id);

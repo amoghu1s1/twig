@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { it } from "node:test";
 import { composeInstructions } from "../src/agent/teacher-agent.ts";
 
-for (const kind of ["prober", "teacher", "practice"] as const) {
+for (const kind of ["prober", "teacher", "practice", "capstone"] as const) {
 	it(`${kind} doctrine keeps single backslashes in ordinary replies`, () => {
 		const text = composeInstructions(kind);
 		assert.match(text, /In ordinary response text, write LaTeX exactly as in a \.tex file: a single backslash per command/);
