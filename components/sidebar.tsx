@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { AppearanceMode, ChatDeleteMode } from "@/src/core";
-import { BookOpenIcon, DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { BookOpenIcon, DumbbellIcon, HammerIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
@@ -335,6 +335,9 @@ export function SessionRow({
 			{(chat.kind ?? "teach") === "practice" && (
 				<DumbbellIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-label="Practice session" />
 			)}
+			{chat.kind === "capstone" && (
+				<HammerIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-label="Capstone session" />
+			)}
 		</button>
 	);
 }
@@ -389,10 +392,10 @@ export function RenameRow({ chat, onCommit, onCancel }: { chat: ChatListItem; on
 	);
 }
 
-/** The three-way kind filter (practice sessions, owner 2026-10-04):
- *  Teaching / All / Practice — a client-side filter over the same
- *  snapshot, persisted in localStorage, defaulting to All. */
-export type SessionKindFilter = "teach" | "all" | "practice";
+/** The four-way kind filter (practice sessions, owner 2026-10-04):
+ *  Teaching / Practice / Capstone / All — a client-side filter over the
+ *  same snapshot, persisted in localStorage, defaulting to All. */
+export type SessionKindFilter = "teach" | "all" | "practice" | "capstone";
 const KIND_FILTER_KEY = "lh:session-kind-filter";
 
 function SessionsSidebar() {
@@ -402,7 +405,7 @@ function SessionsSidebar() {
 	const [kindFilter, setKindFilter] = useState<SessionKindFilter>("all");
 	useEffect(() => {
 		const stored = window.localStorage.getItem(KIND_FILTER_KEY);
-		if (stored === "teach" || stored === "all" || stored === "practice") setKindFilter(stored);
+		if (stored === "teach" || stored === "all" || stored === "practice" || stored === "capstone") setKindFilter(stored);
 	}, []);
 	const setFilter = useCallback((f: SessionKindFilter) => {
 		setKindFilter(f);
@@ -723,6 +726,16 @@ function SessionsSidebar() {
 						Practice
 						<span className="sr-only">create a new practice session</span>
 					</button>
+					<button
+						type="button"
+						data-testid="new-session-capstone"
+						onClick={() => router.push("/chat/new?mode=capstone")}
+						className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+					>
+						<HammerIcon className="size-3" />
+						Capstone
+						<span className="sr-only">create a new capstone session</span>
+					</button>
 					<ReviewNavRow />
 					{/* Readings (docs/readings.md): the library of opt-in
 					    companion documents — a destination, not a creation door. */}
@@ -808,20 +821,20 @@ function SessionsSidebar() {
 				    hatch on the right, mirroring the create-buttons above.
 				    Persisted client-side. */}
 				<div className="mx-3 flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="session-kind-filter">
-					{(["teach", "practice", "all"] as const).map((f) => (
+					{(["teach", "practice", "capstone", "all"] as const).map((f) => (
 						<button
 							key={f}
 							type="button"
 							data-testid={`kind-filter-${f}`}
 							onClick={() => setFilter(f)}
 							className={cn(
-								"flex-1 rounded-sm px-2 py-1 text-[11px] uppercase tracking-wider transition-colors",
+								"flex-1 rounded-sm px-1.5 py-1 text-[11px] uppercase tracking-wider transition-colors",
 								kindFilter === f
 									? "bg-accent text-foreground"
 									: "text-muted-foreground hover:text-foreground",
 							)}
 						>
-							{f === "teach" ? "Teaching" : f === "all" ? "All" : "Practice"}
+							{f === "teach" ? "Teaching" : f === "all" ? "All" : f === "capstone" ? "Capstone" : "Practice"}
 						</button>
 					))}
 				</div>

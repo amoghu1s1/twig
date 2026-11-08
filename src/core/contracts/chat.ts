@@ -24,8 +24,11 @@ import type { EmissionStats } from "./graph.ts";
 /** The session's kind (practice sessions, owner 2026-10-04): "teach" is
  *  the default and ABSENT on pre-practice records (no migration — absence
  *  reads as teach); "practice" marks an adaptive-practice session — the
- *  practice agent, its two tools, no extraction, no graph writes. */
-export type ChatKind = "teach" | "practice";
+ *  practice agent, its two tools, no extraction, no graph writes.
+ *  "capstone" (2026-11-01) marks a build-it session: the learner pitches a
+ *  software project, builds it outside the app, and the capstone agent
+ *  reviews it read-only against accepted criteria — also no extraction. */
+export type ChatKind = "teach" | "practice" | "capstone";
 
 export interface ChatRecord {
 	id: string;
@@ -401,5 +404,8 @@ export interface ArtifactPartProps {
 		 *  the modelSolution committed at POSE time, folded onto the part by
 		 *  projectView — the reveal is never re-authored. */
 		reveal?: unknown;
+		/** Capstone evaluate cards: true on the newest evaluation that went
+		 *  through (the view-seam join) — it is the one that stands. */
+		latest?: boolean;
 	};
 }

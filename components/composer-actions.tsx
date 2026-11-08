@@ -3,6 +3,9 @@
 import type { ReactNode } from "react";
 import { DumbbellIcon } from "lucide-react";
 
+/** The pick pill's empty label for a capstone: picks are required. */
+export const CAPSTONE_PICK_HINT = "Pick at least one node to start a capstone";
+
 /** Home and the draft share one wrapping action row. Picker controls lead;
  * setup is centered only when it is the sole action. */
 export function ComposerActions({ picker, setup }: { picker?: ReactNode; setup?: ReactNode }) {
@@ -20,8 +23,10 @@ export function ComposerActions({ picker, setup }: { picker?: ReactNode; setup?:
 
 /** Count and Clear stay together if the setup action wraps onto another line.
  * These are node counts, even when a whole chain supplied the selection. */
-export function NodePickerControl({ count, onOpen, onClear }: {
+export function NodePickerControl({ count, onOpen, onClear, emptyLabel = "Pick nodes" }: {
 	count: number;
+	/** The label while nothing is picked (capstone: says picks are required). */
+	emptyLabel?: string;
 	onOpen?: () => void;
 	onClear?: () => void;
 }) {
@@ -39,7 +44,7 @@ export function NodePickerControl({ count, onOpen, onClear }: {
 				}
 			>
 				<DumbbellIcon aria-hidden="true" className="size-3.5 text-muted-foreground" />
-				{count > 0 ? `${count} ${count === 1 ? "node" : "nodes"} selected` : "Pick nodes"}
+				{count > 0 ? `${count} ${count === 1 ? "node" : "nodes"} selected` : emptyLabel}
 			</button>
 			{count > 0 && (
 				<button

@@ -33,7 +33,7 @@ import { usePopoverDismiss } from "@/components/popover-dismiss";
  * few KB); failures degrade to raw ids — observability never breaks the
  * card. */
 let nodeNameMapPromise: Promise<Record<string, string>> | null = null;
-function nodeNameMap(): Promise<Record<string, string>> {
+export function nodeNameMap(): Promise<Record<string, string>> {
 	nodeNameMapPromise ??= fetch("/api/graph")
 		.then((r) => (r.ok ? r.json() : { nodes: [] }))
 		.then((g: { nodes?: Array<{ id?: unknown; name?: unknown }> }) =>

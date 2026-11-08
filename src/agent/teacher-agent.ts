@@ -15,6 +15,7 @@ import {
 	type TeacherToolContext,
 } from "./tools.ts";
 import { practiceTools, type PracticeToolContext } from "./tools/practice.ts";
+import { capstoneTools, type CapstoneToolContext } from "./tools/capstone.ts";
 import { healToolRecord, withArgumentHeal } from "./tools/heal.ts";
 import { sendToUserApplies, sendToUserTool } from "./tools/send-to-user.ts";
 import { makeNarrationGuard, narrationGuardApplies, SEND_TO_USER_DELIVERY_RULE } from "./narration-guard.ts";
@@ -51,7 +52,7 @@ import { usageWasAdmitted } from "./subscription-request-cycle.ts";
 
 /** Which agent's prompt directory to compose. Practice (2026-10-04)
  *  composes ONLY its own directory — see prompt-segments.ts. */
-export type AgentKind = "prober" | "teacher" | "practice";
+export type AgentKind = "prober" | "teacher" | "practice" | "capstone";
 
 // P2 (2026-09-19): segment discovery + override resolution live in ONE
 // canonical place now — src/store/prompt-overrides.ts (listSourceSegments
@@ -91,6 +92,7 @@ const composedInstructions: Record<AgentKind, string> = {
 	prober: composeInstructions("prober"),
 	teacher: composeInstructions("teacher"),
 	practice: composeInstructions("practice"),
+	capstone: composeInstructions("capstone"),
 };
 
 // Money channel (wave 4): the chat-handler passes a per-turn collector;
@@ -381,8 +383,22 @@ export function createPracticeAgent(ctx: PracticeToolContext, opts: AgentBuildOp
 	return baseAgentOptions("practice", opts, Object.values(tools));
 }
 
+/**
+ * The CAPSTONER (capstone sessions, 2026-11-01): built from turn 1 of a
+ * kind:"capstone" session — no prober→teacher split, no plan/question
+ * tools. Its registry is brief / review / evaluate / gap_report plus the
+ * project-scoped read tools (tools/capstone.ts); the doctrine prompt
+ * (prompts/capstone/) carries the method. No tool ends the turn natively —
+ * the agent's closing words follow each result.
+ */
+export function createCapstoneAgent(ctx: CapstoneToolContext, opts: AgentBuildOptions = {}) {
+	const tools = opts.tools ?? capstoneTools(ctx);
+	return baseAgentOptions("capstone", opts, Object.values(tools));
+}
+
 export type ProberAgent = ReturnType<typeof createProberAgent>;
 export type TeacherAgent = ReturnType<typeof createTeacherAgent>;
 export type PracticeAgent = ReturnType<typeof createPracticeAgent>;
-export type TeachingAgent = ProberAgent | TeacherAgent | PracticeAgent;
+export type CapstoneAgent = ReturnType<typeof createCapstoneAgent>;
+export type TeachingAgent = ProberAgent | TeacherAgent | PracticeAgent | CapstoneAgent;
 

@@ -44,7 +44,7 @@ function notifyTeacher(reading: ReadingRecord, thread: DiscussionThread, exchang
 	const chatId = reading.anchor.chatId;
 	if (!chatId || !exchange.answer) return;
 	const chat = stores.chatStore.getChat(chatId);
-	if (!chat || chat.kind === "practice") return;
+	if (!chat || chat.kind === "practice" || chat.kind === "capstone") return;
 	void deliverHeldNote(
 		buildDiscussionMarker({
 			chatId,

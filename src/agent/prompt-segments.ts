@@ -42,6 +42,11 @@ const PROMPTS_DIR = path.join(PATHS.root, "src", "agent", "prompts");
  *  (practice has no such tools). */
 const PRACTICE_SHARED_FRAGMENTS = ["10-voice.md", "15-accuracy.md", "16-mental-model.md", "40-formatting.md"];
 
+/** Shared fragments the CAPSTONE agent composes (2026-11-01): voice,
+ *  accuracy and formatting. The mental-model fragment (the thinking
+ *  fields) stays out — capstone has no thinking fields. */
+const CAPSTONE_SHARED_FRAGMENTS = ["10-voice.md", "15-accuracy.md", "40-formatting.md"];
+
 /** Absolute path for an override file (unchecked — validate first). */
 function overrideFileFor(segmentPath: string): string {
 	return path.join(PROMPTS_OVERRIDE_DIR, ...segmentPath.split("/"));
@@ -71,7 +76,7 @@ export function listSourceSegments(agent: PromptAgent): Array<{ path: string; sh
 	// plays the base role), but the FORMATTING guide composes for every
 	// agent (owner, 2026-10-04 late): LaTeX delimiters and markdown apply
 	// in all settings — practice shares the $...$/$$...$$ authoring contract.
-	const segments: Array<{ path: string; shared: boolean; file: string }> = agent === "practice" ? [] : [
+	const segments: Array<{ path: string; shared: boolean; file: string }> = agent === "practice" || agent === "capstone" ? [] : [
 		{ path: "system-prompt.md", shared: true, file: PATHS.teacherPrompt },
 	];
 	const dir = path.join(PROMPTS_DIR, agent);
@@ -84,7 +89,7 @@ export function listSourceSegments(agent: PromptAgent): Array<{ path: string; sh
 	const sharedDir = path.join(PROMPTS_DIR, "shared");
 	if (fs.existsSync(sharedDir)) {
 		// The practice allowlist (owner, 2026-10-04 late): formatting only.
-		const allow = agent === "practice" ? PRACTICE_SHARED_FRAGMENTS : null;
+		const allow = agent === "practice" ? PRACTICE_SHARED_FRAGMENTS : agent === "capstone" ? CAPSTONE_SHARED_FRAGMENTS : null;
 		const sharedFragments = fs
 			.readdirSync(sharedDir)
 			.filter((f) => FRAGMENT_RE.test(f) && (allow === null || allow.includes(f)))
@@ -124,10 +129,10 @@ export function effectivePromptSegments(
 	});
 }
 
-/** Every known segment path across both agents (route validation). */
+/** Every known segment path across every agent (route validation). */
 export function allSegmentPaths(): string[] {
 	const paths = new Set<string>();
-	for (const agent of ["prober", "teacher", "practice"] as const) {
+	for (const agent of ["prober", "teacher", "practice", "capstone"] as const) {
 		for (const segment of listSourceSegments(agent)) paths.add(segment.path);
 	}
 	return [...paths].sort();

@@ -23,6 +23,7 @@ import { Separator } from "@/components/ui/separator";
 import { AnsweredCard } from "@/components/answered-card";
 import { MalformedQuestion } from "@/components/malformed-question";
 import { artifactRenderers } from "@/components/artifacts";
+import { SeedNavigationContext } from "@/components/capstone-cards";
 import { SubagentSteerCard } from "@/components/artifacts/steer-card";
 import { ChatSessionComposer } from "@/components/composer";
 import { useEnterSubmits } from "@/components/enter-submits";
@@ -54,7 +55,8 @@ import { PlanBlock, PlanPopup, latestTree } from "@/components/plan-block";
 import { PlanMarginalia, planExists } from "@/components/plan-window";
 import { MermaidOverlay, SessionMermaidContext } from "@/components/session-overlay";
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
-import { ArrowRightIcon, BookOpenIcon, DumbbellIcon, WaypointsIcon } from "lucide-react";
+import { ArrowRightIcon, BookOpenIcon, DumbbellIcon, HammerIcon, WaypointsIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
 import type { PlanBlockData } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
 import { CodeExerciseDockHost } from "@/components/code-exercise-dock-host";
@@ -248,10 +250,10 @@ export function Chat({
 	initialNotes?: string;
 	/** Memory-only settlement notice supplied on reopening. */
 	initialError?: string;
-	/** The session kind (practice sessions, owner 2026-10-04): practice
-	 *  renders no phase chip (no probe→teach arc applies) and a Practice
-	 *  tag rides the header instead. */
-	kind?: "teach" | "practice";
+	/** The session kind (practice sessions, owner 2026-10-04): practice and
+	 *  capstone render no phase chip (no probe→teach arc applies); a
+	 *  Practice or Capstone tag rides the header instead. */
+	kind?: "teach" | "practice" | "capstone";
 	initialPrompt?: string;
 	/** A teacher turn is running server-side but attached to no client
 	 * (navigated away mid-turn, returned while in flight). */
@@ -270,6 +272,9 @@ export function Chat({
 	// settled terminal's callback — a stable ref assigned below, once
 	// syncFromServer exists (refs, not closures: no stale capture).
 	const reattachSettledRef = useRef<() => void>(() => {});
+	// The capstone cards' seeded-start buttons navigate through the app
+	// router (a client-side transition) rather than a full page load.
+	const router = useRouter();
 
 	// Notes (notes wave): one controller per view; the panel, the chip and
 	// the selection action read it through context.
@@ -1032,8 +1037,9 @@ export function Chat({
 	// derives its own from the same transcript).
 	const planTree = useMemo(() => latestTree(messages), [messages]);
 	// Readings (docs/readings.md): the session's side tray + its seam —
-	// teaching sessions only (practice has no plan and no readings).
-	const readingsEnabled = kind !== "practice";
+	// teaching sessions only (practice and capstone have no plan and no
+	// readings).
+	const readingsEnabled = kind !== "practice" && kind !== "capstone";
 	const readingsTray = useReadingsTray(chatId, readingsEnabled);
 
 	// ── Session usage (wave-4 stats bar) ──
@@ -1392,6 +1398,7 @@ export function Chat({
 
 	return (
 		<NotesProvider controller={notes}>
+		<SeedNavigationContext.Provider value={(path) => router.push(path)}>
 		<ChatActionsContext.Provider
 			value={{
 				chatId,
@@ -1540,7 +1547,7 @@ export function Chat({
 					{/* Practice (owner, 2026-10-04): the coverage ring hides —
 				    practice never extracts, so an ever-filling ring with no
 				    run behind it would lie. */}
-					{kind !== "practice" && <CoverageRing chatId={chatId} refreshKey={coverageTick} />}
+					{kind !== "practice" && kind !== "capstone" && <CoverageRing chatId={chatId} refreshKey={coverageTick} />}
 					{/* Practice sessions: no phase arc — a quiet Practice tag
 					    instead of the phase chip. */}
 					{kind === "practice" ? (
@@ -1552,6 +1559,16 @@ export function Chat({
 						>
 							<DumbbellIcon className="size-3" />
 							Practice
+						</span>
+					) : kind === "capstone" ? (
+						<span
+							data-testid="phase-chip"
+							data-phase="capstone"
+							aria-hidden="true"
+							className="pointer-events-none flex shrink-0 select-none items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground"
+						>
+							<HammerIcon className="size-3" />
+							Capstone
 						</span>
 					) : (
 						<PhaseChip phase={phases.at(-1) ?? "probe"} />
@@ -2043,6 +2060,7 @@ export function Chat({
 			}}
 		/>
 		</ChatActionsContext.Provider>
+		</SeedNavigationContext.Provider>
 		</NotesProvider>
 	);
 }

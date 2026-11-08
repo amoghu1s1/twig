@@ -432,6 +432,55 @@ export function cleanToolCallIds(messages: readonly LhMessage[]): Set<string> {
 	return ids;
 }
 
+// ─── capstone sessions (2026-11-01) ──────────────────────────────────────────
+
+/** The capstone agent's tool names (the folds below and the tool layer share
+ *  this vocabulary). */
+export const CAPSTONE_BRIEF_TOOL = "brief";
+export const CAPSTONE_REVIEW_TOOL = "review";
+export const CAPSTONE_EVALUATE_TOOL = "evaluate";
+export const CAPSTONE_GAP_REPORT_TOOL = "gap_report";
+
+/** One acceptance criterion of an accepted brief. `targets` are the
+ *  proposition ids the criterion exercises (optional). */
+export interface CapstoneCriterion {
+	id: string;
+	text: string;
+	targets?: string[];
+}
+
+/** The accepted brief: what the first CLEAN `brief` call carries. The
+ *  criteria and directory are locked by that call — the tool refuses a
+ *  second one — so the fold takes the first clean call. */
+export interface CapstoneBrief {
+	toolCallId: string;
+	title: string;
+	directory: string;
+	criteria: CapstoneCriterion[];
+}
+
+/** The session's accepted brief, or null (no clean `brief` call yet — a
+ *  refused or dangling call never happened). Reads the call's ARGUMENTS;
+ *  the directory is as the agent wrote it (the tool layer canonicalizes
+ *  it with realpath before every file access). */
+export function capstoneBriefOf(messages: readonly LhMessage[]): CapstoneBrief | null {
+	const clean = cleanToolCallIds(messages);
+	for (const m of messages) {
+		if ((m as { role?: string }).role !== "assistant") continue;
+		for (const block of (m as AssistantMessage).content) {
+			if (block.type !== "toolCall" || block.name !== CAPSTONE_BRIEF_TOOL || !clean.has(block.id)) continue;
+			const args = (block.arguments ?? {}) as { title?: unknown; directory?: unknown; criteria?: unknown };
+			if (typeof args.title !== "string" || typeof args.directory !== "string" || !Array.isArray(args.criteria)) continue;
+			const criteria = args.criteria.filter(
+				(c): c is CapstoneCriterion =>
+					typeof c === "object" && c !== null && typeof (c as CapstoneCriterion).id === "string" && typeof (c as CapstoneCriterion).text === "string",
+			);
+			return { toolCallId: block.id, title: args.title, directory: args.directory, criteria };
+		}
+	}
+	return null;
+}
+
 /** The conclusion's reveal (owner round, 2026-10-05): the hero of a
  *  conclude card is the modelSolution committed at POSE time — the newest
  *  cleanly-posed problem BEFORE this conclude call. The reveal is never

@@ -1,6 +1,7 @@
 import type { Usage } from "@earendil-works/pi-ai";
 import {
 	createPracticeAgent,
+	createCapstoneAgent,
 	createProberAgent,
 	createTeacherAgent,
 	type AgentBuildOptions,
@@ -379,13 +380,13 @@ export async function handleChatInput(
 			engine: piEngineForSpec(conversation, true, undefined, retentionForSlot("strong")),
 			canStart: () => connectionBackgroundAllowed(conversation.provider),
 			modelId: modelIdForCompaction,
-			kind: record.kind === "practice" ? "practice" : hasProbeDone(record.messages) ? "teach" : "probe",
+			kind: record.kind === "practice" || record.kind === "capstone" ? record.kind : hasProbeDone(record.messages) ? "teach" : "probe",
 			includeReasoning: effective.compaction.includeReasoning,
 			thresholdTokens: effectiveThresholdTokens(
 				effective.compaction?.thresholdTokens,
 				catalogContextLimits().get(modelIdForCompaction),
 			),
-			systemPromptTokens: Math.ceil(composeInstructions(record.kind === "practice" ? "practice" : "teacher").length / 4),
+			systemPromptTokens: Math.ceil(composeInstructions(record.kind === "practice" || record.kind === "capstone" ? record.kind : "teacher").length / 4),
 		},
 		chatId,
 	);
@@ -559,61 +560,69 @@ export async function handleChatInput(
 	// uniform across kinds).
 	const constructed: TeachingAgent = buildAgent
 		? buildAgent({ ...agentOpts, teaching })
-		: record.kind === "practice"
-			? createPracticeAgent(
-					{
-						chatId,
-						chatStore: stores.chatStore,
-						// TARGET VALIDATION (owner round 9): the practice tools read the
-						// WHOLE graph fresh per pose — targets validate against every
-						// proposition, not just the session's picks (pickless sessions
-						// and future graph-tools poses stay valid).
-						graphNodes: () => stores.graphStore.readNodes(),
-						// THE RARELY-NEEDED SET (owner round 10): research + pdf jobs
-						// (same runner/gating as the teacher's — research honestly
-						// absent when no engine is live) and the map readers behind
-						// the SAME settings gate as the prober's.
-						jobs: {
+		: record.kind === "capstone"
+			// CAPSTONE BRANCH (2026-11-01): built from turn 1 like practice; its
+			// registry is the brief/review/evaluate/gap_report tools plus the
+			// project-scoped read tools. Targets validate against the WHOLE graph.
+			? createCapstoneAgent(
+					{ chatId, chatStore: stores.chatStore, graphNodes: () => stores.graphStore.readNodes() },
+					agentOpts,
+				)
+			: record.kind === "practice"
+				? createPracticeAgent(
+						{
 							chatId,
-							jobStore: stores.jobStore,
-							spawn: (job, input) => void jobRunner.runJob(job.id, input),
-							searchAvailable,
+							chatStore: stores.chatStore,
+							// TARGET VALIDATION (owner round 9): the practice tools read the
+							// WHOLE graph fresh per pose — targets validate against every
+							// proposition, not just the session's picks (pickless sessions
+							// and future graph-tools poses stay valid).
+							graphNodes: () => stores.graphStore.readNodes(),
+							// THE RARELY-NEEDED SET (owner round 10): research + pdf jobs
+							// (same runner/gating as the teacher's — research honestly
+							// absent when no engine is live) and the map readers behind
+							// the SAME settings gate as the prober's.
+							jobs: {
+								chatId,
+								jobStore: stores.jobStore,
+								spawn: (job, input) => void jobRunner.runJob(job.id, input),
+								searchAvailable,
+							},
+							...(graphToolsEnabled(effective) ? { graph: { chatStore: stores.chatStore, graphStore: stores.graphStore } } : {}),
 						},
-						...(graphToolsEnabled(effective) ? { graph: { chatStore: stores.chatStore, graphStore: stores.graphStore } } : {}),
-					},
-					agentOpts,
-				)
-			: teaching
-			? createTeacherAgent(
-					{
-						chatId,
-						chatStore: stores.chatStore,
-						jobStore: stores.jobStore,
-						spawn: (job, input) => void jobRunner.runJob(job.id, input),
-						// The registry drop's signal (2026-09-20): no live engine
-						// = no research tool in the teacher's registry.
-						searchAvailable,
-					},
-					agentOpts,
-				)
-			: createProberAgent(
-					{
-						chatId,
-						chatStore: stores.chatStore,
-						deliver: (steer) => void deliverJobResult(steer),
-						// Fix wave (2026-09-20): the prober carries research + pdf
-						// dispatch (owner ruling — phase-omnipresent), so its ctx
-						// needs the same job wiring as the teacher's.
-						jobStore: stores.jobStore,
-						spawn: (job, input) => void jobRunner.runJob(job.id, input),
-						searchAvailable,
-						// The map reader (wave 7): the prober reads the learner's
-						// knowledge graph through tools when the gate opens —
-						// graph master switch AND the agent.graphTools toggle.
-						...(graphToolsEnabled(effective) ? { graphStore: stores.graphStore } : {}),
-					},
-					agentOpts,
-				);
+						agentOpts,
+					)
+				: teaching
+					? createTeacherAgent(
+							{
+								chatId,
+								chatStore: stores.chatStore,
+								jobStore: stores.jobStore,
+								spawn: (job, input) => void jobRunner.runJob(job.id, input),
+								// The registry drop's signal (2026-09-20): no live engine
+								// = no research tool in the teacher's registry.
+								searchAvailable,
+							},
+							agentOpts,
+						)
+					: createProberAgent(
+							{
+								chatId,
+								chatStore: stores.chatStore,
+								deliver: (steer) => void deliverJobResult(steer),
+								// Fix wave (2026-09-20): the prober carries research + pdf
+								// dispatch (owner ruling — phase-omnipresent), so its ctx
+								// needs the same job wiring as the teacher's.
+								jobStore: stores.jobStore,
+								spawn: (job, input) => void jobRunner.runJob(job.id, input),
+								searchAvailable,
+								// The map reader (wave 7): the prober reads the learner's
+								// knowledge graph through tools when the gate opens —
+								// graph master switch AND the agent.graphTools toggle.
+								...(graphToolsEnabled(effective) ? { graphStore: stores.graphStore } : {}),
+							},
+							agentOpts,
+						);
 
 	// A test-injected agent gets no usage collector (tests assert the
 	// transcript, not the money channel); when it's ours, usage flows through
@@ -699,7 +708,7 @@ export async function handleChatInput(
 				// PRACTICE (owner, 2026-10-04): practice sessions write nothing —
 				// no extraction, no graph, no coverage (v1: the session itself
 				// is the deliverable).
-				if ((!requestCycle || requestCycle.dispatched) && record.kind !== "practice" && extractionEnabled(effective.graph)) {
+				if ((!requestCycle || requestCycle.dispatched) && record.kind !== "practice" && record.kind !== "capstone" && extractionEnabled(effective.graph)) {
 					// Fresh per-turn read of the graph section's chunk budget
 					// (extraction-UX redesign, 2026-09-24): the trigger compares
 					// against it and the pipeline's batches share it.
@@ -756,13 +765,13 @@ export async function handleChatInput(
 							engine: kickEngine,
 							canStart: () => connectionBackgroundAllowed(spec.provider),
 							modelId: kickModelId,
-							kind: freshRecord.kind === "practice" ? "practice" : hasProbeDone(freshRecord.messages) ? "teach" : "probe",
+							kind: freshRecord.kind === "practice" || freshRecord.kind === "capstone" ? freshRecord.kind : hasProbeDone(freshRecord.messages) ? "teach" : "probe",
 							includeReasoning: fresh.compaction.includeReasoning,
 							thresholdTokens: effectiveThresholdTokens(
 								fresh.compaction?.thresholdTokens,
 								catalogContextLimits().get(kickModelId),
 							),
-							systemPromptTokens: Math.ceil(composeInstructions(freshRecord.kind === "practice" ? "practice" : "teacher").length / 4),
+							systemPromptTokens: Math.ceil(composeInstructions(freshRecord.kind === "practice" || freshRecord.kind === "capstone" ? freshRecord.kind : "teacher").length / 4),
 						};
 					}, chatId);
 			},

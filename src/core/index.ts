@@ -68,6 +68,7 @@ export type { FilePathPart } from "./file-paths.ts";
 // the deleted server projection to the client side. Pure, browser-safe.
 export * from "./view.ts";
 export * from "./tool-parts.ts";
+export * from "./capstone-parts.ts";
 export * from "./answer-presentation.ts";
 export * from "./svg-source.ts";
 export * from "./prices.ts";

@@ -34,7 +34,7 @@
 
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { LhMarkerMessage, LhMessage } from "./native-messages.ts";
-import { modelSolutionForConclude, PRACTICE_CONCLUDE_TOOL, problemInputForConclude, SEND_TO_USER_TOOL, sendToUserText } from "./native-messages.ts";
+import { CAPSTONE_EVALUATE_TOOL, modelSolutionForConclude, PRACTICE_CONCLUDE_TOOL, problemInputForConclude, SEND_TO_USER_TOOL, sendToUserText } from "./native-messages.ts";
 import { activeCompactionOf, type CompactionDetails } from "./compaction.ts";
 import { QUESTION_TOOLS } from "./pending.ts";
 import type { SubagentArtifactData, SubagentResultMeta } from "./contracts/jobs.ts";
@@ -133,6 +133,24 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
 	for (const message of messages) {
 		if (message.role === "toolResult" && message.toolName === SEND_TO_USER_TOOL && message.isError) {
 			outputErrors.set(message.toolCallId, message);
+		}
+	}
+
+	// CAPSTONE (2026-11-01): the newest evaluation that went through is the
+	// one that stands (resubmissions append); the card labels it "Latest".
+	// "Went through" means a clean result exists — a dangling call (still
+	// streaming, or never answered) is not an evaluation yet.
+	const successfulCalls = new Set<string>();
+	for (const message of messages) {
+		if (message.role === "toolResult" && !message.isError) successfulCalls.add(message.toolCallId);
+	}
+	let latestEvaluateId: string | undefined;
+	for (const message of messages) {
+		if (message.role !== "assistant") continue;
+		for (const block of (message as AssistantMessage).content) {
+			if (block.type === "toolCall" && block.name === CAPSTONE_EVALUATE_TOOL && successfulCalls.has(block.id)) {
+				latestEvaluateId = block.id;
+			}
 		}
 	}
 
@@ -254,6 +272,7 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
 					// The conclusion's reveal join (owner round, 2026-10-05): the
 					// hero of a conclude card is the modelSolution committed at POSE
 					// time — a record fold, enriched here so the card renders pure.
+					if (block.name === CAPSTONE_EVALUATE_TOOL && block.id === latestEvaluateId) part.latest = true;
 					if (block.name === PRACTICE_CONCLUDE_TOOL) {
 						part.reveal = modelSolutionForConclude(messages, block.id);
 						part.problemInput = problemInputForConclude(messages, block.id);

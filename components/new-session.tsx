@@ -11,7 +11,7 @@ import { SetupDialog } from "@/components/setup-dialog";
 import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
 import { StatsBar } from "@/components/stats-bar";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
-import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
+import { CAPSTONE_PICK_HINT, ComposerActions, NodePickerControl } from "@/components/composer-actions";
 import { MapIcon, NotebookTextIcon } from "lucide-react";
 import { requestReading, useReadingMode } from "@/components/readings/api";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
@@ -45,7 +45,7 @@ const DOCK = "mx-auto w-full max-w-[46rem] px-4";
 export async function startDraftSession(
 	text: string,
 	fetchLike: typeof fetch,
-	mode?: "practice",
+	mode?: "practice" | "capstone",
 	picks?: readonly DraftPick[],
 	starter = new SessionStarter(),
 	settingsIdentity?: string,
@@ -57,8 +57,8 @@ export async function startDraftSession(
 	// same contract as the home screen's practice send (the marker with
 	// [id] name: statement lines, target validation's truth set).
 	return starter.start(
-		mode === "practice"
-			? { title: t, kind: "practice", ...(picks && picks.length > 0 ? { graphContext: { propositions: picks } } : {}) }
+		mode
+			? { title: t, kind: mode, ...(picks && picks.length > 0 ? { graphContext: { propositions: picks } } : {}) }
 			: { title: t },
 		fetchLike,
 		settingsIdentity,
@@ -92,7 +92,7 @@ export function DraftShell({
 	/** The practice draft (owner, 2026-10-04): ?mode=practice — the
 	 *  created session carries kind:"practice" and the copy changes
 	 *  (the practice agent opens; no probing). */
-	mode?: "teach" | "practice";
+	mode?: "teach" | "practice" | "capstone";
 	/** The first-run CTA (fix wave chunk B): the same "Set up your models"
 	 *  affordance home carries, rendered above the draft shell — passed by
 	 *  NewSession, which owns the configured state and the SetupDialog. */
@@ -130,7 +130,7 @@ export function DraftShell({
 	// round, owner 2026-10-01): the spoken text is deferred in the run's
 	// buffer — Enter must reach the finish-first send, not be gated out by
 	// an empty textarea. Nothing said → the send no-ops.
-	const canSend = text.trim().length > 0 || dictation.active;
+	const canSend = (text.trim().length > 0 || dictation.active) && !(mode === "capstone" && picks.length === 0);
 	/* FINISH DICTATION FIRST (owner, 2026-10-01): stop the run, let the
 	 * last finals land through onChange, THEN call the parent's send —
 	 * which reads its REF mirror, so the post-await timing of React's
@@ -176,11 +176,13 @@ export function DraftShell({
 						<Conversation className="h-full min-w-0 flex-1" initial="instant">
 							<ConversationContent className="min-h-full gap-0 p-0">
 								<ConversationEmptyState
-									title={mode === "practice" ? "New practice session" : "New session"}
+									title={mode === "practice" ? "New practice session" : mode === "capstone" ? "New capstone" : "New session"}
 									description={
 										mode === "practice"
 											? "Pick nodes from your knowledge graph, describe what you want to practice, or bring your own problem."
-											: "The teacher will open by probing what you already know."
+											: mode === "capstone"
+												? "Pick the nodes you want to build with, then pitch what you would build."
+												: "The teacher will open by probing what you already know."
 									}
 								/>
 							</ConversationContent>
@@ -190,10 +192,15 @@ export function DraftShell({
 							<div className={DOCK}>
 								<ComposerActions
 									picker={
-										(picks.length > 0 || mode === "practice" || primerAction) && (
+										(picks.length > 0 || mode !== "teach" || primerAction) && (
 											<>
-												{(picks.length > 0 || mode === "practice") && (
-													<NodePickerControl count={picks.length} onOpen={onOpenPicker} onClear={onClearPicks} />
+												{(picks.length > 0 || mode !== "teach") && (
+													<NodePickerControl
+														count={picks.length}
+														emptyLabel={mode === "capstone" ? CAPSTONE_PICK_HINT : undefined}
+														onOpen={onOpenPicker}
+														onClear={onClearPicks}
+													/>
 												)}
 												{primerAction}
 											</>
@@ -217,7 +224,7 @@ export function DraftShell({
 										// input (owner refinement round, 2026-09-24) — no lesson has
 										// started yet, so the composer must not read like one is in
 										// flight.
-										placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
+										placeholder={mode === "practice" ? "What do you want to practice?" : mode === "capstone" ? "What would you build?" : "What do you want to learn?"}
 									/>
 								</div>
 								<StatsBar
@@ -242,7 +249,7 @@ export function DraftShell({
 	);
 }
 
-export function NewSession({ initialConfigured, mode = "teach" }: { initialConfigured: boolean; mode?: "teach" | "practice" }) {
+export function NewSession({ initialConfigured, mode = "teach" }: { initialConfigured: boolean; mode?: "teach" | "practice" | "capstone" }) {
 	const router = useRouter();
 	const [text, setText] = useState("");
 	/* The draft MIRROR ("nothing gets lost" round, 2026-10-01): the shell's
@@ -300,6 +307,8 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 	const send = useCallback(() => {
 		const draft = textRef.current.trim();
 		if (!draft || startingRef.current) return;
+		// CAPSTONE: picks are required — nothing is created without them.
+		if (mode === "capstone" && picksRef.current.length === 0) return;
 		if (!configured) {
 			setSetupOpen(true);
 			return;
@@ -322,7 +331,7 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 		startingRef.current = true;
 		setBusy(true);
 		setStartError(false);
-		void startDraftSession(draft, fetch, mode === "practice" ? "practice" : undefined, mode === "practice" ? picksRef.current : undefined,
+		void startDraftSession(draft, fetch, mode === "teach" ? undefined : mode, mode === "teach" ? undefined : picksRef.current,
 			starterRef.current, JSON.stringify(catalog?.slots.strong))
 			.then((target) => {
 				if (target) router.push(target);
