@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useContext, useState } from "react";
+import { MistakesContext } from "@/components/mistakes-context";
+import { ERROR_TYPE_LABELS } from "@/src/core";
 import { ConfidenceRail } from "@/components/confidence-rail";
 import { GlyphMark } from "@/components/ui/glyph-mark";
 import { ThinkingBlock } from "@/components/thinking-block";
@@ -21,8 +23,20 @@ import { answerForPresentation, parseAskInput, parseExplainInput, parseQuizInput
  * client — the card reveals his answer, the committed correct answer, and
  * the explanation, with NO verdict chips (owner ruling 2026-09-27).
  */
-export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionAnswerData; input?: unknown }) {
+export function AnsweredCard({
+	answer: savedAnswer,
+	input,
+	mistakeId,
+}: {
+	answer: QuestionAnswerData;
+	input?: unknown;
+	/** `<chatId>:<toolCallId>` — where this answer's recorded analysis lives. */
+	mistakeId?: string;
+}) {
 	const answer = answerForPresentation(savedAnswer, input);
+	const mistake = useContext(MistakesContext).get(mistakeId ?? "");
+	const analysis = mistake?.status === "ready" ? mistake.analysis : undefined;
+	const hasAnalysis = Boolean(analysis) || mistake?.status === "pending";
 	const [whyOpen, setWhyOpen] = useState(false); // the tucked explanation (predictions, owner 2026-10-03)
 	if (answer.dismissed) {
 		return (
@@ -208,26 +222,57 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 				{/* px-3→removed: card p-4 + box px-3 double-inset sat the "Why" label deeper
 				    than the option box edges (owner, round 3). Sides flush with everything
 				    else; py-2 stays for vertical air. */}
-				{isQuiz && answer.explanation && (
-					/* The TUCKED explanation — ALL questions (owner, 2026-10-07): the
-					   verdict shows, the explanation sits collapsed behind the Why
-					   toggle — viewable, never center stage. Identical to the
-					   prediction pattern it generalizes (owner, 2026-10-03). */
+				{/* One collapsed Why per card (mistakes fork, 2026-11-08). A wrong
+				    answer opens to the error analysis (error type, what the pick
+				    implies, what is right, one rule); "I don't know" opens to the
+				    short Why only (no error type, nothing to diagnose); anything
+				    else opens to the teacher's explanation. Hidden until clicked. */}
+				{isQuiz && (hasAnalysis || answer.explanation) && (
 					<div className="mt-2" data-testid="tucked-explanation">
 						<button
 							type="button"
 							onClick={() => setWhyOpen((v) => !v)}
+							aria-expanded={whyOpen}
 							className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
 						>
 							{whyOpen ? "Hide why" : "Why"}
 						</button>
-						{whyOpen && (
+						{whyOpen && analysis && mistake?.kind === "unanswered" && (
+							<div className="mt-1.5 rounded-lg border border-border/60 px-3 py-2.5 text-sm" data-testid="mistake-why">
+								<div className="text-xs text-muted-foreground">{analysis.topic}</div>
+								<ToolContentResponse className="mt-1.5 text-foreground">{analysis.correct}</ToolContentResponse>
+								<div className="mt-1.5 text-foreground">
+									<span className="font-medium text-muted-foreground">Next time: </span>
+									<ToolContentResponse className="inline [&>p:first-child]:inline [&>p:first-child]:m-0">{analysis.rule}</ToolContentResponse>
+								</div>
+							</div>
+						)}
+						{whyOpen && analysis && mistake?.kind !== "unanswered" && (
+							<div className="mt-1.5 rounded-lg border border-border/60 px-3 py-2.5 text-sm" data-testid="mistake-why">
+								<div className="flex items-center gap-2 text-xs">
+									<span className="rounded-sm bg-accent px-1.5 py-0.5 font-medium text-foreground" data-testid="mistake-why-type">
+										{ERROR_TYPE_LABELS[analysis.errorType]}
+									</span>
+									<span className="text-muted-foreground">{analysis.topic}</span>
+								</div>
+								<ToolContentResponse className="mt-1.5 text-foreground">{analysis.whatYouDid}</ToolContentResponse>
+								<ToolContentResponse className="mt-1 text-foreground">{analysis.correct}</ToolContentResponse>
+								<div className="mt-1.5 text-foreground">
+									<span className="font-medium text-muted-foreground">Next time: </span>
+									<ToolContentResponse className="inline [&>p:first-child]:inline [&>p:first-child]:m-0">{analysis.rule}</ToolContentResponse>
+								</div>
+							</div>
+						)}
+						{whyOpen && !analysis && answer.explanation && (
 							<div className="mt-1.5 rounded-lg bg-muted py-2 text-sm text-foreground/50">
 								<span className="font-medium text-muted-foreground">Why: </span>
 								{/* Keep the first paragraph beside the label, not every paragraph:
 								   later paragraphs must retain their recovered document structure. */}
 								<ToolContentResponse className="inline [&>p:first-child]:inline [&>p:first-child]:m-0">{answer.explanation}</ToolContentResponse>
 							</div>
+						)}
+						{whyOpen && !analysis && !answer.explanation && mistake?.status === "pending" && (
+							<div className="mt-1.5 text-xs text-muted-foreground" data-testid="mistake-why-pending">Working out why…</div>
 						)}
 					</div>
 				)}

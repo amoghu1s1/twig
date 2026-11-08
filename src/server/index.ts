@@ -71,3 +71,20 @@ export { customProviderGet, customProviderMutation } from "./custom-provider-htt
 export * from "./readings.ts";
 export * from "./reading-discussions.ts";
 export * from "./code-exercises.ts";
+// The learner's mistakes (mistakes fork): the scan/analysis service + the
+// record store's read seam. Named like the barrel's other record re-exports.
+export { readMistakes } from "../store/mistakes.ts";
+export {
+	analysisEngineOverride,
+	analysisProgress,
+	analysesInLastDay,
+	autoAnalysisEnabled,
+	cancelAnalyses,
+	countNewMistakes,
+	deleteMistake,
+	enqueueAnalyses,
+	mistakesAfterTurn,
+	recordAllMistakes,
+	recordChatMistakes,
+	retryMistake,
+} from "./mistakes.ts";

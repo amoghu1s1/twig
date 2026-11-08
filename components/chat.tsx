@@ -74,6 +74,7 @@ import { SideChatProvider, composerSideAnchor, parseBtw, SideChatStore } from "@
 import { SideAskBlock, SidePassage, SideSelectionAsk } from "@/components/side-chat";
 import { NotesController, NotesProvider } from "@/components/notes-state";
 import { NotesChip, NotesPanel } from "@/components/notes-panel";
+import { MistakesContext, useChatMistakes } from "@/components/mistakes-context";
 import type { AnswerData, ArtifactPartProps, CodeExerciseAnswerData, JobRecord, Phase3, QuestionAnswerData, QuestionFormDraft, ReadingDiscussionMarkerDetails, TurnUsage, SessionPricing } from "@/src/core";
 import type { LhViewMessage } from "@/src/core";
 import { PhaseChip, PhaseDivider } from "@/components/phase-divider";
@@ -1228,6 +1229,8 @@ export function Chat({
 		firstFetchRef.current = jobStatusRef.current.size === 0;
 		void fetchJobs();
 	}, [fetchJobs]); // identity changes exactly on chatId
+	// The recorded analyses for this session's answer cards (mistakes fork).
+	const sessionMistakes = useChatMistakes(chatId);
 	useServerEvent("jobs-changed", (p) => {
 		if (p.chatId != null && p.chatId !== chatId) return; // ours or unattributed
 		if (fetchDebounceRef.current) clearTimeout(fetchDebounceRef.current);
@@ -1391,6 +1394,7 @@ export function Chat({
 	};
 
 	return (
+		<MistakesContext.Provider value={sessionMistakes}>
 		<NotesProvider controller={notes}>
 		<ChatActionsContext.Provider
 			value={{
@@ -1790,7 +1794,7 @@ export function Chat({
 														// transcript; answered ones render as graded records.
 														if (part.state === "output-available") {
 															return (
-																<AnsweredCard key={pi} answer={part.output as QuestionAnswerData} input={part.input} />
+																<AnsweredCard key={pi} answer={part.output as QuestionAnswerData} input={part.input} mistakeId={`${chatId}:${part.toolCallId}`} />
 															);
 														}
 														return null;
@@ -2044,6 +2048,7 @@ export function Chat({
 		/>
 		</ChatActionsContext.Provider>
 		</NotesProvider>
+		</MistakesContext.Provider>
 	);
 }
 
