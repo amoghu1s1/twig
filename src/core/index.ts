@@ -78,6 +78,15 @@ export * from "./fuzzy.ts";
 // view. Browser-safe — the Wave-4 panel imports these directly.
 export * from "./settings.ts";
 export * from "./file-access.ts";
+// appearance-palette.ts (light/system wave): the display-mode resolver, the
+// pre-paint System script and the per-variant palette curves. `RenderedMode`
+// and `AppearanceMode` live here — imported by themes.ts and every
+// mode-aware renderer through this one barrel.
+export * from "./appearance-palette.ts";
+// themes.ts (theme wave, 2026-11-04): the 12-color theme vocabulary, the
+// presets and the theme → CSS-token adapter — pure, shared by the layout,
+// the provider, Settings and the themes API.
+export * from "./themes.ts";
 export * from "./dictation.ts";
 // graph-deletion.ts (wave 6): the whole module is PURE but storage-port
 // driven — the deletion RUNS server-side only. The shell needs exactly one
