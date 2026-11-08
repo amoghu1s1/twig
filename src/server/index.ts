@@ -66,3 +66,4 @@ export * from "./custom-provider.ts";
 export { customProviderGet, customProviderMutation } from "./custom-provider-http.ts";
 export * from "./readings.ts";
 export * from "./reading-discussions.ts";
+export * from "./code-exercises.ts";

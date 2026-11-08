@@ -1,7 +1,8 @@
 /** Python highlighting for the exercise editor: text always comes from the code, colors from shiki. */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { carryRuns, highlightPython, plainRuns, runsFromTokens, type Run } from "../components/code-highlight.ts";
+import { carryRuns, highlightCode, highlightPython, plainRuns, runsFromTokens, type Run } from "../components/code-highlight.ts";
+import type { CodeLanguage } from "../src/core/code-exercise.ts";
 
 const text = (runs: readonly Run[]): string => runs.map((r) => r.text).join("");
 const tok = (content: string, color?: string) => ({
@@ -16,6 +17,12 @@ function highlighted(code: string): Promise<Run[]> {
 		if (now) resolve(now);
 	});
 }
+
+const highlightedIn = (code: string, language: CodeLanguage): Promise<Run[]> =>
+	new Promise((resolve) => {
+		const now = highlightCode(code, language, resolve);
+		if (now) resolve(now);
+	});
 
 describe("runsFromTokens", () => {
 	it("keeps each token's light and dark color and rebuilds the code exactly", () => {
@@ -101,5 +108,21 @@ describe("highlightPython (the chat's shiki)", () => {
 
 	it("handles the empty program", async () => {
 		assert.equal(text(await highlighted("")), "");
+	});
+});
+
+describe("highlightCode (every exercise language)", () => {
+	it("colors JavaScript, TypeScript and C++ and reproduces the code exactly", async () => {
+		const snippets: Record<Exclude<CodeLanguage, "python">, string> = {
+			javascript: 'const total = 2 + 3;\nconsole.log("total", total);\n',
+			typescript: "const total: number = 2 + 3;\nconsole.log(total);\n",
+			cpp: '#include <iostream>\nint main() { std::cout << "hi"; }\n',
+		};
+		for (const [language, code] of Object.entries(snippets) as [keyof typeof snippets, string][]) {
+			const runs = await highlightedIn(code, language);
+			assert.equal(text(runs), code, language);
+			const keyword = runs.find((run) => ["const", "int", "#include"].includes(run.text));
+			assert.ok(keyword?.light && keyword.dark, `${language} colors a keyword`);
+		}
 	});
 });

@@ -1,15 +1,38 @@
 import { code as shiki, type HighlightResult } from "@streamdown/code";
+import type { CodeLanguage } from "@/src/core";
 
 /**
- * Python syntax highlighting for the code-exercise editor and its answered
- * card (owner, 2026-10-25). The colors come from the highlighter the chat's
- * code blocks use, so an exercise matches the lesson text around it.
+ * Syntax highlighting for the code-exercise editor and its answered card
+ * (owner, 2026-10-25). The colors come from the highlighter the chat's code
+ * blocks use, so an exercise matches the lesson text around it.
  *
  * The TEXT never comes from the highlighter: a Run list always spells out
  * exactly the code it was asked about, and the highlighter only supplies the
  * colors. That makes a stale or mismatched highlight unable to show a wrong
  * character over what the learner typed.
+ *
+ * The app's editor is the transparent-textarea + highlight-layer design, not
+ * CodeMirror; this language→mode map is its equivalent of a CodeMirror
+ * language mode, and it covers every exercise language.
  */
+
+type ShikiLanguage = Parameters<typeof shiki.highlight>[0]["language"];
+
+/** The highlighter's grammar id for each exercise language. */
+const HIGHLIGHT_LANGUAGE: Record<CodeLanguage, ShikiLanguage> = {
+	python: "python",
+	javascript: "javascript",
+	typescript: "typescript",
+	cpp: "cpp",
+};
+
+/** A line-comment marker the digest can ride on without changing the code. */
+const DIGEST_COMMENT: Record<CodeLanguage, string> = {
+	python: "#",
+	javascript: "//",
+	typescript: "//",
+	cpp: "//",
+};
 
 /** A stretch of code in one color; no color = the theme's plain text. */
 export interface Run {
@@ -108,19 +131,25 @@ const asRuns = (source: string, result: HighlightResult): Run[] | null =>
 	runsFromTokens(source, result.tokens.slice(0, -1));
 
 /**
- * Highlight Python with the chat's highlighter: the runs now if this exact
- * code was highlighted before, else null and `onReady` once they exist.
+ * Highlight `source` in `language` with the chat's highlighter: the runs now
+ * if this exact code was highlighted before, else null and `onReady` once
+ * they exist.
  *
  * The plugin caches on the code's length and its first and last 100
  * characters only, so two programs differing in the middle can be handed
  * each other's tokens. A trailing comment holding a digest of the whole
  * program gives every program its own key; it is dropped from the result.
  */
-export function highlightPython(source: string, onReady: (runs: Run[]) => void): Run[] | null {
-	const guarded = `${source}\n# ${digest(source)}`;
-	const hit = shiki.highlight({ code: guarded, language: "python", themes: shiki.getThemes() }, (result) => {
+export function highlightCode(source: string, language: CodeLanguage, onReady: (runs: Run[]) => void): Run[] | null {
+	const guarded = `${source}\n${DIGEST_COMMENT[language]} ${digest(source)}`;
+	const hit = shiki.highlight({ code: guarded, language: HIGHLIGHT_LANGUAGE[language], themes: shiki.getThemes() }, (result) => {
 		const runs = asRuns(source, result);
 		if (runs) onReady(runs);
 	});
 	return hit ? asRuns(source, hit) : null;
+}
+
+/** Python's shorthand (the original editor language; existing callers/tests). */
+export function highlightPython(source: string, onReady: (runs: Run[]) => void): Run[] | null {
+	return highlightCode(source, "python", onReady);
 }

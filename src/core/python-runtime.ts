@@ -12,6 +12,7 @@
  */
 
 import type { CodeRunRequest, CodeRunResult, CodeRuntime } from "./code-exercise.ts";
+import { CodeRuntimeError } from "./runtime-error.ts";
 import {
 	PYTHON_RUNNER_CHANNEL,
 	trimPythonTraceback,
@@ -19,10 +20,9 @@ import {
 	type RunnerRunMessage,
 } from "./python-runner.ts";
 
-/** The runtime itself failed — as opposed to the learner's code failing. */
-export class CodeRuntimeError extends Error {
-	override name = "CodeRuntimeError";
-}
+/** The runtime itself failed — re-exported from runtime-error.ts so the
+ *  Python runner keeps its public surface. */
+export { CodeRuntimeError };
 
 /** One live runner frame. */
 export interface RunnerTransport {

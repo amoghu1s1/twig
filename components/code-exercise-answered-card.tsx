@@ -6,7 +6,7 @@ import { MessageResponse } from "@/components/ai-elements/message";
 import { HighlightedCode } from "@/components/highlighted-code";
 import { ThinkingBlock } from "@/components/thinking-block";
 import { cn } from "@/lib/utils";
-import { restoreLiteralNewlines, type CodeExerciseAnswerData } from "@/src/core";
+import { CODE_LANGUAGE_LABELS, restoreLiteralNewlines, type CodeExerciseAnswerData } from "@/src/core";
 
 /**
  * Static record of a submitted code exercise (tool part in `output-available`):
@@ -28,7 +28,7 @@ export function CodeExerciseAnsweredCard({ answer }: { answer: CodeExerciseAnswe
 	return (
 		<div className="rounded-xl border bg-card p-4 text-card-foreground" data-testid="code-answered-card">
 			<div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-				Code · Python
+				Code · {CODE_LANGUAGE_LABELS[answer.language]}
 				{answer.graded && <Verdict passed={lastRun?.passed === true} timedOut={lastRun?.timedOut === true} />}
 			</div>
 			<div className="mb-3 font-medium">
@@ -38,7 +38,7 @@ export function CodeExerciseAnsweredCard({ answer }: { answer: CodeExerciseAnswe
 				data-testid="code-answered-code"
 				className="max-h-80 overflow-auto rounded-lg bg-muted/50 p-3 font-mono text-sm"
 			>
-				<HighlightedCode code={answer.code} />
+				<HighlightedCode code={answer.code} language={answer.language} />
 			</pre>
 			{lastRun?.stdout && (
 				<pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted/50 p-3 font-mono text-sm">

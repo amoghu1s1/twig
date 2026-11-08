@@ -31,6 +31,10 @@ export * from "./answers.ts";
 export * from "./code-exercise-session.ts";
 export * from "./python-runner.ts";
 export * from "./python-runtime.ts";
+export * from "./runtime-error.ts";
+export * from "./js-runner.ts";
+export * from "./js-runtime.ts";
+export * from "./transpiled-runtime.ts";
 // The review payload types (GET /api/review) are browser-safe; the scheduler
 // (review.ts, ts-fsrs) is server-only like graph.ts — NOT re-exported here.
 export * from "./review-payload.ts";

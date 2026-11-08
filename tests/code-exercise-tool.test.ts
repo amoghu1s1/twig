@@ -17,7 +17,7 @@ import {
 	type TeacherToolContext,
 } from "../src/agent/tools.ts";
 import { composeInstructions } from "../src/agent/teacher-agent.ts";
-import { CODE_EXERCISE_TOOL } from "../src/core/code-exercise.ts";
+import { CODE_EXERCISE_TOOL, CODE_LANGUAGES } from "../src/core/code-exercise.ts";
 import { jobStore } from "../src/store/jobs.ts";
 import { chatStore } from "../src/store/chats.ts";
 import { PATHS } from "../config.ts";
@@ -64,6 +64,15 @@ describe("teachCodeExerciseToolFor", () => {
 			terminate?: boolean;
 		};
 		assert.equal(result.terminate, true);
+	});
+
+	it("accepts every language in CODE_LANGUAGES", async () => {
+		const chatId = chatWithNode("Code: languages", "list-comprehension");
+		for (const language of CODE_LANGUAGES) {
+			const result = await call(chatId, { ...valid, language });
+			assert.notEqual(result, "schema-rejected", language);
+			assert.equal((result as AgentToolResult<ToolDetails>).isError, undefined, language);
+		}
 	});
 
 	it("accepts a run-only exercise (no tests)", async () => {
@@ -143,6 +152,14 @@ describe("the teacher prompt teaches code-exercises", () => {
 		for (const name of [CODE_EXERCISE_TOOL, "starterCode", "tests", "explanation", "question", "passed", "runs", "thinking", "timedOut"]) {
 			assert.ok(fragment.includes(`\`${name}\``), `the fragment references \`${name}\``);
 		}
+	});
+
+	it("names every language and its test idiom", () => {
+		for (const language of CODE_LANGUAGES) {
+			assert.ok(fragment.includes(`\`${language}\``), `the fragment references \`${language}\``);
+		}
+		assert.match(fragment, /JavaScript \/ TypeScript/);
+		assert.match(fragment, /translation unit/i);
 	});
 
 	it("stays small (always in context)", () => {

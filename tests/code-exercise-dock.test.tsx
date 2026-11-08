@@ -38,6 +38,17 @@ describe("CodeExerciseDock first paint", () => {
 		assert.match(html, /nums = \[10, 20, 30\]\nsquares = \[\]/);
 	});
 
+	it("labels every exercise language", () => {
+		for (const [language, label] of [
+			["python", "Python"],
+			["javascript", "JavaScript"],
+			["typescript", "TypeScript"],
+			["cpp", "C++"],
+		] as const) {
+			assert.match(render({ input: { ...input, language } }), new RegExp(`Code · ${label.replace(/\+/g, "\\+")}`));
+		}
+	});
+
 	it("offers Run but keeps Submit closed until the code has been run", () => {
 		const html = render();
 		assert.match(html, /data-testid="code-run"(?![^>]*disabled)/);

@@ -295,8 +295,6 @@ describe("tool toggles (core/pending.ts + factories)", () => {
 			spawn: () => {},
 		};
 		const full = Object.keys(createTeacherTools(ctx)).sort();
-		// suggest_reading (docs/readings.md §6.2): the teacher's reading
-		// OFFER — always on, not a toggleable dispatch tool.
 		assert.deepEqual(full, ["ask_user_question", "code-exercises", "demo", "find", "grep", "ls", "pdf", "plan_init", "quiz", "read", "research", "show_image", "suggest_reading", "visual"]);
 
 		const noResearch = Object.keys(createTeacherTools(ctx, { research: false })).sort();

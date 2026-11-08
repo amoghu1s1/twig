@@ -8,6 +8,7 @@ import { Value } from "typebox/value";
 import {
 	buildCodeAnswer,
 	CODE_LANGUAGES,
+	CODE_LANGUAGE_LABELS,
 	codeExerciseInputObject,
 	codeExerciseInputProblems,
 	compactCodeAnswerForModel,
@@ -57,6 +58,13 @@ describe("the authoring contract", () => {
 		assert.deepEqual(members, [...CODE_LANGUAGES]);
 	});
 
+	it("labels every language for the dock and the answered card", () => {
+		assert.deepEqual(
+			CODE_LANGUAGES.map((language) => CODE_LANGUAGE_LABELS[language]),
+			["Python", "JavaScript", "TypeScript", "C++"],
+		);
+	});
+
 	it("leads the property order with nodeId and puts explanation before tests", () => {
 		const keys = Object.keys(codeExerciseInputObject.properties);
 		assert.equal(keys[0], "nodeId");
@@ -79,9 +87,17 @@ describe("parseCodeExerciseInput (display seam)", () => {
 		assert.equal("nodeId" in parsed, false);
 	});
 
+	it("parses every language", () => {
+		for (const language of CODE_LANGUAGES) {
+			assert.equal(parseCodeExerciseInput({ ...exercise, language })?.language, language);
+		}
+	});
+
 	it("heals a JSON-string-encoded language, like the boundary does", () => {
 		const parsed = parseCodeExerciseInput({ ...exercise, language: '"python"' });
 		assert.equal(parsed?.language, "python");
+		const cpp = parseCodeExerciseInput({ ...exercise, language: '"cpp"' });
+		assert.equal(cpp?.language, "cpp");
 	});
 
 	it("returns undefined for malformed or unauthorable input", () => {
@@ -107,6 +123,13 @@ describe("answering", () => {
 		assert.equal(answer.lastRun?.passed, true);
 		assert.equal(answer.runs, 2);
 		assert.equal(answer.explanation, exercise.explanation);
+	});
+
+	it("carries the exercise's language into the answer", () => {
+		for (const language of CODE_LANGUAGES) {
+			const answer = buildCodeAnswer({ ...exercise, language }, { code: "x", runs: 1 });
+			assert.equal(answer.language, language);
+		}
 	});
 
 	it("marks a run-only exercise as not graded", () => {

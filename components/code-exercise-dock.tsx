@@ -12,6 +12,7 @@ import {
 	buildCodeAnswer,
 	canRun,
 	canSubmit,
+	CODE_LANGUAGE_LABELS,
 	CODE_RUN_TIMEOUT_MS,
 	exerciseReducer,
 	initialExerciseState,
@@ -22,7 +23,6 @@ import {
 	toSubmission,
 	type CodeExerciseAnswerData,
 	type CodeExerciseDisplayInput,
-	type CodeLanguage,
 	type CodeRunResult,
 	type CodeRuntime,
 	type ExerciseState,
@@ -39,8 +39,6 @@ import {
  * disabled until the code in the editor has been run; editing after a run
  * keeps the old output visible, marked outdated.
  */
-
-const LANGUAGE_LABELS: Record<CodeLanguage, string> = { python: "Python" };
 
 export interface CodeExerciseDockProps {
 	input: CodeExerciseDisplayInput;
@@ -128,7 +126,7 @@ export function CodeExerciseDock({ input, runtime, onSubmit, compactionRunning =
 		<div data-testid="code-exercise-dock">
 			<div data-session-find-root="" className="max-h-[var(--dock-max-h,55dvh)] overflow-y-auto px-4 pt-3">
 				<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-					Code · {LANGUAGE_LABELS[input.language]}
+					Code · {CODE_LANGUAGE_LABELS[input.language]}
 				</div>
 				<div className="mb-3 font-medium">
 					<MessageResponse>{restoreLiteralNewlines(input.question)}</MessageResponse>
@@ -145,7 +143,7 @@ export function CodeExerciseDock({ input, runtime, onSubmit, compactionRunning =
 							className="pointer-events-none absolute inset-0 overflow-hidden px-2.5 py-2 font-mono text-sm leading-relaxed"
 						>
 							<span ref={highlightRef} className="block whitespace-pre">
-								<HighlightedCode code={state.code} />
+								<HighlightedCode code={state.code} language={input.language} />
 							</span>
 						</pre>
 						<textarea
@@ -184,7 +182,7 @@ export function CodeExerciseDock({ input, runtime, onSubmit, compactionRunning =
 					</span>
 				</div>
 
-				<RunOutput state={state} />
+				<RunOutput state={state} language={input.language} />
 			</div>
 
 			<form
@@ -290,11 +288,11 @@ function CheckVerdict({ passed }: { passed: boolean }) {
 
 /** stdout, the traceback, or the runtime-unavailable notice. A stale run's
  *  output stays visible, dimmed. */
-function RunOutput({ state }: { state: ExerciseState }) {
+function RunOutput({ state, language }: { state: ExerciseState; language: CodeExerciseDisplayInput["language"] }) {
 	if (state.runtimeError !== null) {
 		return (
 			<div data-testid="code-runtime-error" role="alert" className="mb-3 rounded-lg border border-destructive/40 p-3 text-sm text-destructive">
-				The Python runtime is unavailable: {state.runtimeError}
+				The {CODE_LANGUAGE_LABELS[language]} runtime is unavailable: {state.runtimeError}
 			</div>
 		);
 	}

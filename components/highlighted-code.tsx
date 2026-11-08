@@ -2,14 +2,15 @@
 
 import type { CSSProperties } from "react";
 import { useHighlightedRuns } from "@/components/use-highlighted-runs";
+import type { CodeLanguage } from "@/src/core";
 
 /**
- * Python source as colored text — the inside of a <pre>, not the <pre>
- * itself, so the editor's overlay and the answered card each keep their own
- * box. Colors follow the app theme through .lh-tok (globals.css).
+ * Source as colored text — the inside of a <pre>, not the <pre> itself, so
+ * the editor's overlay and the answered card each keep their own box. Colors
+ * follow the app theme through .lh-tok (globals.css).
  */
-export function HighlightedCode({ code }: { code: string }) {
-	const runs = useHighlightedRuns(code);
+export function HighlightedCode({ code, language }: { code: string; language: CodeLanguage }) {
+	const runs = useHighlightedRuns(code, language);
 	return (
 		<>
 			{runs.map((run, index) =>

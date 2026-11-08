@@ -417,12 +417,16 @@ export const codeExerciseExampleBody = {
 function codeExerciseDescription(): string {
 	return (
 		"Give the learner a CODING exercise: an editor pre-filled with `starterCode`, a Run button, and the output of " +
-		"his run. He must run his latest code before he can submit. Python code runs in the browser (standard library " +
-		"only — no NumPy or other packages; each run is time-limited). `tests` is optional: with " +
-		"tests, the run is graded — the checks execute AFTER his code in the same namespace and any error fails the " +
+		"his run. He must run his latest code before he can submit. `language` may be python, javascript, " +
+		"typescript or cpp: Python runs in the browser via Pyodide, JavaScript in a sandboxed local worker, " +
+		"TypeScript is type-stripped in the browser and runs in that same worker (no type checking), and C++ is " +
+		"compiled by the local server's clang++/g++ (a compile error is a run result). Standard library only — no " +
+		"third-party packages, files, network or stdin; each run is time-limited. `tests` is optional: with " +
+		"tests, the run is graded — the checks execute AFTER his code in the same scope and any error fails the " +
 		"run, and his result carries `passed`; without tests the exercise is run-only and you read his code and " +
-		"output yourself. The result returns his final code, how many times he ran it, the last run's stdout / " +
-		"error, and his own thinking about his approach when he wrote any. The `explanation` is revealed to him after he submits, whether or not he passed. " +
+		"output yourself. For C++, tests are appended to the same translation unit and must provide `main`, so the " +
+		"learner's code must not define one. The result returns his final code, how many times he ran it, the last " +
+		"run's stdout / error, and his own thinking about his approach when he wrote any. The `explanation` is revealed to him after he submits, whether or not he passed. " +
 		"Set `nodeId` (required) to the plan node this exercise is about — validated at call time against the " +
 		"session's plan map. " +
 		"ONE exercise per turn: call a single " +

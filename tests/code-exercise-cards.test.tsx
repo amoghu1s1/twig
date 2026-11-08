@@ -57,6 +57,15 @@ describe("CodeExerciseAnsweredCard", () => {
 			/>,
 		);
 
+	it("shows the exercise's language", () => {
+		const answer = buildCodeAnswer(
+			{ ...input, language: "cpp", tests: undefined },
+			{ code: "int main() { return 0; }", runs: 1, lastRun: ran },
+		);
+		const html = renderToStaticMarkup(<CodeExerciseAnsweredCard answer={answer} />);
+		assert.match(html, /Code · C\+\+/);
+	});
+
 	it("shows the question, the submitted code and the passed verdict", () => {
 		const html = card({ ...ran, passed: true, stdout: "done\n" });
 		assert.match(html, /Square every number in/);

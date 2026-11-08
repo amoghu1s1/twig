@@ -25,9 +25,21 @@ import { Type, type Static } from "typebox";
 /** The model-facing tool name. */
 export const CODE_EXERCISE_TOOL = "code-exercises";
 
-/** The languages an exercise can be written in. One runtime per entry. */
-export const CODE_LANGUAGES = ["python"] as const;
+/** The languages an exercise can be written in. One runtime per entry:
+ *  Python via Pyodide, JavaScript in a sandboxed Worker, TypeScript
+ *  transpiled in the browser then run in that Worker, C++ by the local
+ *  server's compiler. */
+export const CODE_LANGUAGES = ["python", "javascript", "typescript", "cpp"] as const;
 export type CodeLanguage = (typeof CODE_LANGUAGES)[number];
+
+/** Display names for labels — the dock, the answer card and any runtime
+ *  notice read the same map. */
+export const CODE_LANGUAGE_LABELS: Record<CodeLanguage, string> = {
+	python: "Python",
+	javascript: "JavaScript",
+	typescript: "TypeScript",
+	cpp: "C++",
+};
 
 /** One execution request. `tests`, when present, runs after `code` in the
  *  same namespace; the run passes only if both finish without an error. */
@@ -61,9 +73,12 @@ export interface CodeRuntime {
 /** Written out literal by literal (a `.map` over CODE_LANGUAGES infers
  *  `never`, and argument-heal only reads `const` members); the test pins it
  *  to CODE_LANGUAGES. */
-const codeLanguage = Type.Union([Type.Literal("python")], {
-	description: `REQUIRED — the exercise's language, as a bare word (no quotes): ${CODE_LANGUAGES.join(", ")}.`,
-});
+const codeLanguage = Type.Union(
+	[Type.Literal("python"), Type.Literal("javascript"), Type.Literal("typescript"), Type.Literal("cpp")],
+	{
+		description: `REQUIRED — the exercise's language, as a bare word (no quotes): ${CODE_LANGUAGES.join(", ")}.`,
+	},
+);
 
 /** Fields shared by the tool schema and the display schema: everything
  *  except the plan-position field. Order is authoring order — the
