@@ -1,9 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/lh_banner_dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/lh_banner_light.png">
-    <img src="docs/assets/lh_banner_light.png" alt="Twig" width="640">
-  </picture>
+  <img src="docs/assets/twig_banner.png" alt="Twig" width="640">
 </p>
 
 <p align="center"><strong>An agent harness for learning.</strong></p>
