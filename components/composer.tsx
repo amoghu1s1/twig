@@ -5,6 +5,8 @@ import { ArrowRightIcon, CornerDownLeftIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PathInput } from "@/components/path-input";
 import { AttachFilesButton } from "@/components/attach-files-button";
+import { DraftImageStrip, ImagePickButton } from "@/components/draft-image-strip";
+import { imageDropHandlers, type ImageDraftProps } from "@/components/draft-images";
 
 /**
  * The chat composer — content row ONLY (the persistent rounded shell lives in
@@ -58,6 +60,7 @@ export function ChatSessionComposer({
 	placeholder,
 	nextProblem,
 	onNext,
+	imageDraft,
 }: {
 	busy: boolean;
 	value: string;
@@ -73,10 +76,13 @@ export function ChatSessionComposer({
 	placeholder?: string;
 	nextProblem?: boolean;
 	onNext?: () => void;
+	/** The pasted-image draft: parent-held; the composer shows it above the
+	 *  input, takes pastes/drops, and removes. */
+	imageDraft?: ImageDraftProps;
 }) {
 	const [draft, setDraft] = useState(value);
 	useLayoutEffect(() => { setDraft(value); }, [revision, value]);
-	const canSend = sendAllowed && (draft.trim().length > 0 || dictationActive);
+	const canSend = sendAllowed && (draft.trim().length > 0 || dictationActive || Boolean(imageDraft?.hasImages));
 	const applyDraft = useCallback((next: string) => {
 		setDraft(next);
 		onChange(next);
@@ -96,6 +102,7 @@ export function ChatSessionComposer({
 			placeholder={placeholder}
 			nextProblem={nextProblem}
 			onNext={onNext}
+			imageDraft={imageDraft}
 		/>
 	);
 }
@@ -113,6 +120,7 @@ export function Composer({
 	placeholder = "Ask, answer, or steer the lesson…",
 	nextProblem = false,
 	onNext,
+	imageDraft,
 }: {
 	busy: boolean;
 	value: string;
@@ -138,6 +146,8 @@ export function Composer({
 	/** The signal's dispatcher (send({type:"next"})) — the chip and the
 	 *  empty-Enter share it. */
 	onNext?: () => void;
+	/** The pasted-image draft (composer paste): parent-held. */
+	imageDraft?: ImageDraftProps;
 }) {
 	const act = () => {
 		const action = enterAction({ busy, canSend, nextProblem });
@@ -150,17 +160,22 @@ export function Composer({
 	return (
 		<form
 			data-testid="composer"
-			className="flex items-end gap-1.5 p-1.5"
+			data-image-composer
+			className="flex flex-wrap items-end gap-1.5 p-1.5"
 			onSubmit={(e) => {
 				e.preventDefault();
 				act();
 			}}
+			{...(imageDraft ? imageDropHandlers(imageDraft.onPaste, { imagesOnly: true }) : {})}
 		>
+			{imageDraft && <DraftImageStrip draft={imageDraft} />}
+			{imageDraft && <ImagePickButton draft={imageDraft} />}
 			<PathInput
 				ref={editorRef}
 				value={value}
 				onValueChange={onChange}
 				defaultDropTarget
+				onImagePaste={imageDraft?.onPaste}
 				onKeyDown={(e) => {
 					// Esc ends dictation before anything else Esc might someday mean
 					// here (the dictate decisions: click-again or Esc to stop).

@@ -15,6 +15,11 @@ import { StatsBar } from "@/components/stats-bar";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { PathInput } from "@/components/path-input";
 import { AttachFilesButton } from "@/components/attach-files-button";
+import { ContextAttachControl, useAttachmentDraft } from "@/components/attachments";
+import { DraftImageStrip, ImagePickButton } from "@/components/draft-image-strip";
+import { imageDropHandlers, useImageDraft } from "@/components/draft-images";
+import { useImageLightbox } from "@/components/image-lightbox";
+import { IMAGE_ONLY_TITLE } from "@/src/core";
 import { SessionStarter } from "@/components/start-session";
 import type { TurnUsage } from "@/src/core";
 
@@ -63,6 +68,13 @@ export function Home({
 	const startingRef = useRef(false);
 	const starterRef = useRef(new SessionStarter());
 	const [startError, setStartError] = useState(false);
+	// Session context attachments: picked files upload on send, after the
+	// session exists and before navigation (same as /chat/new).
+	const attachments = useAttachmentDraft();
+	// Composer images: normalized to bounded bytes, then uploaded through the
+	// same content-addressed attachment store (the record holds ids only).
+	const imageDraft = useImageDraft();
+	const lightbox = useImageLightbox();
 	/* Run end focuses the topic input (owner, 2026-10-01): the hands are on
 	 * the keyboard from the stop. Falling edge only; this surface's only
 	 * dictation target IS this textarea, so no case-split is needed. */
@@ -111,8 +123,10 @@ export function Home({
 		void dictation.finish().then(() => begin());
 	};
 	const begin = async () => {
+		await imageDraft.awaitReads(); // a paste followed by Enter must not race its read
 		const t = topicRef.current.trim();
-		if (!t || startingRef.current) return;
+		const images = imageDraft.imagesRef.current;
+		if ((!t && images.length === 0) || startingRef.current) return;
 		// Unconfigured: the send INTERCEPTS into the setup flow (the draft
 		// stays in the textarea; the learner sends it after Save).
 		if (!configured) {
@@ -145,10 +159,20 @@ export function Home({
 			// before the learner's first user message, propositions + the
 			// chains among them); the prompt stays the learner's own words.
 			const target = await starterRef.current.start({
-				title: t,
+				title: t || IMAGE_ONLY_TITLE,
 				...(mode === "practice" ? { kind: "practice" } : {}),
 				...(practiceProps.length > 0 ? { graphContext: { propositions: practiceProps } } : {}),
-			}, fetch, JSON.stringify(catalog?.slots.strong));
+			}, fetch, JSON.stringify(catalog?.slots.strong),
+			attachments.files.length > 0 || images.length > 0
+				? {
+						identity: `${attachments.identity()}|${images.map((i) => i.id).join("|")}`,
+						upload: async (chatId) => {
+							const fileIds = attachments.files.length > 0 ? await attachments.upload(chatId) : [];
+							const imageIds = images.length > 0 ? (await imageDraft.upload(chatId)).map((r) => r.record.id) : [];
+							return [...fileIds, ...imageIds];
+						},
+					}
+				: undefined, t);
 			router.push(target);
 		} catch {
 			startingRef.current = false;
@@ -206,6 +230,9 @@ export function Home({
 				</div>
 			</header>
 
+			{/* A pasted picture at full size (composer paste). */}
+			{lightbox.lightbox}
+
 			{/* New session — same floating blob as the chat composer, docked
 			    OVER the graph (no gradient: the graph runs clean under it to the
 			    bottom edge). Matches chat.tsx's DOCK geometry (max-w-[46rem]
@@ -220,13 +247,18 @@ export function Home({
 					    shows the pick HINT so the affordance is discoverable;
 					    teaching mode with nothing picked renders nothing. */}
 					<ComposerActions
-						picker={(practiceProps.length > 0 || mode === "practice") && (
-							<NodePickerControl
-								count={practiceProps.length}
-								onOpen={() => setChainSelectOpen(true)}
-								onClear={() => setPracticeProps([])}
-							/>
-						)}
+						picker={
+							<>
+								{(practiceProps.length > 0 || mode === "practice") && (
+									<NodePickerControl
+										count={practiceProps.length}
+										onOpen={() => setChainSelectOpen(true)}
+										onClear={() => setPracticeProps([])}
+									/>
+								)}
+								<ContextAttachControl draft={attachments} disabled={busy} />
+							</>
+						}
 						setup={zeroKeys ? (
 							<ZeroKeysPill inline onOpen={() => setSetupOpen(true)} />
 						) : (
@@ -244,13 +276,18 @@ export function Home({
 					/>
 					{startError && <p role="alert" className="mb-2 text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
 					<form
+						data-testid="home-composer"
 						data-attachment-composer=""
-						className="flex items-end gap-1.5 rounded-2xl border bg-card p-1.5 shadow-lg"
+						data-image-composer
+						className="flex flex-wrap items-end gap-1.5 rounded-2xl border bg-card p-1.5 shadow-lg"
 					onSubmit={(e) => {
 						e.preventDefault();
 						void start();
 					}}
+					{...imageDropHandlers(imageDraft.props.onPaste, { imagesOnly: true })}
 				>
+					<DraftImageStrip draft={{ ...imageDraft.props, onOpen: lightbox.open }} />
+					<ImagePickButton draft={imageDraft.props} />
 					<PathInput
 						ref={topicInputRef}
 						value={topic}
@@ -259,6 +296,7 @@ export function Home({
 							setTopic(value);
 						}}
 						defaultDropTarget
+						onImagePaste={imageDraft.props.onPaste}
 						onKeyDown={(e) => {
 							// Esc ends dictation (the dictate decisions: click-again or
 							// Esc) — stopPropagation claims it (keyboard wave A) so
@@ -284,7 +322,7 @@ export function Home({
 					<button
 						type="submit"
 						aria-label="Start session"
-						disabled={(!topic.trim() && !dictation.active) || busy}
+						disabled={(!topic.trim() && !dictation.active && !imageDraft.hasImages) || busy}
 						className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-40"
 					>
 						<CornerDownLeftIcon className="size-5" />

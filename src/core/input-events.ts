@@ -45,10 +45,18 @@ import {
 	pendingProblemDismissalOf,
 } from "./native-messages.ts";
 import { QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
+import { ChatInputError } from "./input-error.ts";
+import { parseComposerImages, type ComposerImage } from "./images.ts";
+export { ChatInputError };
 
 /** One client-originated input event (the POST body's `input`). */
 export type ChatInput =
-	| { type: "text"; text: string }
+	/** attachmentIds: session attachments sent with this message (uploaded
+	 *  first via /api/chats/[id]/attachments; validated against the record).
+	 *  `images` is the composer's native image payload: the server stores the
+	 *  bytes in the session-attachment blob store and turns them into ids
+	 *  before the record append — ChatRecord never holds image base64. */
+	| { type: "text"; text: string; attachmentIds?: string[]; images?: ComposerImage[] }
 	| { type: "answer"; toolCallId: string; answer: AnswerData }
 	| { type: "continue" }
 	/** The failed-turn retry (issue #110): the banner's Retry button. */
@@ -158,18 +166,30 @@ export function dismissAppends(record: { messages: LhMessage[] }, input: Dismiss
 }
 
 /** A malformed input event (the honest 400 — the orphan-trap discipline). */
-export class ChatInputError extends Error {}
 
 /** Parse and validate an input event off a request body. */
 export function parseChatInput(input: unknown): ChatInput {
 	if (typeof input !== "object" || input === null) throw new ChatInputError("input must be an object");
 	const i = input as Record<string, unknown>;
 	switch (i.type) {
-		case "text":
-			if (typeof i.text !== "string" || (i.text as string).trim().length === 0) {
-				throw new ChatInputError("text input requires non-empty text");
+		case "text": {
+			if (typeof i.text !== "string") {
+				throw new ChatInputError("text input requires text");
 			}
-			return { type: "text", text: i.text };
+			if (i.attachmentIds !== undefined && (!Array.isArray(i.attachmentIds) || !i.attachmentIds.every((a) => typeof a === "string"))) {
+				throw new ChatInputError("text input's attachmentIds must be a list of attachment ids");
+			}
+			const images = i.images === undefined ? [] : parseComposerImages(i.images);
+			if ((i.text as string).trim().length === 0 && !(i.attachmentIds as string[] | undefined)?.length && images.length === 0) {
+				throw new ChatInputError("text input requires non-empty text or an attachment");
+			}
+			return {
+				type: "text",
+				text: i.text,
+				...((i.attachmentIds as string[] | undefined)?.length ? { attachmentIds: i.attachmentIds as string[] } : {}),
+				...(images.length ? { images } : {}),
+			};
+		}
 		case "answer":
 			if (typeof i.toolCallId !== "string" || i.toolCallId.length === 0) {
 				throw new ChatInputError("answer input requires toolCallId");
@@ -213,12 +233,15 @@ export function parseChatInput(input: unknown): ChatInput {
  * double-answering.
  */
 export function inputAppends(
-	record: { messages: LhMessage[]; kind?: string },
+	record: { messages: LhMessage[]; kind?: string; attachments?: readonly { id: string }[] },
 	input: ChatInput,
 ): LhMessage[] {
 	switch (input.type) {
-		case "text":
-			return [...dismissalConclusion(record), newUserMessage(input.text)];
+		case "text": {
+			const unknown = input.attachmentIds?.filter((id) => !record.attachments?.some((a) => a.id === id)) ?? [];
+			if (unknown.length > 0) throw new ChatInputError(`text input names unknown attachments: ${unknown.join(", ")}`);
+			return [...dismissalConclusion(record), newUserMessage(input.text, input.images?.length ? input.images : input.attachmentIds)];
+		}
 		case "answer": {
 			const pending = danglingQuestionOf(record.messages);
 			if (!pending || pending.toolCallId !== input.toolCallId) {
