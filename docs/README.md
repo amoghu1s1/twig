@@ -11,6 +11,7 @@
 - [Obsidian vault](obsidian.md) — the knowledge graph as linked Markdown notes for Obsidian, on Mac and phone.
 - [Context, caching, and costs](compaction-accounting.md) — understand the session meters and advanced cache preferences.
 - [Readings](readings.md) — generate companion readings from a lesson snapshot, with citation checks and Discuss.
+- [Capstone projects](capstone.md) — pitch a build from graph propositions, lock a file-verifiable brief, and get a read-only review and gap report.
 - [Themes](themes.md) — presets, Dark/Light/System mode, and the appearance token model.
 - [Learning-data skill](../skills/learnharness/SKILL.md) — a read-only guide and standalone readers for local learning records.
 

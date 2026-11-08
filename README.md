@@ -38,7 +38,7 @@ Twig keeps LearnHarness's teaching model and adds the parts that matter for dail
 - **Session attachments** — attach PDFs, EPUBs, images and other files from the composer; contents are stored once by content hash under `data/attachments/`, previewed from the session, and read through scoped PDF/EPUB tools. Removing an attachment is reversible, and unreferenced blobs are swept.
 - **Mistakes review** — every miss is classified, analyzed, and collected on a Mistakes page with a short "why" for each one. The analyst is opt-out and cost-capped.
 - **Quote into the composer** — select tutor prose and quote it directly into your reply, so follow-ups keep the exact wording.
-- **Capstone projects** — a project session where you pitch a real build from graph propositions, the agent sharpens it into a locked brief with file-verifiable criteria, then reviews your directory read-only and reports the gaps.
+- **Capstone projects** — a project session where you pitch a real build from graph propositions, the agent sharpens it into a locked brief with file-verifiable criteria, then reviews your directory read-only and reports the gaps. See [capstone.md](docs/capstone.md).
 - **Scratchpad and calculator** — a pressure-sensitive drawing sidebar with undo/eraser/straight lines, a draggable scientific calculator, and inert `svg` figures rendered directly in lessons.
 - **Edit the last message** — rewrite a sent prompt or a parked steer with a durable rewind of the transcript, plan, graph traces, jobs and queued steers.
 - **Upstream 0.5.0** — the fork carries upstream's attachments/paperclip, learner-image snapshots, folder imports, PDF import, Exa/Firecrawl/Ollama search, file-access restrictions, atomic store writes, Claude CLI guards, and projection/recovery fixes.
