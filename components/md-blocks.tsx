@@ -27,7 +27,7 @@
  * EXPAND icon (opens the session overlay) when a chat page is mounted.
  */
 
-import { cloneElement, isValidElement, useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { cloneElement, isValidElement, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { CheckIcon, CopyIcon, MaximizeIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -42,6 +42,8 @@ import { useAppearance } from "@/components/settings/appearance";
 import { MermaidError } from "@/components/mermaid-error";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { chartSize, useSessionMermaid } from "@/components/session-overlay";
+import { SvgImage } from "@/components/artifacts/svg-image";
+import { FIGURE_STAGE_INK, figureDisplayWidth, prepareSvgFigure, useThemeInk } from "@/components/svg-figure";
 import { Hint } from "@/components/ui/hint";
 
 // ─── The one affordance: the hover-reveal corner copy ────────────────────────
@@ -228,6 +230,105 @@ function MermaidInline({ chart }: { chart: string }) {
 	);
 }
 
+/** A hand-drawn ```svg figure (components/svg-figure.ts), in the message
+ *  flow: an inert image in the theme's ink, at its natural size (1 viewBox
+ *  unit = 1 px, so its labels match the text; a math-unit viewBox gets a
+ *  default width) capped to the column, with
+ *  the hover corner's copy + full screen. A spinner while the fence
+ *  streams; a figure that isn't one whole <svg>, or that the browser can't
+ *  draw, shows as its source instead. */
+function SvgFigure({ source }: { source: string }) {
+	const incomplete = useIsCodeFenceIncomplete();
+	const holderRef = useRef<HTMLDivElement>(null);
+	const ink = useThemeInk(holderRef);
+	const overlay = useSessionMermaid();
+	// The svg the browser refused to draw (a new source gets a fresh try).
+	const [refused, setRefused] = useState<string | null>(null);
+	// Inside a button or link (a quiz option), the figure is part of that
+	// control: no corner buttons nested in it, a click goes to the control.
+	const [inControl, setInControl] = useState(false);
+	useEffect(() => {
+		setInControl(!!holderRef.current?.closest("button, a, [role='button']"));
+	}, []);
+	const svg = useMemo(() => (incomplete || ink === null ? null : prepareSvgFigure(source, ink)), [incomplete, ink, source]);
+
+	if (!incomplete && ink !== null && (svg === null || refused === svg)) {
+		return (
+			<div data-testid="md-svg-source">
+				<p className="mb-1 text-xs text-muted-foreground">This figure couldn&apos;t be drawn. Its source:</p>
+				<CodeFence source={source} language="xml" incomplete={false} />
+			</div>
+		);
+	}
+	return (
+		<div data-testid="md-svg" className="group/md relative my-4">
+			<div ref={holderRef} className="mx-auto flex w-full justify-center" style={svg ? { maxWidth: `${figureDisplayWidth(chartSize(svg).w)}px` } : undefined}>
+				{svg ? (
+					<SvgImage svg={svg} className="block h-auto w-full" onError={() => setRefused(svg)} />
+				) : (
+					<span aria-busy="true" className="my-4 inline-block size-4 animate-spin rounded-full border border-current border-b-2 text-muted-foreground" />
+				)}
+			</div>
+			{svg && !inControl && (
+				<div className="absolute top-0 right-0 flex items-start gap-0.5">
+					<CopyCorner getText={() => source} label="Copy figure source" />
+					{overlay && (
+						<Hint label="Open full-screen" side="bottom">
+							<button
+								type="button"
+								aria-label="Expand figure"
+								data-testid="md-svg-expand"
+								className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/md:opacity-100"
+								onClick={(e) => {
+									blurAfterPointerClick(e);
+									// The full-screen stage is white: dark ink there.
+									const staged = prepareSvgFigure(source, FIGURE_STAGE_INK);
+									if (staged) overlay.openFigure(staged, false);
+								}}
+							>
+								<MaximizeIcon className="size-3.5" />
+							</button>
+						</Hint>
+					)}
+				</div>
+			)}
+		</div>
+	);
+}
+
+/** A highlighted code block (streamdown's CodeBlock: shiki + line numbers)
+ *  inside the hover-copy wrapper, with NO children so its sticky button row
+ *  never mounts. */
+function CodeFence({
+	source,
+	language,
+	className,
+	incomplete,
+	startLine,
+	lineNumbers = true,
+}: {
+	source: string;
+	language: string;
+	className?: string;
+	incomplete: boolean;
+	startLine?: number;
+	lineNumbers?: boolean;
+}) {
+	return (
+		<div className="group/md relative" data-testid="md-code">
+			<CopyCorner className="absolute top-1.5 right-2 z-10" getText={() => source} label="Copy code" />
+			<CodeBlock
+				code={source}
+				language={language}
+				className={className}
+				isIncomplete={incomplete}
+				startLine={startLine}
+				lineNumbers={lineNumbers}
+			/>
+		</div>
+	);
+}
+
 /** The Streamdown `code` override: inline code passes through with the
  *  house inline classes; block fences split — mermaid renders as the bare
  *  chart above, everything else delegates to streamdown's exported
@@ -253,22 +354,19 @@ export function MarkdownCode(props: ComponentProps<"code"> & ExtraProps) {
 	const source = codeSource(children);
 
 	if (language === "mermaid") return <MermaidInline chart={source} />;
+	if (language === "svg") return <SvgFigure source={source} />;
 
 	const startMatch = /startLine=(\d+)/.exec(meta);
 	const startLine = startMatch ? Number.parseInt(startMatch[1]!, 10) : undefined;
-	const lineNumbers = !/\bnoLineNumbers\b/.test(meta);
 	return (
-		<div className="group/md relative" data-testid="md-code">
-			<CopyCorner className="absolute top-1.5 right-2 z-10" getText={() => source} label="Copy code" />
-			<CodeBlock
-				code={source}
-				language={language}
-				className={className}
-				isIncomplete={incomplete}
-				startLine={startLine !== undefined && startLine >= 1 ? startLine : undefined}
-				lineNumbers={lineNumbers}
-			/>
-		</div>
+		<CodeFence
+			source={source}
+			language={language}
+			className={className}
+			incomplete={incomplete}
+			startLine={startLine !== undefined && startLine >= 1 ? startLine : undefined}
+			lineNumbers={!/\bnoLineNumbers\b/.test(meta)}
+		/>
 	);
 }
 
