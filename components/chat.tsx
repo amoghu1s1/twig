@@ -40,6 +40,7 @@ import {
 	isProviderKeyRefusal,
 	firstSourceTextParts,
 	cliContextWindowOf,
+	latestReadablePassage,
 	messageAnchorId,
 	textPartMessageId,
 	kbdEventForAction as kbdEventForChat,
@@ -57,8 +58,9 @@ import type { PlanBlockData } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
 import { CodeExerciseDockHost } from "@/components/code-exercise-dock-host";
 import { CodeExerciseAnsweredCard } from "@/components/code-exercise-answered-card";
-import { SessionFind } from "@/components/session-find";
-import { SessionMessageNavigation } from "@/components/session-navigation";
+import { SessionFind, sessionFindHasForegroundLayer } from "@/components/session-find";
+import { scrollSessionToBottom, scrollSessionToTop, SessionMessageNavigation } from "@/components/session-navigation";
+import { SentenceReader, SentenceReaderButton } from "@/components/sentence-reader";
 import { PracticeDock } from "@/components/practice-dock";
 import { ThinkingCard, type PracticeThinkingData } from "@/components/practice-cards";
 import { GraphContextCard, type GraphContextData } from "@/components/graph-context-card";
@@ -381,7 +383,7 @@ export function Chat({
 	const abortAskRef = useRef<AbortMode | null>(null);
 	abortAskRef.current = abortAsk;
 	useEffect(() => {
-		const onAbort = () => {
+		const onAbort = (e: Event) => {
 			const target = escAbortTarget({
 				abortAsk: abortAskRef.current !== null,
 				mermaidFocus: mermaidFocusRef.current !== null || figureFocusRef.current !== null,
@@ -397,6 +399,9 @@ export function Chat({
 			else if (target === "mermaid") setMermaidFocus(null);
 			else if (target === "plan") setPlanOpen(false);
 			// setup closes itself; null = nothing to do — both claimed.
+			// Claim the Esc whenever a layer took it (or a confirm is already
+			// up); an unclaimed Esc lets the dispatcher blur the focused field.
+			if (target !== null || abortAskRef.current !== null) e.preventDefault();
 		};
 		window.addEventListener("lh:kbd-abort-turn", onAbort);
 		return () => window.removeEventListener("lh:kbd-abort-turn", onAbort);
@@ -894,6 +899,34 @@ export function Chat({
 	// The live plan popup (wave 4): opened by any transcript plan block, the
 	// top-bar plan chip, and the dock band's marginalia.
 	const [planOpen, setPlanOpen] = useState(false);
+	const [readerText, setReaderText] = useState<string | null>(null);
+	// Reader + session-edge shortcuts (registry actions). The handlers read the
+	// live transcript at EVENT time, so they attach once. A surfaced layer —
+	// the reader itself, a dialog, a menu — outranks all three.
+	const passageSourceRef = useRef({ messages, streaming: status === "streaming" });
+	passageSourceRef.current = { messages, streaming: status === "streaming" };
+	useEffect(() => {
+		const onRead = () => {
+			if (sessionFindHasForegroundLayer(document)) return;
+			const { messages: current, streaming } = passageSourceRef.current;
+			const passage = latestReadablePassage(current, streaming);
+			if (passage !== null) setReaderText(passage);
+		};
+		const onTop = () => {
+			if (!sessionFindHasForegroundLayer(document)) scrollSessionToTop(scrollContextRef.current);
+		};
+		const onBottom = () => {
+			if (!sessionFindHasForegroundLayer(document)) scrollSessionToBottom(scrollContextRef.current);
+		};
+		window.addEventListener(kbdEventForChat("read-by-sentence"), onRead);
+		window.addEventListener(kbdEventForChat("scroll-top"), onTop);
+		window.addEventListener(kbdEventForChat("scroll-bottom"), onBottom);
+		return () => {
+			window.removeEventListener(kbdEventForChat("read-by-sentence"), onRead);
+			window.removeEventListener(kbdEventForChat("scroll-top"), onTop);
+			window.removeEventListener(kbdEventForChat("scroll-bottom"), onBottom);
+		};
+	}, []);
 	// Real plan presence — gates the marginalia's clickable flank. A JSX
 	// element is always truthy; gating on the node alone mounted a phantom
 	// (invisible, clickable) button in the bottom-right whenever a question
@@ -1572,6 +1605,9 @@ export function Chat({
 														const anchor = sourceId && sourceTextParts.get(sourceId) === part.id ? messageAnchorId(sourceId) : undefined;
 														return (
 															<div key={part.id || pi} id={anchor} data-source-message-id={sourceId ?? undefined} className="lh-source-passage">
+																{!(status === "streaming" && isLastPart) && (part.text ?? "").trim() !== "" && (
+																	<SentenceReaderButton onOpen={() => setReaderText(part.text ?? "")} />
+																)}
 																<AssistantTextResponse>{part.text}</AssistantTextResponse>
 															</div>
 														);
@@ -1816,6 +1852,7 @@ export function Chat({
 					/>
 				)}
 				{planOpen && <PlanPopup messages={messages} onClose={() => setPlanOpen(false)} />}
+				{readerText !== null && <SentenceReader text={readerText} onClose={() => setReaderText(null)} />}
 				<AbortTurnDialog mode={abortAsk} onClose={() => setAbortAsk(null)} onConfirm={confirmAbort} busy={busy} />
 				</div>
 			</div>
