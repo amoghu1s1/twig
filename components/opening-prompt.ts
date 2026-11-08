@@ -10,13 +10,20 @@ export interface OpeningPrompt {
 	text: string;
 	/** Written BEFORE sending. A later mount restores a draft, never reposts. */
 	attempted: boolean;
+	/** Session attachments uploaded with the opening text (already on the
+	 *  server — only their ids ride the handover). */
+	attachmentIds?: string[];
 }
 
 const keyFor = (id: string) => `lh.openingPrompt.${id}`;
 
-export function stashOpeningPrompt(id: string, text: string, attempted = false): boolean {
+export function stashOpeningPrompt(id: string, text: string, attempted = false, attachmentIds?: readonly string[]): boolean {
 	try {
-		const value = JSON.stringify({ text, attempted } satisfies OpeningPrompt);
+		const value = JSON.stringify({
+			text,
+			attempted,
+			...(attachmentIds?.length ? { attachmentIds: [...attachmentIds] } : {}),
+		} satisfies OpeningPrompt);
 		// Catch both the storage getter and its methods (quota/security errors).
 		const storage = globalThis.sessionStorage;
 		storage.setItem(keyFor(id), value);
@@ -33,8 +40,13 @@ export function readOpeningPromptEntry(id: string): OpeningPrompt | undefined {
 		try {
 			const entry: unknown = JSON.parse(value);
 			if (entry && typeof entry === "object" && "text" in entry && typeof entry.text === "string" &&
-				entry.text.length > 0 && "attempted" in entry && typeof entry.attempted === "boolean") {
-				return { text: entry.text, attempted: entry.attempted };
+				"attempted" in entry && typeof entry.attempted === "boolean") {
+				const ids = "attachmentIds" in entry && Array.isArray(entry.attachmentIds) && entry.attachmentIds.every((a: unknown) => typeof a === "string")
+					? { attachmentIds: entry.attachmentIds as string[] }
+					: {};
+				// An image-only opening has no text but does carry attachment ids.
+				if (entry.text.length === 0 && !(ids.attachmentIds?.length)) return undefined;
+				return { text: entry.text, attempted: entry.attempted, ...ids };
 			}
 		} catch { /* Old raw-text stashes have no proof that sending never began. */ }
 		return { text: value, attempted: true };

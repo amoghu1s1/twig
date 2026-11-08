@@ -36,6 +36,8 @@ import { SvgImage } from "@/components/artifacts/svg-image";
 export const SessionMermaidContext = createContext<{
 	openMermaid: (chart: string) => void;
 	openFigure: (svg: string, inverted: boolean) => void;
+	/** Optional: the surface's shared image lightbox (back-compat when absent). */
+	openImage?: (url: string) => void;
 } | null>(null);
 
 export function useSessionMermaid() {

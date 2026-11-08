@@ -4,6 +4,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import { FilePathChip } from "./file-path-chip";
 import { cn } from "../lib/utils";
+import { handleImagePaste } from "./draft-images";
 import {
 	adjacentPathRange, atomicPathRange, clampPathSelection, insertFilePaths,
 	normalizePathEdit, normalizePathInputValue, pathInputStaticRange, PathInputHistory, readPathInput, readPathSelection, renderPathInput,
@@ -20,6 +21,9 @@ export type PathInputProps = Omit<React.HTMLAttributes<HTMLDivElement>, "childre
 	defaultDropTarget?: boolean;
 	/** Native text-input semantics: strip CR/LF and leave Enter to the caller. */
 	singleLine?: boolean;
+	/** Image files in a paste go here (the composer's draft); text still
+	 *  lands in the editor, and an image-only paste claims the event. */
+	onImagePaste?: (files: File[]) => void;
 };
 
 type ChipHost = { host: HTMLElement; path: string };
@@ -34,12 +38,12 @@ type Controller = {
  */
 export const PathInput = React.forwardRef<HTMLDivElement, PathInputProps>(function PathInput({
 	value, onValueChange, placeholder, autoFocus, defaultDropTarget = false, singleLine = false, className,
-	onKeyDown, onFocus, onBlur, onInput, onPaste, onCopy, onCut,
+	onKeyDown, onFocus, onBlur, onInput, onPaste, onCopy, onCut, onImagePaste,
 	onCompositionStart, onCompositionEnd, ...props
 }, forwardedRef) {
 	const rootRef = React.useRef<HTMLDivElement>(null);
 	const controllerRef = React.useRef<Controller | null>(null);
-	const callbacks = React.useRef({ onValueChange, singleLine });
+	const callbacks = React.useRef({ onValueChange, singleLine, onImagePaste });
 	const composing = React.useRef(false);
 	const [chips, setChips] = React.useState<ChipHost[]>([]);
 	// Keep this text child immutable: SSR/hydration gets the complete draft,
@@ -47,7 +51,7 @@ export const PathInput = React.forwardRef<HTMLDivElement, PathInputProps>(functi
 	const initial = React.useRef({ value: normalizePathInputValue(value, singleLine), autoFocus, singleLine });
 
 	React.useImperativeHandle(forwardedRef, () => rootRef.current!, []);
-	React.useLayoutEffect(() => { callbacks.current = { onValueChange, singleLine }; }, [onValueChange, singleLine]);
+	React.useLayoutEffect(() => { callbacks.current = { onValueChange, singleLine, onImagePaste }; }, [onValueChange, singleLine, onImagePaste]);
 
 	React.useLayoutEffect(() => {
 		const root = rootRef.current!;
@@ -173,8 +177,21 @@ export const PathInput = React.forwardRef<HTMLDivElement, PathInputProps>(functi
 		}
 		function paste(event: ClipboardEvent) {
 			if (event.defaultPrevented) return;
-			event.preventDefault();
+			// Images are the composer draft's: hand them over first (the shared
+			// handler marks the native event so the page listener never doubles
+			// it). Mixed text+image pastes still get their text below.
+			const imageClaimed = callbacks.current.onImagePaste
+				? handleImagePaste(event, callbacks.current.onImagePaste)
+				: false;
 			const text = event.clipboardData?.getData("text/plain") ?? "";
+			if (imageClaimed) {
+				if (text === "") return;
+				event.preventDefault();
+				if (composing.current) pendingPaste.push(text);
+				else replace(text);
+				return;
+			}
+			event.preventDefault();
 			// Image/file/HTML-only clipboard contents are not text replacement.
 			if (text === "") return;
 			if (composing.current) pendingPaste.push(text);

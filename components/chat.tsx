@@ -77,8 +77,13 @@ import { SideAskBlock, SidePassage, SideSelectionAsk } from "@/components/side-c
 import { NotesController, NotesProvider } from "@/components/notes-state";
 import { NotesChip, NotesPanel } from "@/components/notes-panel";
 import { MistakesContext, useChatMistakes } from "@/components/mistakes-context";
-import type { AnswerData, ArtifactPartProps, CodeExerciseAnswerData, JobRecord, Phase3, QuestionAnswerData, QuestionFormDraft, ReadingDiscussionMarkerDetails, TurnUsage, SessionPricing } from "@/src/core";
+import type { AnswerData, ArtifactPartProps, AttachmentRecord, CodeExerciseAnswerData, DraftImage, JobRecord, Phase3, QuestionAnswerData, QuestionFormDraft, ReadingDiscussionMarkerDetails, TurnUsage, SessionPricing } from "@/src/core";
 import type { LhViewMessage } from "@/src/core";
+import { AttachmentChips, attachmentContentUrl, ContextAttachControl, mergeAttachments, SessionFilesControl, useAttachmentDraft } from "@/components/attachments";
+import { ComposerActions } from "@/components/composer-actions";
+import { useImageDraft } from "@/components/draft-images";
+import { useImageLightbox } from "@/components/image-lightbox";
+import { ImageGallery } from "@/components/image-gallery";
 import { PhaseChip, PhaseDivider } from "@/components/phase-divider";
 import {
 	CompactionCutDivider,
@@ -187,13 +192,25 @@ export function parseProviderKeyRefusal(message: string | undefined): boolean {
 	}
 }
 
+/** The image refusal's transport seam (composer paste): the server names
+ *  the model, so its own wording rides back to the draft strip. */
+function parseImageRefusal(message: string | undefined): string | null {
+	if (!message) return null;
+	try {
+		const body = JSON.parse(message) as { code?: unknown; error?: unknown };
+		return body.code === "model_cannot_read_images" && typeof body.error === "string" ? body.error : null;
+	} catch {
+		return null;
+	}
+}
+
 /** Retry sends no composer text. Its refusal must not resurrect the draft
  * from an earlier, already-durable text send over today's unsent composer.
  * Retire that fallback synchronously, never when the async Retry settles:
  * a later ordinary send may own a new recovery draft by then. */
 export function retryFailedResponse(
 	send: (input: ChatInput) => void,
-	submittedDraft: { current: string | null },
+	submittedDraft: { current: { text: string; images?: readonly DraftImage[] } | string | null },
 ): void {
 	submittedDraft.current = null;
 	void send({ type: "retry" });
@@ -242,6 +259,7 @@ export function Chat({
 	initiallyCompacting = false,
 	initialConfigured = false,
 	kind = "teach",
+	initialAttachments = [],
 }: {
 	chatId: string;
 	title: string;
@@ -268,6 +286,9 @@ export function Chat({
 	 *  it (BYOK, owner 2026-09-22). The server gate stays the truth; this
 	 *  only decides whether the pill rides the composer. */
 	initialConfigured?: boolean;
+	/** The session's context attachments: names for the transcript's chips;
+	 *  grows as the composer uploads more. */
+	initialAttachments?: AttachmentRecord[];
 }) {
 	// Reattach plumbing (background-turn runner wave): the hook holds the
 	// settled terminal's callback — a stable ref assigned below, once
@@ -638,13 +659,37 @@ export function Chat({
 	catalogRef.current = catalog;
 	const [selectedModel, setSelectedModel] = useState<string | undefined>();
 	const [setupOpen, setSetupOpen] = useState(false);
+	// Session context attachments: the record's list + the composer's draft.
+	const [sessionAttachments, setSessionAttachments] = useState(initialAttachments);
+	const attachmentDraft = useAttachmentDraft((records) => setSessionAttachments((prev) => mergeAttachments(prev, records)));
+	const imageDraft = useImageDraft();
+	const lightbox = useImageLightbox();
+	const removeImages = imageDraft.removeImages;
+	const attachmentItem = (id: string) => {
+		const a = sessionAttachments.find((r) => r.id === id);
+		return { id, name: a?.name ?? "attachment", detached: !!a?.detachedAt };
+	};
+	const attachmentImageItems = (ids: readonly string[]) =>
+		ids
+			.map((id) => sessionAttachments.find((r) => r.id === id))
+			.filter((a): a is AttachmentRecord => !!a && a.kind === "image" && !a.detachedAt)
+			.map((a) => ({ url: attachmentContentUrl(chatId, a.id), alt: a.name, caption: a.name }));
+	// The top bar's session-files panel; a transcript chip opens it on its file.
+	const [filesOpen, setFilesOpen] = useState(false);
+	const [filesHighlight, setFilesHighlight] = useState<string | null>(null);
+	const onFilesOpenChange = (open: boolean) => {
+		setFilesOpen(open);
+		if (!open) setFilesHighlight(null);
+	};
 	/** The last explicitly-sent draft (composer send): the
 	 *  refusal flow restores it into the composer, where it waits for the
 	 *  learner to re-send (Save never auto-sends, owner 2026-10-09).
 	 *  Auto-continuations (probe answers) never set it — their refusal
 	 *  opens recovery with no replay. */
-	const draftRef = useRef<string | null>(null);
+	const draftRef = useRef<{ text: string; images: DraftImage[] } | null>(null);
 	const openingDraftRef = useRef<string | null>(null);
+	/** The opening's attachments (uploaded on the new-session page; ids only). */
+	const openingAttachmentIdsRef = useRef<string[]>([]);
 	const [openingError, setOpeningError] = useState(false);
 	const openingMountedRef = useRef(false);
 	useEffect(() => {
@@ -652,22 +697,23 @@ export function Chat({
 		return () => { openingMountedRef.current = false; };
 	}, []);
 
-	const deliverOpeningPrompt = useCallback((prompt: string) => {
+	const deliverOpeningPrompt = useCallback((prompt: string, attachmentIds: string[] = openingAttachmentIdsRef.current) => {
 		openingDraftRef.current = prompt;
+		openingAttachmentIdsRef.current = attachmentIds;
 		// Persist uncertainty BEFORE the POST: another mount must restore,
 		// not race the still-arriving request. No storage means no auto-send.
-		if (!stashOpeningPrompt(chatId, prompt, true)) {
+		if (!stashOpeningPrompt(chatId, prompt, true, attachmentIds)) {
 			applyText(prompt);
 			setOpeningError(true);
 			return;
 		}
 		setOpeningError(false);
-		draftRef.current = prompt; // The existing 503 flow must restore it too.
+		draftRef.current = { text: prompt, images: [] }; // The existing 503 flow must restore it too.
 		applyText("");
-		void send({ type: "text", text: prompt }, () => {
+		void send({ type: "text", text: prompt, ...(attachmentIds.length ? { attachmentIds } : {}) }, () => {
 			clearOpeningPrompt(chatId);
 			openingDraftRef.current = null;
-			if (draftRef.current === prompt) draftRef.current = null;
+			if (draftRef.current?.text === prompt) draftRef.current = null;
 		}).then(accepted => {
 			if (!accepted && openingMountedRef.current && openingDraftRef.current === prompt && !textRef.current) {
 				applyText(prompt);
@@ -680,17 +726,20 @@ export function Chat({
 		if (sentInitial.current) return;
 		sentInitial.current = true;
 		const entry = readOpeningPromptEntry(chatId);
-		const prompt = initialPrompt || entry?.text; // Legacy links still work.
-		if (!initialPromptOwed(initialMessages, prompt)) {
-			if (initialMessages.some(m => m.role === "user" || m.role === "assistant")) clearOpeningPrompt(chatId);
+		const prompt = initialPrompt || entry?.text || ""; // Legacy links still work.
+		const hasAttachments = Boolean(entry?.attachmentIds?.length);
+		const hasConversation = initialMessages.some((m) => m.role === "user" || m.role === "assistant");
+		if (!(initialPromptOwed(initialMessages, prompt) || (!hasConversation && hasAttachments))) {
+			if (hasConversation) clearOpeningPrompt(chatId);
 			return;
 		}
-		openingDraftRef.current = prompt!;
+		openingDraftRef.current = prompt;
+		openingAttachmentIdsRef.current = entry?.attachmentIds ?? [];
 		if (entry?.attempted || initiallyInFlight) {
-			applyText(prompt!); // Interrupted start: the learner explicitly resends.
+			applyText(prompt); // Interrupted start: the learner explicitly resends.
 			return;
 		}
-		deliverOpeningPrompt(prompt!);
+		deliverOpeningPrompt(prompt);
 	}, [chatId, initialPrompt, initialMessages, initiallyInFlight, deliverOpeningPrompt, applyText]);
 
 	useEffect(() => {
@@ -700,7 +749,7 @@ export function Chat({
 		// only the unchanged recovered draft, never the learner's newer work.
 		const opening = openingDraftRef.current;
 		if (opening !== null && textRef.current === opening) applyText("");
-		if (draftRef.current === opening) draftRef.current = null;
+		if (draftRef.current?.text === opening) draftRef.current = null;
 		openingDraftRef.current = null;
 		setOpeningError(false);
 	}, [chatId, hasConfirmedConversation, applyText]);
@@ -722,7 +771,24 @@ export function Chat({
 		// connected, repair belongs to the ordinary current-session picker;
 		// otherwise setup derives its exclusive provider/loading stage.
 		const keyRefused = parseProviderKeyRefusal(error.message);
-		if (!missing && !keyRefused) return; // a real error keeps the honest banner
+		// The image twin (composer paste): the model cannot read pictures.
+		// Same revert-draft, but the reason shows on the draft strip, not the
+		// setup dialog (no setup step fixes it; a model swap does).
+		const imageRefusal = parseImageRefusal(error.message);
+		if (!missing && !keyRefused && !imageRefusal) return; // a real error keeps the honest banner
+		if (imageRefusal && !missing && !keyRefused) {
+			// Nothing was persisted (the gate runs before appends): restore the
+			// text and images that rode the refused send, keep anything typed
+			// since, and show the server's own reason.
+			if (draftRef.current) {
+				if (!textRef.current) applyText(draftRef.current.text);
+				imageDraft.restoreSent(draftRef.current.images);
+				draftRef.current = null;
+			}
+			imageDraft.setError(imageRefusal);
+			clearError();
+			return;
+		}
 		// ORDER MATTERS: clearError() flips this effect's own dep (`error`)
 		// and would cancel the in-flight work below — so the banner dismiss,
 		// the draft restore, and the dialog open all land TOGETHER after the
@@ -735,8 +801,9 @@ export function Chat({
 				if (Array.isArray(record?.messages)) setMessages(record.messages);
 			}
 			if (cancelled) return;
-			if (draftRef.current !== null) {
-				applyText(draftRef.current);
+			if (draftRef.current) {
+				applyText(draftRef.current.text);
+				imageDraft.restoreSent(draftRef.current.images);
 				draftRef.current = null;
 			}
 			clearError();
@@ -808,13 +875,14 @@ export function Chat({
 	// server's registry mutex is the structural gate; this is the
 	// affordance).
 	const [compacting, setCompacting] = useState(initiallyCompacting);
+	const [uploading, setUploading] = useState(false);
 	// A failed model response (issue #110): Retry keeps the saved input
 	// and completed work, without another learner message. Offered from
 	// "error" too: a dropped stream leaves the model there, and send()
 	// recovers from it. Later compaction requires new input instead.
 	const retryable = (status === "ready" || status === "error") && !busy && !compacting && endsInFailedTurn(nativeMessages);
 	const retryFailedTurn = () => retryFailedResponse(send, draftRef);
-	const sendAllowed = !pending && !activeProblem && !compacting;
+	const sendAllowed = !pending && !activeProblem && !compacting && !uploading;
 
 	/* THE PRACTICE PAUSE (owner round 16): between problems — practice
 	 * kind, nothing active, nothing in flight, and at least one problem
@@ -1348,18 +1416,21 @@ export function Chat({
 		/* FINISH DICTATION FIRST (owner, 2026-10-01): a learner who keeps
 		 * talking right through Enter must not lose the tail — stop the run,
 		 * let the last finals land in the composer, then send the REF value
-		 * (the flush lands via setState, invisible to this closure). */
+		 * (the flush lands via setState, invisible to this closure). Pasted
+		 * images have the same race (FileReader is async): settle those reads
+		 * before the same seam reads the drafts. */
 		if (!dictation.active) {
-			doSteerOrSend();
+			void imageDraft.awaitReads().then(doSteerOrSend);
 			return;
 		}
-		void dictation.finish().then(doSteerOrSend);
+		void dictation.finish().then(imageDraft.awaitReads).then(doSteerOrSend);
 	};
 	const doSend = () => {
-		if (busy || pending || compacting) return;
+		if (busy || pending || compacting || uploading) return;
 		const t = textRef.current.trim();
-		if (!t) return;
-		if (tryBtw(t)) return;
+		const images = imageDraft.imagesRef.current;
+		if (!t && images.length === 0) return;
+		if (t && images.length === 0 && tryBtw(t)) return;
 		if (zeroKeys) {
 			setSetupOpen(true);
 			return;
@@ -1368,13 +1439,40 @@ export function Chat({
 			openModelPicker();
 			return; // No optimistic send and no change to the learner's draft.
 		}
-		if (openingDraftRef.current !== null) {
-			deliverOpeningPrompt(t);
+		// Context attachments and pasted images upload first (one request per
+		// file); the text stays in the composer until they're on the server.
+		if (attachmentDraft.files.length > 0 || images.length > 0) {
+			setUploading(true);
+			void (async () => {
+				const ids: string[] = [];
+				if (attachmentDraft.files.length > 0) ids.push(...(await attachmentDraft.upload(chatId)));
+				if (images.length > 0) {
+					const uploaded = await imageDraft.upload(chatId);
+					setSessionAttachments((prev) => mergeAttachments(prev, uploaded.map((u) => u.record)));
+					ids.push(...uploaded.map((u) => u.record.id));
+				}
+				setUploading(false);
+				if (attachmentDraft.files.length > 0) attachmentDraft.clear();
+				sendText(t, ids, images);
+			})().catch(() => setUploading(false)); // the controls show the reason; nothing sent
 			return;
 		}
-		draftRef.current = t; // the refusal flow's preserve-and-replay seam
+		sendText(t, [], images);
+	};
+	const sendText = (t: string, attachmentIds: string[], images: readonly DraftImage[] = []) => {
+		if (openingDraftRef.current !== null) {
+			deliverOpeningPrompt(t, [...openingAttachmentIdsRef.current, ...attachmentIds]);
+			return;
+		}
+		const draft = { text: t, images: [...images] };
+		draftRef.current = draft; // the refusal flow's preserve-and-replay seam
 		applyText("");
-		void send({ type: "text", text: t });
+		void send({ type: "text", text: t, ...(attachmentIds.length ? { attachmentIds } : {}) }, () => {
+			// Images stay in the strip until the write-ahead ACK; files are
+			// already gone from the composer draft (they uploaded before send).
+			if (draft.images.length) removeImages(draft.images.map((i) => i.id));
+			if (draftRef.current === draft) draftRef.current = null;
+		});
 	};
 
 	/* STEER VS SEND (owner arc 2026-10-03): a send while a turn runs steers
@@ -1387,11 +1485,21 @@ export function Chat({
 	 * time the send's POST resolved, so the steer lands. Idle takes the
 	 * plain send; a raced settle 409s and falls back to exactly that. */
 	const doSteerOrSend = () => {
-		if (pending || compacting) return;
+		if (pending || compacting || uploading) return;
 		const t = textRef.current.trim();
-		if (!t) return;
-		if (tryBtw(t)) return;
+		const images = imageDraft.imagesRef.current;
+		if (!t && images.length === 0) return;
+		if (t && images.length === 0 && tryBtw(t)) return;
 		if (busy) {
+			// Images are NOT steerable (the steer event carries text only). The
+			// draft waits for the turn to settle: send/Enter is a no-op rather
+			// than a drop, and never a Stop.
+			if (images.length > 0) {
+				imageDraft.setError("Images can be sent once the current response finishes. Your draft is kept.");
+				return;
+			}
+			// A steer carries text only: picked files wait for the turn to end.
+			if (attachmentDraft.files.length > 0) return;
 			applyText("");
 			void steer(t);
 			return;
@@ -1417,6 +1525,7 @@ export function Chat({
 			value={{
 				openMermaid: setMermaidFocus,
 				openFigure: (svg, inverted) => setFigureFocus({ svg, inverted }),
+				openImage: lightbox.open,
 			}}
 		>
 		<JobsContext.Provider value={jobs}>
@@ -1503,6 +1612,16 @@ export function Chat({
 							<div className="min-w-4 flex-1" aria-hidden="true" />
 					</>
 					)}
+					{/* Session files: every kind — the add path while a question or
+					    probe card blocks the composer. */}
+					<SessionFilesControl
+						chatId={chatId}
+						attachments={sessionAttachments}
+						setAttachments={setSessionAttachments}
+						open={filesOpen}
+						onOpenChange={onFilesOpenChange}
+						highlightId={filesHighlight}
+					/>
 					{/* The plan chip (owner, plan-placement round): session-level
 					    structure beside the phase chip — access to the full-DAG popup
 					    at every width; the marginalia is the wide-screen glance view. */}
@@ -1718,6 +1837,31 @@ export function Chat({
 												<div className="lh-prose whitespace-pre-wrap text-foreground">
 													<PathText text={m.parts.filter((p) => p.type === "text").map((p) => p.text).join("\n")} />
 												</div>
+												<AttachmentChips
+													items={m.parts
+														.filter((p) => p.type === "data-attachments")
+														.flatMap((p) => ((p.data as { ids?: string[] } | undefined)?.ids ?? []).map(attachmentItem))}
+													onOpen={(id) => {
+														setFilesHighlight(id);
+														setFilesOpen(true);
+													}}
+												/>
+												{(() => {
+													const ids = m.parts
+														.filter((p) => p.type === "data-attachments")
+														.flatMap((p) => (p.data as { ids?: string[] } | undefined)?.ids ?? []);
+													const images = attachmentImageItems(ids);
+													return images.length > 0 ? <ImageGallery inline items={images} onOpenImage={lightbox.open} /> : null;
+												})()}
+												{m.parts.some((p) => p.type === "image") && (
+													<ImageGallery
+														inline
+														onOpenImage={lightbox.open}
+														items={m.parts
+															.filter((p) => p.type === "image")
+															.map((p) => ({ url: String(p.url), alt: typeof p.alt === "string" ? p.alt : undefined }))}
+													/>
+												)}
 											</div>
 									) : (
 									<Message from="assistant" className="max-w-full">
@@ -1951,6 +2095,9 @@ export function Chat({
 							)
 						)
 					}
+					composerActions={
+						<ComposerActions picker={<ContextAttachControl draft={attachmentDraft} disabled={busy || uploading} lockRemoval={uploading} />} />
+					}
 					composer={
 						<ChatSessionComposer
 							// Stop aborts ANY in-flight turn (stream-reattach wave): the
@@ -1966,6 +2113,7 @@ export function Chat({
 							onStop={abortInFlightTurn}
 							sendAllowed={sendAllowed}
 							dictationActive={dictation.active}
+							imageDraft={{ ...imageDraft.props, onOpen: lightbox.open }}
 							onEscape={dictation.active ? dictation.cancel : undefined}
 							// The pause affordance (owner round 16): the placeholder
 							// IS the hint — empty state, exactly where Enter-on-empty
@@ -2024,6 +2172,7 @@ export function Chat({
 					/>
 				)}
 				{readerText !== null && <SentenceReader text={readerText} onClose={() => setReaderText(null)} />}
+				{lightbox.lightbox}
 				<AbortTurnDialog mode={abortAsk} onClose={() => setAbortAsk(null)} onConfirm={confirmAbort} busy={busy} />
 				{readingsEnabled && <PassageReadDeeper rootRef={sessionFindScopeRef} />}
 				</div>
@@ -2213,6 +2362,7 @@ function DockOverlay({
 	dictationSlot,
 	dictationCancel,
 	setupCta,
+	composerActions,
 	queuedSteers,
 	onEditSteer,
 }: {
@@ -2269,6 +2419,9 @@ function DockOverlay({
 	/** The persistent setup CTA (BYOK, owner 2026-09-22): the same pill
 	 *  home and /chat/new carry, above the composer while slots are unset. */
 	setupCta?: React.ReactNode;
+	/** The composer's action row (session context attachments): shown only
+	 *  while the composer itself is (no question, no problem). */
+	composerActions?: React.ReactNode;
 }) {
 	const { isAtBottom, scrollToBottom, scrollRef } = useStickToBottomContext();
 	// Render-fresh bottom state (flicker round): the arrival block below reads
@@ -2622,6 +2775,7 @@ function DockOverlay({
 					<div ref={viewportRef} data-dock-viewport="" className="pointer-events-auto">
 					<div ref={bodyRef}>
 					{setupCta}
+					{!pending && !practice && composerActions}
 					{/* The queued-steer indicator (owner spec 2026-10-03): quiet
 					    one-liners above the shell - right-aligned to where its corner
 					    rounding starts, truncated, no background, no container. A

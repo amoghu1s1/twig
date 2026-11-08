@@ -20,6 +20,12 @@ import { healToolRecord, withArgumentHeal } from "./tools/heal.ts";
 import { sendToUserApplies, sendToUserTool } from "./tools/send-to-user.ts";
 import { makeNarrationGuard, narrationGuardApplies, SEND_TO_USER_DELIVERY_RULE } from "./narration-guard.ts";
 import { createReadTool, readTool } from "./tools/read.ts";
+import {
+	attachmentImageParts,
+	attachmentsPromptSection,
+	attachmentTools,
+	type SessionAttachment,
+} from "./tools/attachments.ts";
 import { quizInputObject, quizInputProblems } from "../core/question-core.ts";
 import { QUESTION_TOOLS, type EnabledTools } from "../core/pending.ts";
 import { toLlmMessages, nativeInputCause, needsContinuation, isEmptyAssistantCompletion, PRACTICE_PROBLEM_TOOL, type LhMessage } from "../core/native-messages.ts";
@@ -95,6 +101,18 @@ const composedInstructions: Record<AgentKind, string> = {
 	capstone: composeInstructions("capstone"),
 };
 
+/** The full system prompt of one turn: the composed doctrine, then the
+ *  session-attachments section. The section goes last so the doctrine
+ *  prefix stays cacheable. */
+export function systemPromptFor(
+	kind: AgentKind,
+	opts: { promptSwitches?: Record<string, boolean>; attachments?: readonly SessionAttachment[] } = {},
+): string {
+	const instructions = opts.promptSwitches ? composeInstructions(kind, opts.promptSwitches) : composedInstructions[kind]!;
+	const section = attachmentsPromptSection(opts.attachments ?? []);
+	return section ? `${instructions}\n\n---\n\n${section}` : instructions;
+}
+
 // Money channel (wave 4): the chat-handler passes a per-turn collector;
 // every model call's usage lands in the chat record's turns log
 // (ChatStore.appendTurnUsage). The narrow param keeps the seam honest.
@@ -132,6 +150,11 @@ export interface AgentBuildOptions {
 	 *  <chatId>.jsonl via providerEventObserver — the GLM-truncation /
 	 *  DeepSeek-id incident layer. Absent or env-off → no observer. */
 	chatId?: string;
+	/** The session's ACTIVE context attachments, paths resolved: the system
+	 *  prompt's manifest section, the scoped pdf_* / epub_* readers (joined
+	 *  to every kind's registry unless an explicit `tools` registry is
+	 *  passed), and inline images for vision models. Absent/empty = none. */
+	attachments?: readonly SessionAttachment[];
 }
 
 /**
@@ -186,10 +209,12 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	const engine = opts.engine ?? piEngineFor(kind as "prober" | "teacher");
 	const stopper = makeQuestionStopper(kind);
 	const narrationGuard = narrationGuardApplies(kind, engine.model, opts.tools !== undefined);
-	const composedPrompt = opts.promptSwitches
-		? composeInstructions(kind, opts.promptSwitches)
-		: composedInstructions[kind]!;
-	const systemPrompt = narrationGuard ? `${composedPrompt}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}` : composedPrompt;
+	const systemPrompt = systemPromptFor(kind, opts);
+	const guardedPrompt = narrationGuard ? `${systemPrompt}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}` : systemPrompt;
+	const sessionTools = opts.tools === undefined ? Object.values(healToolRecord(attachmentTools(opts.attachments ?? []))) : [];
+	const attachedImages = engine.model.input?.includes("image")
+		? attachmentImageParts(opts.attachments ?? [], engine.model)
+		: null;
 	// Debug recorder (owner, 2026-10-04): raw provider events when
 	// LH_PROVIDER_EVENTS=1 and the caller handed a chatId; undefined is
 	// the normal no-observer path (tests, env-off).
@@ -204,7 +229,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 		identity: APP_IDENTITY,
 		sessionId: opts.chatId,
 		initialState: {
-			systemPrompt,
+			systemPrompt: guardedPrompt,
 			model: engine.model,
 			thinkingLevel: engine.level,
 			// Conditional registry inclusion, like the graph-tool gates: when
@@ -215,6 +240,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 				...tools.map((tool) => tool.name === "read" && tool.execute === readTool.execute
 					? { ...tool, execute: createReadTool(engine.model).execute as AgentTool<any>["execute"] }
 					: tool),
+				...sessionTools,
 				...(sendToUserApplies(kind, engine.model, opts.tools !== undefined)
 					? [withArgumentHeal(sendToUserTool)]
 					: []),
@@ -268,7 +294,11 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 		// UI-only markers (plan-block) drop, the app's id fields strip, and
 		// an abort's dangling question call gets its INTERRUPTED result. It
 		// must never throw (pi's convertToLlm contract).
-		convertToLlm: toLlmMessages,
+		// Attached images ride the message they were sent with — vision
+		// models only, processed for the model like every other image; for
+		// the rest the ids just strip (the manifest names it).
+		convertToLlm: async (messages) =>
+			toLlmMessages(messages, attachedImages ? { attachmentParts: await attachedImages(messages) } : {}),
 		prepareRequest: (request) => {
 			if (opts.callPurpose) {
 				let learner = false, automatic = false;

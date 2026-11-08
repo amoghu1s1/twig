@@ -32,13 +32,14 @@
  * Pure and deterministic: client-safe (no node deps), same input → same view.
  */
 
-import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ImageContent, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { LhMarkerMessage, LhMessage } from "./native-messages.ts";
 import { CAPSTONE_EVALUATE_TOOL, modelSolutionForConclude, PRACTICE_CONCLUDE_TOOL, problemInputForConclude, SEND_TO_USER_TOOL, sendToUserText } from "./native-messages.ts";
 import { activeCompactionOf, type CompactionDetails } from "./compaction.ts";
 import { QUESTION_TOOLS } from "./pending.ts";
 import type { SubagentArtifactData, SubagentResultMeta } from "./contracts/jobs.ts";
 import type { PlanBlockData } from "./contracts/chat.ts";
+import { imageUrl } from "./images.ts";
 
 /** A view part — the loose part vocabulary the renderers consume (the same
  *  shape names the pre-Wave-D UIMessage dialect used, so the renderer
@@ -57,6 +58,8 @@ export interface LhViewPart extends Record<string, unknown> {
 	sourceContentIndex?: number;
 	input?: unknown;
 	output?: unknown;
+	/** Native result images, separate from the tool's presentation metadata. */
+	images?: ImageContent[];
 	rawInput?: unknown;
 	errorText?: string;
 	data?: unknown;
@@ -76,6 +79,8 @@ export interface LiveExecution {
 	isError: boolean;
 	/** The clean result's details payload (the card's output). */
 	output?: unknown;
+	/** Native tool-result image blocks, kept separate from presentation metadata. */
+	images?: ImageContent[];
 	/** The failure text (output-error parts). */
 	errorText?: string;
 }
@@ -101,6 +106,9 @@ function textPart(text: string): LhViewPart {
 
 /** The result a tool part should show, from a native toolResult. */
 function applyResult(part: LhViewPart, result: ToolResultMessage): void {
+	const images = nativeImageContent(result.content);
+	if (images.length) part.images = images;
+	else delete part.images;
 	if (result.isError) {
 		part.state = "output-error";
 		part.rawInput = part.input;
@@ -108,8 +116,20 @@ function applyResult(part: LhViewPart, result: ToolResultMessage): void {
 		part.errorText = text && text.type === "text" ? text.text : "The tool call failed.";
 	} else {
 		part.state = "output-available";
-		part.output = result.details;
+		part.output = result.details ?? (images.length ? { text: result.content.filter((c) => c.type === "text").map((c) => c.text).join("\n") } : result.details);
 	}
+}
+
+/** Native image content is already stored in the record. Project references
+ *  to those strings, not another base64 copy inside a tool's details object. */
+export function nativeImageContent(content: unknown): ImageContent[] {
+	if (!Array.isArray(content)) return [];
+	return content.flatMap((value) => {
+		const c = value as Partial<ImageContent> | null;
+		return c?.type === "image" && typeof c.data === "string" && c.data.length > 0 && typeof c.mimeType === "string"
+			? [{ type: "image" as const, data: c.data, mimeType: c.mimeType }]
+			: [];
+	});
 }
 
 /** Does this assistant group carry a successful plan_init (the splice target)? */
@@ -200,12 +220,22 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
 		}
 
 		if (role === "user") {
-			const content = m.content as string | Array<{ type: string; text?: string }>;
-			const texts =
-				typeof content === "string"
-					? [content]
-					: content.filter((c) => c.type === "text").map((c) => (c as { text: string }).text);
-			out.push({ id: m.id, role: "user", parts: texts.map(textPart) });
+			// Session-attachment ids ride a data part; a legacy inline image
+			// block projects as a native image part (kept in send order).
+			const content = m.content as string | Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+			const parts: LhViewPart[] = [];
+			if (typeof content === "string") parts.push(textPart(content));
+			else {
+				content.forEach((c, i) => {
+					if (c.type === "text") parts.push({ ...textPart(c.text ?? ""), id: `${m.id}-t${i}` });
+					else if (c.type === "image" && typeof c.data === "string" && typeof c.mimeType === "string") {
+						parts.push({ type: "image", id: `${m.id}-i${i}`, url: imageUrl({ type: "image", mimeType: c.mimeType, data: c.data }), alt: "Attached image" });
+					}
+				});
+			}
+			const attachmentIds = (m as LhMessage).attachmentIds;
+			if (attachmentIds?.length) parts.push({ type: "data-attachments", data: { ids: attachmentIds } });
+			out.push({ id: m.id, role: "user", parts });
 			continue;
 		}
 
@@ -340,6 +370,7 @@ function toolPartOf(
 	const exec = live?.executions.get(block.id);
 	const isQuestion = isPlaceholderResultTool(block.name);
 	if (exec) {
+		if (exec.images?.length && (!isQuestion || exec.isError)) part.images = exec.images;
 		if (exec.isError) {
 			// An invalid call NEVER becomes input-available — the dock's mount
 			// gate keys on the clean execution end (the live modal-realism

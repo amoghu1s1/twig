@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { DEMO_CSP, DEMO_SANDBOX_URL } from "../../core/demo-sandbox.ts";
 import { assertPdfSize, standardFontsDir } from "./pdf-ops";
 import { FIGURE_MAX_CHARS } from "../../core/question-core.ts";
+import { MAX_IMAGE_DIMENSION, MAX_IMAGE_PIXELS } from "../../core/images.ts";
 import { svgImageSource } from "../../core/svg-source.ts";
 import { sanitizeSvg } from "./svg-sanitize.ts";
 
@@ -62,6 +63,56 @@ export interface RenderSvgOptions {
 export interface RenderPdfOptions {
 	/** Render DPI — 72 is 100% zoom; the skill's guidance is 100/150/200. */
 	dpi?: number;
+	/** Normalized 0..1 crop rectangle, top-left origin, applied AFTER the
+	 *  page's rotation. Only the crop is rasterized (no full-page canvas). */
+	crop?: PdfCrop;
+	/** Reject out-of-range pages and out-of-range dpi instead of skipping /
+	 *  clamping (pdf_view). Legacy callers keep the lenient semantics. */
+	strict?: boolean;
+	signal?: AbortSignal;
+}
+
+export interface PdfCrop {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+}
+
+/** PDF render bounds (render-time, before any canvas is allocated). */
+export const MAX_PDF_BYTES = 100 * 1024 * 1024;
+export const MAX_PDF_RENDER_PAGES = 6;
+export const MAX_PDF_DOC_PAGES = 5000;
+export const MIN_PDF_DPI = 72;
+export const MAX_PDF_DPI = 300;
+
+/** Read a file with a hard byte ceiling without trusting a prior stat. */
+export async function readBoundedFile(
+	file: string,
+	maxBytes: number,
+	tooLarge: () => Error,
+	signal?: AbortSignal,
+): Promise<Buffer> {
+	const { open } = await import("node:fs/promises");
+	const handle = await open(file, "r");
+	try {
+		const chunks: Buffer[] = [];
+		let total = 0;
+		const CHUNK = 1024 * 1024;
+		for (;;) {
+			if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new Error("aborted");
+			const want = Math.min(CHUNK, maxBytes + 1 - total);
+			const buf = Buffer.allocUnsafe(want);
+			const { bytesRead } = await handle.read(buf, 0, want, total);
+			if (bytesRead === 0) break;
+			total += bytesRead;
+			if (total > maxBytes) throw tooLarge();
+			chunks.push(bytesRead === want ? buf : buf.subarray(0, bytesRead));
+		}
+		return Buffer.concat(chunks, total);
+	} finally {
+		await handle.close();
+	}
 }
 
 export interface RenderedPdfPage {
@@ -606,10 +657,32 @@ async function renderPdfPages(
 	pages: number[],
 	opts: RenderPdfOptions = {},
 ): Promise<RenderedPdfPage[]> {
-	const dpi = opts.dpi ?? 150;
+	const signal = opts.signal;
+	const aborted = () => {
+		if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new Error("aborted");
+	};
+	aborted();
+	const strict = opts.strict === true;
+	let dpi = opts.dpi ?? 150;
 	if (!Number.isFinite(dpi) || dpi <= 0 || dpi / 72 === 0) {
 		throw new Error("PDF render DPI must be finite and positive");
 	}
+	if (strict && (dpi < MIN_PDF_DPI || dpi > MAX_PDF_DPI)) {
+		throw new Error(`dpi must be between ${MIN_PDF_DPI} and ${MAX_PDF_DPI}`);
+	}
+	const crop = opts.crop;
+	if (crop) {
+		const { x, y, width, height } = crop;
+		const eps = 1e-9;
+		if (![x, y, width, height].every((v) => typeof v === "number" && Number.isFinite(v))) throw new Error("crop values must be finite numbers");
+		if (width <= 0 || height <= 0) throw new Error("crop width and height must be greater than 0");
+		if (x < 0 || y < 0 || x + width > 1 + eps || y + height > 1 + eps) throw new Error("crop must lie inside the page (normalized 0..1)");
+	}
+	const wanted = [...new Set(pages)];
+	if (wanted.length > MAX_PDF_RENDER_PAGES) throw new Error(`at most ${MAX_PDF_RENDER_PAGES} pages can be rendered per call`);
+	const absolute = path.resolve(pdfPath);
+	const stat = fs.statSync(absolute);
+	if (stat.size > MAX_PDF_BYTES) throw new Error(`PDF is too large (${MAX_PDF_BYTES / (1024 * 1024)} MiB max)`);
 	// NATIVE CANVAS (Wave E, owner 2026-10-10): pdfjs paints into
 	// @napi-rs/canvas in this process — no browser involved. pdfjs-dist v6's
 	// own Node integration IS @napi-rs/canvas (its optionalDependency: the
@@ -620,29 +693,64 @@ async function renderPdfPages(
 	const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
 	const { createCanvas } = await import("@napi-rs/canvas");
 	await assertPdfSize(path.resolve(pdfPath));
-	const data = new Uint8Array(fs.readFileSync(path.resolve(pdfPath)));
+	const data = new Uint8Array(
+		await readBoundedFile(absolute, MAX_PDF_BYTES, () => new Error(`PDF is too large (${MAX_PDF_BYTES / (1024 * 1024)} MiB max)`), signal),
+	);
+	aborted();
 	// Standard-font data as a directory path (live-smoke finding 2026-09-19:
 	// without it pdfjs renders non-embedded standard fonts via fallback);
 	// verbosity 0 = errors only (JBIG2 noise on scanned PDFs).
 	const loadingTask = pdfjs.getDocument({ data, standardFontDataUrl: standardFontsDir(), verbosity: 0 });
-	const doc = await loadingTask.promise;
+	const onAbort = () => void loadingTask.destroy().catch(() => {});
+	signal?.addEventListener("abort", onAbort, { once: true });
 	try {
+		const doc = await loadingTask.promise;
+		aborted();
+		if (doc.numPages > MAX_PDF_DOC_PAGES) throw new Error(`PDF has too many pages (${MAX_PDF_DOC_PAGES} max)`);
 		const out: RenderedPdfPage[] = [];
-		for (const pageNo of pages) {
-			if (pageNo < 1 || pageNo > doc.numPages) continue;
+		for (const pageNo of wanted) {
+			aborted();
+			if (!Number.isInteger(pageNo) || pageNo < 1 || pageNo > doc.numPages) {
+				if (strict) throw new Error(`page ${pageNo} is out of range (document has ${doc.numPages} pages)`);
+				continue;
+			}
 			const pg = await doc.getPage(pageNo);
 			const base = pg.getViewport({ scale: 1 });
-			const geometry = pdfCanvasGeometry(base.width, base.height, dpi);
-			const vp = pg.getViewport({ scale: geometry.scale });
-			const canvas = createCanvas(geometry.width, geometry.height);
+			let scale: number;
+			let width: number;
+			let height: number;
+			const c = crop ?? { x: 0, y: 0, width: 1, height: 1 };
+			if (crop || strict) {
+				// pdf_view bounds: the crop's on-page size, then the output cap.
+				const cropW = base.width * c.width;
+				const cropH = base.height * c.height;
+				scale = Math.min(
+					dpi / 72,
+					MAX_IMAGE_DIMENSION / Math.max(cropW, cropH),
+					Math.sqrt(MAX_IMAGE_PIXELS / (cropW * cropH)),
+				);
+				const vp = pg.getViewport({ scale });
+				width = Math.max(1, Math.min(MAX_IMAGE_DIMENSION, Math.ceil(vp.width * c.width - 1e-6)));
+				height = Math.max(1, Math.min(MAX_IMAGE_DIMENSION, Math.ceil(vp.height * c.height - 1e-6)));
+			} else {
+				const geometry = pdfCanvasGeometry(base.width, base.height, dpi);
+				scale = geometry.scale;
+				width = geometry.width;
+				height = geometry.height;
+			}
+			const vp = pg.getViewport({ scale });
+			const canvas = createCanvas(width, height);
 			const ctx = canvas.getContext("2d");
 			// pdfjs's render types speak the DOM context; @napi-rs/canvas's
-			// context is the same 2D API implemented over Skia.
+			// context is the same 2D API implemented over Skia. The transform
+			// shifts a crop's top-left to the canvas origin.
 			await pg.render({
 				canvasContext: ctx as unknown as CanvasRenderingContext2D,
 				canvas: canvas as unknown as HTMLCanvasElement,
 				viewport: vp,
+				...(crop ? { transform: [1, 0, 0, 1, -vp.width * c.x, -vp.height * c.y] as [number, number, number, number, number, number] } : {}),
 			}).promise;
+			aborted();
 			out.push({
 				page: pageNo,
 				// Skia-encoded PNG → providerSafePng for the same single-IDAT
@@ -652,6 +760,7 @@ async function renderPdfPages(
 		}
 		return out;
 	} finally {
+		signal?.removeEventListener("abort", onAbort);
 		await loadingTask.destroy().catch(() => {});
 	}
 }

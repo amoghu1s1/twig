@@ -40,6 +40,7 @@ export const artifactRenderers: Record<string, ComponentType<ArtifactPartProps>>
 	// tool-call card each — collapsed one-liner (tool name + headline
 	// argument), full input/output on expand.
 	read: ToolCallCard,
+	pdf_view: ToolCallCard,
 	ls: ToolCallCard,
 	find: ToolCallCard,
 	grep: ToolCallCard,

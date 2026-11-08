@@ -25,6 +25,7 @@ import { planTools, type PlanToolContext } from "./tools/plan.ts";
 import { readingTools } from "./tools/readings.ts";
 import { probeDoneTool, type ProbeDoneContext } from "./tools/probe.ts";
 import { proberGraphTools } from "./tools/graph.ts";
+import { pdfViewTool } from "./tools/pdf-view.ts";
 import { readTool } from "./tools/read.ts";
 import { lsTool } from "./tools/ls.ts";
 import { findTool } from "./tools/find.ts";
@@ -331,6 +332,7 @@ export function createProberTools(
 				// sources v1): the prober inspects and LOCATES learner-referenced
 				// files while assessing the edge. Read-only by construction.
 				read: readTool,
+				pdf_view: pdfViewTool,
 				ls: lsTool,
 				find: findTool,
 				grep: grepTool,
@@ -526,6 +528,7 @@ export function createTeacherTools(
 			// files on its own terms — nothing auto-injects. Read-only by
 			// construction (fs-shared.ts).
 			read: readTool,
+			pdf_view: pdfViewTool,
 			ls: lsTool,
 			find: findTool,
 			grep: grepTool,

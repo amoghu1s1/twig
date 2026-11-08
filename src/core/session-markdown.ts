@@ -31,6 +31,35 @@ import {
 	userFacingTextOf,
 } from "./native-messages.ts";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
+import { imageDataUrlMarkdown, imageMarker } from "./images.ts";
+
+/** How images render: "describe" (default) is the base64-free `[Image mime]`
+ *  marker, safe for any LLM/background prompt; "embed" inlines the data URL
+ *  and is for the explicit user export only. */
+export type ImageMode = "describe" | "embed";
+
+function renderImage(c: unknown, n: number, mode: ImageMode): string {
+	const block = c as { mimeType?: unknown; data?: unknown };
+	return mode === "embed" ? imageDataUrlMarkdown(block, `Image ${n}`) : imageMarker(block);
+}
+
+function hasNativeImage(content: unknown): boolean {
+	return Array.isArray(content) && content.some((c) => (c as { type?: string } | null)?.type === "image");
+}
+
+/** Text and images of one content array in their ORIGINAL block order
+ *  (a picture between two paragraphs stays between them). */
+function orderedParts(content: unknown, mode: ImageMode): string[] {
+	if (typeof content === "string") return content.trim() ? [content.trim()] : [];
+	if (!Array.isArray(content)) return [];
+	let n = 0;
+	const out: string[] = [];
+	for (const c of content as Array<{ type?: string; text?: string }>) {
+		if (c?.type === "text" && typeof c.text === "string" && c.text.trim()) out.push(c.text.trim());
+		else if (c?.type === "image") out.push(renderImage(c, ++n, mode));
+	}
+	return out;
+}
 
 /** The practice join context (owner-approved, 2026-10-06 export round):
  *  practice tool RESULTS are acks — the statement, outcome, and verdict
@@ -180,15 +209,18 @@ export function messageMarkdown(
 	mid: string,
 	anchors = true,
 	ctx?: MarkdownContext,
+	imageMode: ImageMode = "describe",
 ): string | null {
 	const role = (message as { role?: string }).role;
 	const anchor = anchors ? ` · ${mid}` : "";
 	const parts: string[] = [];
 
 	if (role === "user") {
-		for (const text of userFacingTextOf((message as { content: unknown }).content)) {
-			parts.push(`### Learner${anchor}\n\n${text.trim()}`);
-		}
+		const content = (message as { content: unknown }).content;
+		const blocks = hasNativeImage(content)
+			? orderedParts(content, imageMode)
+			: userFacingTextOf(content).map((text) => text.trim()).filter(Boolean);
+		if (blocks.length > 0) parts.push(`### Learner${anchor}\n\n${blocks.join("\n\n")}`);
 	} else if (role === "assistant") {
 		for (const text of userFacingTextOf((message as { content: unknown }).content, ctx?.failedOutputCalls ?? failedOutputCallIds([message]))) {
 			parts.push(`### Teacher${anchor}\n\n${text.trim()}`);
@@ -197,7 +229,10 @@ export function messageMarkdown(
 		const result = message as ToolResultMessage;
 		if (result.isError || result.toolName === SEND_TO_USER_TOOL) return null; // retry context or output ack, not learning evidence
 		const { heading, body } = toolResultBody(result, ctx);
-		parts.push(`### ${heading}${anchor}\n\n${body.join("\n\n")}`);
+		const images = Array.isArray(result.content)
+			? result.content.filter((c) => (c as { type?: string } | null)?.type === "image").map((c, i) => renderImage(c, i + 1, imageMode))
+			: [];
+		parts.push(`### ${heading}${anchor}\n\n${[...body, ...images].join("\n\n")}`);
 	}
 
 	// custom markers are invisible, same as the extraction view.
@@ -212,13 +247,13 @@ export function messageMarkdown(
  */
 export function sessionMarkdown(
 	messages: ReadonlyArray<LhMessage>,
-	opts: { title?: string; anchors?: boolean } = {},
+	opts: { title?: string; anchors?: boolean; imageMode?: ImageMode } = {},
 ): string {
 	const blocks: string[] = [];
 	if (opts.title !== undefined && opts.title.length > 0) blocks.push(`# ${opts.title}`);
 	const ctx = markdownContext(messages);
 	for (const message of messages) {
-		const block = messageMarkdown(message, (message as { id?: string }).id ?? "", opts.anchors ?? true, ctx);
+		const block = messageMarkdown(message, (message as { id?: string }).id ?? "", opts.anchors ?? true, ctx, opts.imageMode ?? "describe");
 		if (block !== null) blocks.push(block);
 	}
 	return blocks.join("\n\n");

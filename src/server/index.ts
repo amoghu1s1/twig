@@ -9,6 +9,7 @@ export { ankiSyncErrorResponse, type AnkiStatus, type AnkiSyncResult } from "./a
 export { TidyBusyError, type TidyStatus, type TidyResolveResult } from "./graph-tidy.ts";
 export * from "./events-stream.ts";
 export * from "./chats.ts";
+export * from "./attachments.ts";
 export * from "./graph.ts";
 export * from "./source-organization.ts";
 export * from "./source-deletion.ts";

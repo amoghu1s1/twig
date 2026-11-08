@@ -34,7 +34,8 @@
  */
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, Message, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ImageContent, Message, TextContent, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
+import { imageBlock, type ComposerImage } from "./images.ts";
 import { QUESTION_TOOLS, type PendingQuestion } from "./pending.ts";
 import { CLAUDE_CODE_PROVIDER } from "./contracts/claude-code.ts";
 import {
@@ -93,9 +94,13 @@ declare module "@earendil-works/pi-agent-core" {
 	}
 }
 
-/** A record message: a native pi message (or our marker) plus the record id. */
+/** A record message: a native pi message (or our marker) plus the record id.
+ *  `attachmentIds` (learner user messages only) names the session
+ *  attachments sent with that message — ids, never bytes; images expand at
+ *  the wire (toLlmMessages' attachmentParts hook). */
 export type LhMessage = (UserMessage | AssistantMessage | ToolResultMessage | LhMarkerMessage) & {
 	id: string;
+	attachmentIds?: string[];
 	/** CLI-reported effective context budget, not a catalog model maximum.
 	 * App-only metadata: never transmitted as provider/model message content. */
 	cliContextWindow?: number;
@@ -180,13 +185,25 @@ export function newMessageId(): string {
 // ─── constructors (the input-event → native append mapping lives in
 //     core/input-events.ts; steers in core/contracts/jobs.ts) ─────────────────
 
-/** A learner-authored user message (text input, verdict note). */
-export function newUserMessage(text: string): LhMessage & UserMessage {
+/** A learner-authored user message (text input, verdict note). Session
+ *  attachment ids ride alongside the text; a legacy inline image payload is
+ *  also accepted (the composer's blob path never uses it) so old callers
+ *  and the native-image projection keep working. */
+export function newUserMessage(
+	text: string,
+	attachments?: readonly (string | ComposerImage)[],
+): LhMessage & UserMessage {
+	const ids = attachments?.filter((a): a is string => typeof a === "string") ?? [];
+	const images = attachments?.filter((a): a is ComposerImage => typeof a === "object" && a !== null && (a as ComposerImage).type === "image") ?? [];
 	return {
 		id: newMessageId(),
 		role: "user",
-		content: text,
+		content:
+			images.length > 0
+				? [...(text.length > 0 ? [{ type: "text" as const, text }] : []), ...images.map((i) => imageBlock(i.mimeType, i.data))]
+				: text,
 		timestamp: Date.now(),
+		...(ids.length ? { attachmentIds: [...ids] } : {}),
 	};
 }
 
@@ -632,7 +649,16 @@ function resultIdsFrom(messages: readonly AgentMessage[]): Set<string> {
  * Contract (pi-agent-core): never throws — an unknown shape passes
  * through untouched rather than killing the loop.
  */
-export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
+export function toLlmMessages(
+	messages: readonly AgentMessage[],
+	opts: {
+		/** Content parts appended to a user message that carries attachment
+		 *  ids (the agent layer reads and processes image bytes from disk;
+		 *  a part may be a text note about the image). Runs only for
+		 *  messages that survive the compaction cut. Absent = ids just strip. */
+		attachmentParts?: (ids: readonly string[]) => Array<TextContent | ImageContent>;
+	} = {},
+): Message[] {
 	// THE COMPACTION CUT (owner round 14, 2026-10-05): the ACTIVE marker
 	// (the newest — chained compactions rule last) names the first kept
 	// message; everything before it is replaced by the marker's content
@@ -690,9 +716,17 @@ export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
 			});
 			continue;
 		}
-		// Strip app-only id/CLI context metadata: the wire carries the native shape only.
-		const { id: _id, cliContextWindow: _cliContextWindow, ...native } = m as LhMessage;
-		out.push(native as Message);
+		// Strip app-only record fields (id, attachment ids, CLI context
+		// metadata): the wire carries the native shape only.
+		const { id: _id, attachmentIds, cliContextWindow: _cliContextWindow, ...native } = m as LhMessage;
+		const parts = role === "user" && attachmentIds?.length ? (opts.attachmentParts?.(attachmentIds) ?? []) : [];
+		if (parts.length > 0) {
+			const user = native as UserMessage;
+			const text = typeof user.content === "string" ? [{ type: "text" as const, text: user.content }] : user.content;
+			out.push({ ...user, content: [...text, ...parts] });
+		} else {
+			out.push(native as Message);
+		}
 		// Repair unanswered calls from completed generations, not calls in
 		// failed generations. Pi filters error/aborted assistants itself;
 		// adding results for their unexecuted calls would leave orphans.

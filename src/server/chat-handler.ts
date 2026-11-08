@@ -57,10 +57,12 @@ import { registerTurn, rememberTurnFailure, unregisterTurn } from "./turn-runs.t
 import { persistTurn, triggerExtraction, TurnPersistenceError } from "./turn-service.ts";
 import { mistakesAfterTurn } from "./mistakes.ts";
 import { hasProbeDone, hasUnresolvedQuestion } from "../core/native-messages.ts";
-import { composeInstructions } from "../agent/teacher-agent.ts";
+import { systemPromptFor } from "../agent/teacher-agent.ts";
+import { attachComposerImages, sessionAttachments } from "./attachments.ts";
 import { ensureCompacted, kickCompaction, effectiveThresholdTokens } from "./compaction.ts";
 import { catalogContextLimits, refreshConnectionCatalog } from "./model-catalog.ts";
 import { emit } from "../core/events.ts";
+import { MODEL_CANNOT_READ_IMAGES_CODE } from "../core/images.ts";
 import { settledTurnResponse } from "./turn-runs.ts";
 import { asAgentMessages } from "../core/native-messages.ts";
 import {
@@ -72,7 +74,7 @@ import {
 	type TurnInput,
 } from "../core/input-events.ts";
 import { steerDelivered } from "../core/contracts.ts";
-import type {CallUsage} from "../core/contracts.ts";
+import type { CallUsage, ChatRecord } from "../core/contracts.ts";
 
 /**
  * One chat turn over the server-owned native record. Framework-free (plain
@@ -101,6 +103,12 @@ function connectionBackgroundAllowed(provider: string): boolean {
 
 function settlementErrorText(error: unknown): string {
 	return error instanceof TurnPersistenceError ? error.message : "An error occurred.";
+}
+
+/** The compaction estimate's system-prompt share: doctrine + attachments manifest. */
+function systemPromptTokens(record: ChatRecord): number {
+	const kind = record.kind === "practice" || record.kind === "capstone" ? record.kind : "teacher";
+	return Math.ceil(systemPromptFor(kind, { attachments: sessionAttachments(record) }).length / 4);
 }
 
 const jobRunner = createJobRunner({
@@ -299,6 +307,20 @@ export async function handleChatInput(
 		return Response.json({ error: "Unknown chat" }, { status: 404 });
 	}
 
+	// Wire images (the #66 composer shape) become content-addressed session
+	// attachments BEFORE the record append: the bytes live in the blob store,
+	// the message names ids only. Same route/store as the upload endpoint, so
+	// dedupe and the sweep behave identically.
+	if (input.type === "text" && input.images?.length) {
+		try {
+			const ids = await attachComposerImages(chatId, input.images);
+			input = { ...input, attachmentIds: [...(input.attachmentIds ?? []), ...ids], images: [] };
+			record = stores.chatStore.getChat(chatId) ?? record;
+		} catch (err) {
+			return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 400 });
+		}
+	}
+
 	// Refuse an ineligible Retry before catalog refresh, compaction, or any
 	// turn/write effects. Revalidate after the awaited gates below too.
 	if (input.type === "retry") {
@@ -374,6 +396,24 @@ export async function handleChatInput(
 	let conversationEngine: PiEngine;
 	try { conversationEngine = piEngineForSpec(conversation, () => callPurpose.background, lifecycle, retentionForSlot("strong")); }
 	catch { return Response.json({ error: conversation.provider === "chatgpt" ? chatGPTStreamError("model catalog") : isSubscriptionProvider(conversation.provider) ? nativeSubscriptionError(conversation.provider, "model catalog") : "The selected model is unavailable." }, { status: 503 }); }
+	// THE IMAGE GATE: a NEW picture is refused, before any append, when the
+	// conversation model cannot read images. Pictures already in history
+	// need no gate: pi-ai downgrades them for a text-only model, so a later
+	// model change keeps the session usable.
+	if (input.type === "text" && input.attachmentIds?.length && !conversationEngine.model.input.includes("image")) {
+		const imageNames = (record.attachments ?? [])
+			.filter((a) => input.attachmentIds!.includes(a.id) && a.kind === "image")
+			.map((a) => a.name);
+		if (imageNames.length > 0) {
+			return Response.json(
+				{
+					error: `${conversationEngine.model.name ?? conversationEngine.model.id} cannot read images. Pick a model that can, or send text only.`,
+					code: MODEL_CANNOT_READ_IMAGES_CODE,
+				},
+				{ status: 422 },
+			);
+		}
+	}
 	const modelIdForCompaction = `${conversationEngine.model.provider}:${conversationEngine.model.id}`;
 	await ensureCompacted(
 		{
@@ -387,7 +427,7 @@ export async function handleChatInput(
 				effective.compaction?.thresholdTokens,
 				catalogContextLimits().get(modelIdForCompaction),
 			),
-			systemPromptTokens: Math.ceil(composeInstructions(record.kind === "practice" || record.kind === "capstone" ? record.kind : "teacher").length / 4),
+			systemPromptTokens: systemPromptTokens(record),
 		},
 		chatId,
 	);
@@ -553,6 +593,7 @@ export async function handleChatInput(
 		// point as the tool delta — the agent layer composes the system
 		// prompt fresh per turn, swapping in any enabled override segments.
 		promptSwitches: effective.agent.prompts,
+		attachments: sessionAttachments(record),
 	};
 	// PRACTICE BRANCH (owner design, 2026-10-04): a kind:"practice"
 	// session builds the practitioner from turn 1 — no prober→teacher
@@ -776,7 +817,7 @@ export async function handleChatInput(
 								fresh.compaction?.thresholdTokens,
 								catalogContextLimits().get(kickModelId),
 							),
-							systemPromptTokens: Math.ceil(composeInstructions(freshRecord.kind === "practice" || freshRecord.kind === "capstone" ? freshRecord.kind : "teacher").length / 4),
+			systemPromptTokens: systemPromptTokens(record),
 						};
 					}, chatId);
 			},
