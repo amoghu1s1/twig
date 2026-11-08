@@ -64,17 +64,21 @@ import {
 	BookOpenIcon,
 	FolderPlusIcon,
 	Trash2Icon,
+	LayersIcon,
 	ListTreeIcon,
 	SearchIcon,
 	XIcon,
 } from "lucide-react";
 import { chainsForSelection, chainSourceDirectory, folderEntryCheck, toggleSourceEntries, formatChainLine, fuzzyScore, sourceFileLabel } from "@/src/core";
+import { TIDY_SOURCE_ID, TIDY_SOURCE_LABEL } from "@/src/core";
 import type { GraphChain, GraphNode, SourceDirectory, SourceEntry, SourceFolder, SourceEntrySelection } from "@/src/core";
 import { EditableSourceName, SourceDragRow, sourceNameMatches, SourceFolderTree, type OrganizationChange } from "./source-folder-tree";
 import { chainRow, useChainNavigation } from "./chain-navigation";
 import { useServerEvent, useServerResync } from "./server-events";
 import { TopBar } from "@/components/top-bar";
 import { DeleteSourceDialog } from "@/components/delete-source-dialog";
+import { TidyGraphButton } from "@/components/graph-tidy";
+
 import { LatexGlyph } from "@/components/latex-glyph";
 import { useNodeDeepDive } from "@/components/readings/node-readings";
 
@@ -118,6 +122,8 @@ export function ChainTableBody({
 	onToggleNodes,
 	onClear,
 	onDelete,
+	onSendToAnki,
+	ankiNote,
 	onClose,
 	selectMode,
 	onSelect,
@@ -159,6 +165,11 @@ export function ChainTableBody({
 	onClear: () => void;
 	/** Opens the full-death confirm dialog (owner, 2026-09-29 night). */
 	onDelete: () => void;
+	/** Card the selected sources' propositions and send them to Anki
+	 *  (POST /api/anki). Absent = no Anki action on the bar. */
+	onSendToAnki?: () => void;
+	/** The last Anki send's outcome, shown beside the action. */
+	ankiNote?: string;
 	onClose: () => void;
 	/** PRACTICE SELECT (2026-10-04): the floating bar's confirm becomes
 	 *  "Practice these" — no delete fence; the caller owns what the
@@ -254,7 +265,7 @@ export function ChainTableBody({
 			const key = birth ?? "\0unlabeled";
 			let group = map.get(key);
 			if (!group) {
-				const label = birth === null ? null : (sourceRecords.get(birth)?.label ?? sessions[birth] ?? (fileSources[birth] === undefined ? null : sourceFileLabel(fileSources[birth])));
+				const label = birth === null ? null : birth === TIDY_SOURCE_ID ? TIDY_SOURCE_LABEL : (sourceRecords.get(birth)?.label ?? sessions[birth] ?? (fileSources[birth] === undefined ? null : sourceFileLabel(fileSources[birth])));
 				const kind =
 					birth === null ? null : sessions[birth] !== undefined ? "chat" : fileSources[birth] !== undefined ? "notes" : null;
 				group = { key, birth, label, kind, chains: [], nodeIds: [], newestCreatedAt: "" };
@@ -328,6 +339,7 @@ export function ChainTableBody({
 				</span>
 				{onOrganizationChange && <button type="button" aria-label="Add folder" data-testid="add-source-folder"
 					onClick={() => setCreatingFolder(true)} className="lh-no-drag rounded-lg p-2 text-muted-foreground hover:bg-accent"><FolderPlusIcon className="size-4" /></button>}
+				{!selectMode && <TidyGraphButton nodes={nodes} />}
 				<div className="relative shrink-0">
 					<SearchIcon className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
 					<input
@@ -628,6 +640,21 @@ export function ChainTableBody({
 								</button>
 							)}
 							{deepDiveError && <span className="max-w-[16rem] truncate text-xs text-destructive" title={deepDiveError}>{deepDiveError}</span>}
+							{onSendToAnki && (
+								<>
+									{ankiNote && <span data-testid="chain-anki-note" className="max-w-56 truncate text-xs text-muted-foreground">{ankiNote}</span>}
+									<button
+										type="button"
+										data-testid="chain-anki"
+										onClick={onSendToAnki}
+										aria-label="Send the selected sources to Anki"
+										className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-accent"
+									>
+										<LayersIcon aria-hidden="true" className="size-3.5" />
+										Anki
+									</button>
+								</>
+							)}
 							{/* The danger fence (owner ruling): a divider quarantines
 								    the destructive action at the bar's right end — the
 								    safe actions and the kill switch never blend. The
@@ -740,6 +767,21 @@ export function ChainTableOverlay({
 	const [expandedClusters, setExpandedClusters] = useState<ReadonlySet<string>>(() => new Set());
 	const [expandedChains, setExpandedChains] = useState<ReadonlySet<string>>(() => new Set());
 	const [deletion, setDeletion] = useState<{ sources: SourceEntry[]; folders: SourceFolder[] } | null>(null);
+	const [ankiNote, setAnkiNote] = useState("");
+	/** Card the selected sources and send them to Anki (src/server/anki-sync.ts);
+	 *  the bar shows progress, then the outcome. */
+	const sendToAnki = async (sourceIds: string[]) => {
+		setAnkiNote("Sending to Anki…");
+		try {
+			const response = await fetch("/api/anki", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sourceIds }) });
+			const body = (await response.json()) as { error?: string; added?: number; alreadyInAnki?: number; waiting?: number; ankiReachable?: boolean };
+			if (!response.ok) setAnkiNote(body.error ?? "Could not send to Anki.");
+			else if (!body.ankiReachable) setAnkiNote(`Anki not reachable · ${body.waiting} waiting`);
+			else setAnkiNote(`Added ${body.added} cards${body.alreadyInAnki ? ` · ${body.alreadyInAnki} already in Anki` : ""}`);
+		} catch (err) {
+			setAnkiNote(err instanceof Error ? err.message : String(err));
+		}
+	};
 	const deleteOpen = deletion !== null;
 	const [directory, setDirectory] = useState<SourceDirectory>();
 	const [directoryPending, setDirectoryPending] = useState(true);
@@ -895,6 +937,8 @@ export function ChainTableOverlay({
 						sources: directory?.sources.filter((s) => selectedSources.has(s.id)) ?? [],
 						folders: directory?.organization.folders.filter((f) => fullySelectedFolders.has(f.id)) ?? [],
 					})}
+					onSendToAnki={selectMode ? undefined : () => void sendToAnki([...selectedSources])}
+					ankiNote={ankiNote}
 					onClose={onClose}
 					selectMode={selectMode}
 					onSelect={onClose}

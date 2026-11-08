@@ -110,3 +110,8 @@ export * from "./reading-discussions.ts";
 // browser-safe (the overlay renders steps; the server module owns the call).
 export * from "./tts.ts";
 export * from "./sentence-reader.ts";
+
+// Tidy graph (fork, 2026-11-07): the client needs the pseudo-source and the
+// proposal shape; the apply code (graph-tidy.ts) stays server-side.
+export { TIDY_SOURCE_ID, TIDY_SOURCE_LABEL } from "./tidy-source.ts";
+export type { TidyChange, TidyProposal, TidyStatus as TidyProposalStatus } from "./graph-tidy.ts";

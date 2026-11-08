@@ -10,6 +10,7 @@
  */
 
 import type { LhMessage } from "./native-messages.ts";
+import type { AnkiNoteRecord } from "./anki.ts";
 import type {
 	ChatRecord,
 	ImageSnapshot,
@@ -279,4 +280,21 @@ export interface ReadingDiscussionStore {
 	listDiscussions(): ReadingDiscussionRecord[];
 	/** Remove one record. False when there was none. */
 	deleteDiscussion(readingId: string): boolean;
+}
+
+// ─── AnkiStore — flashcards made from the graph (data/anki) ─────────────────
+
+/**
+ * One JSON map, nodeId → AnkiNoteRecord (core/anki.ts): the cards the card
+ * writer produced for each proposition and whether Anki holds them yet.
+ * Read-modify-write like sources.json; the Anki sync service is the only
+ * writer. Absent or corrupt file = {} (nothing carded yet). Never throws on
+ * read.
+ */
+export interface AnkiStore {
+	readRecords(): Map<string, AnkiNoteRecord>;
+	/** Insert or replace records by nodeId (others preserved). */
+	upsertRecords(records: ReadonlyArray<AnkiNoteRecord>): void;
+	/** Forget these nodes' records (a rebuild); answers how many existed. */
+	deleteRecords(nodeIds: ReadonlyArray<string>): number;
 }
