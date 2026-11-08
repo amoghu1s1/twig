@@ -1,6 +1,6 @@
 # Architecture
 
-LearnHarness is a Next.js application with an Electron desktop host. The server owns agent runs, conversation records, background work, and filesystem persistence; the browser projects those records into a lesson/practice UI and knowledge graph.
+Twig is a Next.js application with an Electron desktop host. The server owns agent runs, conversation records, background work, and filesystem persistence; the browser projects those records into a lesson/practice UI and knowledge graph.
 
 This reference describes the [repository source](README.md#about-these-docs). See [Development](development.md) for commands and [the teaching theory](teaching-methodology.md) for pedagogical intent.
 
@@ -72,6 +72,8 @@ Question tools validate and execute server-side, returning a synthetic terminati
 A matching successful `probe_done` result selects the teacher and queues a fresh-agent handoff. A bare/refused call does not. Planning begins at that seam; displayed teaching begins at the first node-tagged `quiz`/`explain`, not `plan_init`. The plan is a validated Mermaid DAG, replaceable through `plan_init`. Current/visited positions derive from tagged calls, not grades. Waiting for the learner's natural reply to the plan is prompt doctrine, not an acceptance transaction.
 
 Practice uses the same turn/persistence/recovery path, not a separate problem-set service. [`tools/practice.ts`](../src/agent/tools/practice.ts) commits a statement and solution with `problem`; `conclude` records the outcome and reveals that solution. A turn-scoped gate enforces one active problem. The post-conclusion pause is doctrine, not a terminating `conclude` result. Next adds an explicit marker. Practice outcomes are session evidence, not graph mastery; ordinary practice settlement skips extraction.
+
+**Review (Twig fork).** The fork derives a spaced-repetition schedule from that evidence without storing it: `reviewEventsFromMessages` folds practice records into one retrieval event per target proposition, `foldReviews` replays them through FSRS-6, and `GET /api/review` recomputes what is due on every request. Nothing is written back to the graph, and deleting a practice session deletes its review evidence. “Start review” opens an ordinary practice session seeded with the due propositions as graph context. See [`docs/review-plan.md`](review-plan.md).
 
 [Prompt composition](../src/agent/prompts/README.md) and [tool-content display recovery](tool-content-recovery.md) have separate references.
 
