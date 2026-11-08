@@ -128,3 +128,9 @@ export * from "./sentence-reader.ts";
 // proposal shape; the apply code (graph-tidy.ts) stays server-side.
 export { TIDY_SOURCE_ID, TIDY_SOURCE_LABEL } from "./tidy-source.ts";
 export type { TidyChange, TidyProposal, TidyStatus as TidyProposalStatus } from "./graph-tidy.ts";
+// side-chat.ts (inline side questions): ask-input validation,
+// thread lookup and the side model's lesson document. Pure, browser-safe.
+export * from "./side-chat.ts";
+// notes.ts (per-session lesson notes): the save-input sanitizer + the
+// stale-write fingerprint. Pure, browser-safe.
+export * from "./notes.ts";

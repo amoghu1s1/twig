@@ -59,6 +59,11 @@ export interface ServerEvents {
 	 *  docs/readings.md §14). Live tokens ride their own stream. Never
 	 *  chat-scoped (the reading owns it) — chatId stays absent. */
 	"discussion-changed": { readingId: string; chatId?: undefined };
+	/** A side-question thread changed for the chat (side-question wave): a
+	 *  question saved, an answer settled, a window opened/closed, a thread
+	 *  deleted. Notify-then-fetch: open views refetch GET
+	 *  /api/chats/:id/side-chats. Never touches the teaching record. */
+	"side-chats-changed": { chatId: string };
 }
 
 export type ServerEventType = keyof ServerEvents;
@@ -78,6 +83,7 @@ export const SERVER_EVENT_TYPES = [
 	"compaction-changed",
 	"readings-changed",
 	"discussion-changed",
+	"side-chats-changed",
 ] as const satisfies readonly ServerEventType[];
 
 /** One notification: the type discriminates the payload. */

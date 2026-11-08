@@ -94,6 +94,7 @@ for (const asset of [
 	path.join("src", "agent", "prompts", "readings", "00-base.md"),
 	// The reading companion (Discuss, docs/readings.md §14) does too.
 	path.join("src", "agent", "prompts", "discuss", "00-base.md"),
+	path.join("src", "agent", "prompts", "side-chat", "00-base.md"),
 ]) {
 	if (!exists(path.join(STANDALONE, asset))) {
 		console.error(`[build-server] prompt asset missing from the trace: ${asset}`);

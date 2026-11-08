@@ -69,6 +69,10 @@ import { ReadingsTray, useReadingsTray } from "@/components/readings/readings-tr
 import { SessionReadingsContext } from "@/components/readings/api";
 import { PassageReadDeeper } from "@/components/readings/passage-action";
 import { ReadingDiscussedLine } from "@/components/readings/discussed-line";
+import { SideChatProvider, composerSideAnchor, parseBtw, SideChatStore } from "@/components/side-chat-state";
+import { SideAskBlock, SidePassage, SideSelectionAsk } from "@/components/side-chat";
+import { NotesController, NotesProvider } from "@/components/notes-state";
+import { NotesChip, NotesPanel } from "@/components/notes-panel";
 import type { AnswerData, ArtifactPartProps, CodeExerciseAnswerData, JobRecord, Phase3, QuestionAnswerData, QuestionFormDraft, ReadingDiscussionMarkerDetails, TurnUsage, SessionPricing } from "@/src/core";
 import type { LhViewMessage } from "@/src/core";
 import { PhaseChip, PhaseDivider } from "@/components/phase-divider";
@@ -227,6 +231,7 @@ export function Chat({
 	chatId,
 	title,
 	initialMessages,
+	initialNotes = "",
 	initialError,
 	initialPrompt,
 	initiallyInFlight,
@@ -237,6 +242,9 @@ export function Chat({
 	chatId: string;
 	title: string;
 	initialMessages: LhMessage[];
+	/** The record's saved notes: the first paint's text (the mount refetch is
+	 *  the truth — Back/Forward can replay a stale page payload). */
+	initialNotes?: string;
 	/** Memory-only settlement notice supplied on reopening. */
 	initialError?: string;
 	/** The session kind (practice sessions, owner 2026-10-04): practice
@@ -261,6 +269,19 @@ export function Chat({
 	// settled terminal's callback — a stable ref assigned below, once
 	// syncFromServer exists (refs, not closures: no stale capture).
 	const reattachSettledRef = useRef<() => void>(() => {});
+
+	// Notes (notes wave): one controller per view; the panel, the chip and
+	// the selection action read it through context.
+	const [notes] = useState(() => new NotesController(chatId, initialNotes));
+
+	// The side-question store (side-question wave): created here so the
+	// composer's /btw handler can use it directly; the provider below
+	// publishes it to the block seam and the selection action.
+	const sideStoreRef = useRef<SideChatStore | null>(null);
+	if (sideStoreRef.current === null || sideStoreRef.current.chatId !== chatId || !(sideStoreRef.current instanceof SideChatStore)) {
+		sideStoreRef.current = new SideChatStore(chatId);
+	}
+	const sideStore = sideStoreRef.current;
 
 	// THE SESSION HOOK (Wave D, owner-approved 2026-09-26): the app-owned
 	// replacement for useChat + the AI-SDK transport. The record is native
@@ -1253,6 +1274,22 @@ export function Chat({
 		void syncFromServer();
 	});
 
+	/* /btw (side-question wave): a side question, never sent to the tutor —
+	 * before both steer and send. When the transcript has no settled
+	 * teacher prose to anchor on yet, the text stays in the composer
+	 * (never derails: no ordinary send of the literal command). */
+	const tryBtw = (t: string): boolean => {
+		const btw = parseBtw(t);
+		if (!btw) return false;
+		const anchor = composerSideAnchor(messages);
+		if (!anchor) return true;
+		applyText("");
+		const key = sideStore.openAt(anchor);
+		if (btw.question) sideStore.composerText.set(key, btw.question);
+		void sideStore.ask(key);
+		return true;
+	};
+
 	const onSend = () => {
 		if (pending || compacting) return;
 		/* FINISH DICTATION FIRST (owner, 2026-10-01): a learner who keeps
@@ -1269,6 +1306,7 @@ export function Chat({
 		if (busy || pending || compacting) return;
 		const t = textRef.current.trim();
 		if (!t) return;
+		if (tryBtw(t)) return;
 		if (zeroKeys) {
 			setSetupOpen(true);
 			return;
@@ -1299,6 +1337,7 @@ export function Chat({
 		if (pending || compacting) return;
 		const t = textRef.current.trim();
 		if (!t) return;
+		if (tryBtw(t)) return;
 		if (busy) {
 			applyText("");
 			void steer(t);
@@ -1308,6 +1347,7 @@ export function Chat({
 	};
 
 	return (
+		<NotesProvider controller={notes}>
 		<ChatActionsContext.Provider
 			value={{
 				chatId,
@@ -1448,6 +1488,7 @@ export function Chat({
 						</button>
 </Hint>
 					)}
+				<NotesChip />
 					{/* The extraction ring (owner-locked redesign, 2026-09-24): fills
 					    with uncovered vs the chunk threshold, pulses while a run is in
 					    flight, vanishes when the graph is off. Click → the exact
@@ -1474,6 +1515,8 @@ export function Chat({
 				</TopBar>
 
 				<SessionFind scopeRef={sessionFindScopeRef} scrollContextRef={scrollContextRef} />
+				<SideChatProvider store={sideStore}>
+				<SideSelectionAsk notes={notes} />
 				<div ref={sessionFindScopeRef} className="relative flex min-h-0 flex-1">
 				<Conversation className="h-full min-w-0 flex-1" initial="instant" contextRef={scrollContextRef}>
 					<SessionMessageNavigation />
@@ -1640,7 +1683,17 @@ export function Chat({
 																{!(status === "streaming" && isLastPart) && (part.text ?? "").trim() !== "" && (
 																	<SentenceReaderButton onOpen={() => setReaderText(part.text ?? "")} />
 																)}
-																<AssistantTextResponse>{part.text}</AssistantTextResponse>
+																{sourceId && part.id ? (
+																	/* Side questions: every markdown block of
+																	   teacher prose can carry an inline side
+																	   window. Live (c_) messages are not in the
+																	   record yet — no asks. */
+																	<SidePassage messageId={sourceId} partId={part.id} enabled={!sourceId.startsWith("c_")}>
+																		<AssistantTextResponse BlockComponent={SideAskBlock}>{part.text}</AssistantTextResponse>
+																	</SidePassage>
+																) : (
+																	<AssistantTextResponse>{part.text}</AssistantTextResponse>
+																)}
 															</div>
 														);
 													}
@@ -1896,6 +1949,7 @@ export function Chat({
 				<AbortTurnDialog mode={abortAsk} onClose={() => setAbortAsk(null)} onConfirm={confirmAbort} busy={busy} />
 				{readingsEnabled && <PassageReadDeeper rootRef={sessionFindScopeRef} />}
 				</div>
+				</SideChatProvider>
 			</div>
 			{/* The readings tray (owner ruling 2026-10-27: a side tray beside
 			    the lesson — the transcript stays untouched). A full-height
@@ -1911,6 +1965,7 @@ export function Chat({
 					tree={planTree}
 				/>
 			)}
+			<NotesPanel />
 		</div>
 		</SessionReadingsContext.Provider>
 		</JobsContext.Provider>
@@ -1931,6 +1986,7 @@ export function Chat({
 			}}
 		/>
 		</ChatActionsContext.Provider>
+		</NotesProvider>
 	);
 }
 
