@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIcon, BotIcon, FileTextIcon, PenToolIcon, PlayIcon, SearchIcon, SquareIcon, WaypointsIcon } from "lucide-react";
+import { ActivityIcon, BookOpenIcon, BotIcon, FileTextIcon, MessagesSquareIcon, PenToolIcon, PlayIcon, SearchIcon, SquareIcon, WaypointsIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CallUsage, JobKind, JobRecord } from "@/src/core";
 import { isModelsRefusal, isProviderKeyRefusal, subscriptionLabel, subscriptionLabels } from "@/src/core";
@@ -67,12 +67,37 @@ export interface FeedExtraction {
 	startedAt: number;
 }
 
+/** A reading being written (docs/readings.md) — the writer's run row. */
+export interface FeedReading {
+	id: string;
+	title: string;
+	chatId?: string;
+	startedAt: number;
+	activity: string;
+	costUsd?: number | null;
+}
+
+/** A Discuss answer being written (docs/readings.md §14): id is the
+ *  exchange (the abort target), readingId opens the reading. */
+export interface FeedDiscussion {
+	id: string;
+	readingId: string;
+	title: string;
+	chatId?: string;
+	startedAt: number;
+	activity: string;
+	costUsd?: number | null;
+}
+
 export interface ActivityFeed {
 	jobs: FeedJob[];
 	extractions: FeedExtraction[];
+	/** Optional on the wire: older payloads (and tests) carry none. */
+	readings?: FeedReading[];
+	discussions?: FeedDiscussion[];
 }
 
-const EMPTY_FEED: ActivityFeed = { jobs: [], extractions: [] };
+const EMPTY_FEED: ActivityFeed = { jobs: [], extractions: [], readings: [], discussions: [] };
 
 // ─── The activity feed (composition root: the root layout) ───────────────────
 
@@ -109,7 +134,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
 				if (res.ok) {
 					const data = (await res.json()) as Partial<ActivityFeed>;
 					if (alive)
-						setFeed({ jobs: data.jobs ?? [], extractions: data.extractions ?? [] });
+						setFeed({ jobs: data.jobs ?? [], extractions: data.extractions ?? [], readings: data.readings ?? [], discussions: data.discussions ?? [] });
 				}
 			} catch {
 				// transport blip: keep the last feed, announce again next event
@@ -130,6 +155,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
 	};
 	useServerEvent("activity-changed", scheduleAnnouncedFetch);
 	useServerEvent("jobs-changed", scheduleAnnouncedFetch);
+	useServerEvent("readings-changed", scheduleAnnouncedFetch);
 	// Reconnect catch-up: events missed while the channel was down.
 	useServerResync(() => refreshRef.current());
 
@@ -169,13 +195,16 @@ export interface ActivityBlob {
 	/** job.id, or the extraction job's row id (source id, or "src#i" for
 	 *  chunk jobs — unique per row, per-chunk jobs owner 2026-09-28). */
 	id: string;
-	process: "job" | "extraction";
+	process: "job" | "extraction" | "reading" | "discussion";
 	/** Sub-agent kind for jobs (extraction blobs have none). */
 	jobKind?: JobKind;
 	/** Extraction phase (extracting/auditing/merging/embedding); jobs carry none. */
 	phase?: string;
 	title: string;
+	/** The session the process belongs to ("" for a session-less reading). */
 	chatId: string;
+	/** Discuss answers: the reading they belong to (the detail link). */
+	readingId?: string;
 	/** ms epoch — blobs order oldest-first and elapsed counts from it. */
 	startedAt: number;
 	/** Inferred USD cost (jobCost) — null renders "—". */
@@ -250,6 +279,31 @@ export function toBlobs(feed: ActivityFeed): ActivityBlob[] {
 			cost: null, // extraction runs don't ride the money channel (v1)
 			context: null,
 			activity: "",
+		});
+	}
+	for (const r of feed.readings ?? []) {
+		blobs.push({
+			id: r.id,
+			process: "reading",
+			title: r.title,
+			chatId: r.chatId ?? "",
+			startedAt: r.startedAt,
+			cost: r.costUsd ?? null,
+			context: null,
+			activity: r.activity,
+		});
+	}
+	for (const d of feed.discussions ?? []) {
+		blobs.push({
+			id: d.id,
+			process: "discussion",
+			title: d.title,
+			chatId: d.chatId ?? "",
+			readingId: d.readingId,
+			startedAt: d.startedAt,
+			cost: d.costUsd ?? null,
+			context: null,
+			activity: d.activity,
 		});
 	}
 	blobs.sort((a, b) => a.startedAt - b.startedAt);
@@ -389,10 +443,21 @@ function ActivityBlobRow({
 	abortState: AbortState | undefined;
 	onAbort: () => void;
 }) {
-	const Icon = blob.process === "extraction" ? WaypointsIcon : (blob.jobKind && KIND_ICON[blob.jobKind]) || BotIcon;
+	const Icon =
+		blob.process === "extraction"
+			? WaypointsIcon
+			: blob.process === "reading"
+				? BookOpenIcon
+				: blob.process === "discussion"
+					? MessagesSquareIcon
+				: (blob.jobKind && KIND_ICON[blob.jobKind]) || BotIcon;
 	const label =
 		blob.process === "extraction"
 			? `Extraction — ${blob.phase ?? "running"}`
+			: blob.process === "reading"
+				? "Writer"
+				: blob.process === "discussion"
+					? "Reading companion"
 			: blob.jobKind === "research"
 				? "Researcher"
 				: blob.jobKind === "demo"
@@ -487,9 +552,15 @@ function ActivityBlobRow({
 								<span className="tabular-nums text-card-foreground">{blob.steps}</span>
 							</div>
 						)}
-						<a href={`/chat/${blob.chatId}`} className="text-primary hover:underline">
-							Open session →
-						</a>
+						{blob.process === "reading" || blob.process === "discussion" ? (
+							<a href={`/readings/${blob.readingId ?? blob.id}`} className="text-primary hover:underline">
+								Open reading →
+							</a>
+						) : (
+							<a href={`/chat/${blob.chatId}`} className="text-primary hover:underline">
+								Open session →
+							</a>
+						)}
 					</div>
 					<div className="mt-2 text-muted-foreground/80">
 					{abortState === "failed" && "Abort failed — try again"}

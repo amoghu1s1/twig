@@ -90,6 +90,10 @@ for (const extra of ["dist", path.join("node_modules", "electron")]) {
 for (const asset of [
 	path.join("src", "agent", "system-prompt.md"),
 	path.join("src", "agent", "prompts", "teacher", "20-teaching.md"),
+	// The readings writer (docs/readings.md) reads its own prompt tree.
+	path.join("src", "agent", "prompts", "readings", "00-base.md"),
+	// The reading companion (Discuss, docs/readings.md §14) does too.
+	path.join("src", "agent", "prompts", "discuss", "00-base.md"),
 ]) {
 	if (!exists(path.join(STANDALONE, asset))) {
 		console.error(`[build-server] prompt asset missing from the trace: ${asset}`);

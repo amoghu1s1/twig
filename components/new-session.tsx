@@ -12,6 +12,8 @@ import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill 
 import { StatsBar } from "@/components/stats-bar";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
+import { MapIcon, NotebookTextIcon } from "lucide-react";
+import { requestReading, useReadingMode } from "@/components/readings/api";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { SessionStarter } from "@/components/start-session";
 import type { ChatSettings, GraphSnapshot } from "@/src/core";
@@ -80,6 +82,7 @@ export function DraftShell({
 	onOpenPicker,
 	onClearPicks,
 	overlay,
+	primerAction,
 }: {
 	busy: boolean;
 	text: string;
@@ -107,6 +110,9 @@ export function DraftShell({
 	 *  the graph view (the overlay fills its column, never the sidebar).
 	 *  Passed as a node so the pick state stays in NewSession. */
 	overlay?: ReactNode;
+	/** Readings (docs/readings.md §6.1): "Primer first" — the key terms of
+	 *  the typed topic, as a reading, before starting the session. */
+	primerAction?: ReactNode;
 }) {
 	// Voice dictation (STT wave, 2026-09-17): finals append at the end of the
 	// draft text (via the parent's onChange — the truth lives there); the
@@ -183,9 +189,16 @@ export function DraftShell({
 						<div className="bg-background pb-4">
 							<div className={DOCK}>
 								<ComposerActions
-									picker={(picks.length > 0 || mode === "practice") && (
-										<NodePickerControl count={picks.length} onOpen={onOpenPicker} onClear={onClearPicks} />
-									)}
+									picker={
+										(picks.length > 0 || mode === "practice" || primerAction) && (
+											<>
+												{(picks.length > 0 || mode === "practice") && (
+													<NodePickerControl count={picks.length} onOpen={onOpenPicker} onClear={onClearPicks} />
+												)}
+												{primerAction}
+											</>
+										)
+									}
 									setup={setupCta}
 								/>
 								{startError && <p role="alert" className="pointer-events-auto mb-2 text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
@@ -242,6 +255,10 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 		setText(v);
 	};
 	const [busy, setBusy] = useState(false);
+	// Readings: the "Primer first" / "Overview first" chips' state (docs/readings.md §6.1).
+	const [topicBusy, setTopicBusy] = useState(false);
+	const [topicError, setTopicError] = useState<{ kind: "primer" | "overview"; text: string } | null>(null);
+	const [readingMode] = useReadingMode();
 	const startingRef = useRef(false);
 	const starterRef = useRef(new SessionStarter());
 	const [startError, setStartError] = useState(false);
@@ -330,6 +347,42 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				picks={picks}
 				onOpenPicker={openPicker}
 				onClearPicks={() => applyPicks([])}
+				primerAction={
+					mode === "teach" && text.trim().length > 0 ? (
+						<>
+							{(
+								[
+									["primer", "primer-first", "Primer first", NotebookTextIcon, "Write a primer of this topic's key terms first — the session waits until you start it"],
+									["overview", "overview-first", "Overview first", MapIcon, "Write an overview of this whole topic first — the session waits until you start it"],
+								] as const
+							).map(([kind, testId, label, Icon, title]) => (
+								<button
+									key={kind}
+									type="button"
+									data-testid={testId}
+									disabled={topicBusy}
+									title={title}
+									onClick={async () => {
+										if (!configured) {
+											setSetupOpen(true);
+											return;
+										}
+										setTopicBusy(true);
+										setTopicError(null);
+										const res = await requestReading({ kind, topic: textRef.current.trim(), mode: readingMode });
+										setTopicBusy(false);
+										if (!res.ok) return setTopicError({ kind, text: res.error });
+										router.push(`/readings/${res.id}`);
+									}}
+									className="flex cursor-pointer items-center gap-1.5 rounded-full border border-dashed border-border/80 px-3 py-1.5 font-ui text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-60"
+								>
+									<Icon aria-hidden="true" className="size-3.5" />
+									{topicError?.kind === kind ? topicError.text : label}
+								</button>
+							))}
+						</>
+					) : undefined
+				}
 				overlay={
 					// THE PICKER (owner round 10b): hosted INSIDE the content
 					// column — absolute inset-0 resolves to the column's relative

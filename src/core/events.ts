@@ -52,6 +52,13 @@ export interface ServerEvents {
 	 *  the chat; the client mirrors it by disabling the composer/dock
 	 *  submit. */
 	"compaction-changed": { chatId: string; running: boolean };
+	/** A reading record changed (created, progress, settled, deleted —
+	 *  docs/readings.md). chatId when the reading is session-anchored. */
+	"readings-changed": { chatId?: string };
+	/** A reading's discussion changed (an ask, an answer settling —
+	 *  docs/readings.md §14). Live tokens ride their own stream. Never
+	 *  chat-scoped (the reading owns it) — chatId stays absent. */
+	"discussion-changed": { readingId: string; chatId?: undefined };
 }
 
 export type ServerEventType = keyof ServerEvents;
@@ -69,6 +76,8 @@ export const SERVER_EVENT_TYPES = [
 	"subscriptions-changed",
 	"record-changed",
 	"compaction-changed",
+	"readings-changed",
+	"discussion-changed",
 ] as const satisfies readonly ServerEventType[];
 
 /** One notification: the type discriminates the payload. */

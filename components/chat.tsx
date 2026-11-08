@@ -52,7 +52,7 @@ import { PlanBlock, PlanPopup, latestTree } from "@/components/plan-block";
 import { PlanMarginalia, planExists } from "@/components/plan-window";
 import { MermaidOverlay, SessionMermaidContext } from "@/components/session-overlay";
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
-import { ArrowRightIcon, DumbbellIcon, WaypointsIcon } from "lucide-react";
+import { ArrowRightIcon, BookOpenIcon, DumbbellIcon, WaypointsIcon } from "lucide-react";
 import type { PlanBlockData } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
 import { CodeExerciseDockHost } from "@/components/code-exercise-dock-host";
@@ -63,7 +63,11 @@ import { PracticeDock } from "@/components/practice-dock";
 import { ThinkingCard, type PracticeThinkingData } from "@/components/practice-cards";
 import { GraphContextCard, type GraphContextData } from "@/components/graph-context-card";
 import { TopBar } from "@/components/top-bar";
-import type { AnswerData, ArtifactPartProps, CodeExerciseAnswerData, JobRecord, Phase3, QuestionAnswerData, QuestionFormDraft, TurnUsage, SessionPricing } from "@/src/core";
+import { ReadingsTray, useReadingsTray } from "@/components/readings/readings-tray";
+import { SessionReadingsContext } from "@/components/readings/api";
+import { PassageReadDeeper } from "@/components/readings/passage-action";
+import { ReadingDiscussedLine } from "@/components/readings/discussed-line";
+import type { AnswerData, ArtifactPartProps, CodeExerciseAnswerData, JobRecord, Phase3, QuestionAnswerData, QuestionFormDraft, ReadingDiscussionMarkerDetails, TurnUsage, SessionPricing } from "@/src/core";
 import type { LhViewMessage } from "@/src/core";
 import { PhaseChip, PhaseDivider } from "@/components/phase-divider";
 import {
@@ -929,6 +933,10 @@ export function Chat({
 	// The session's live plan (drives the top-bar chip; the marginalia
 	// derives its own from the same transcript).
 	const planTree = useMemo(() => latestTree(messages), [messages]);
+	// Readings (docs/readings.md): the session's side tray + its seam —
+	// teaching sessions only (practice has no plan and no readings).
+	const readingsEnabled = kind !== "practice";
+	const readingsTray = useReadingsTray(chatId, readingsEnabled);
 
 	// ── Session usage (wave-4 stats bar) ──
 	// The money channel: the record's turns log and read-time server Pi
@@ -1284,13 +1292,14 @@ export function Chat({
 			}}
 		>
 		<JobsContext.Provider value={jobs}>
+		<SessionReadingsContext.Provider value={readingsEnabled ? readingsTray.seam : null}>
 		{/* The session surface: the transcript column (header + scroller) and
 		    the plan-tree panel as full-height SIBLINGS — the panel spans top to
 		    bottom exactly like the left sidebar, and the header (name + phase
 		    chip) spans from the left sidebar's edge to the panel's edge. The
 		    dock overlays the column bottom (outside the scroller); a spacer in
 		    the transcript reserves its height. */}
-		<div className="flex h-dvh">
+		<div className="relative flex h-dvh">
 			<div className="flex min-w-0 flex-1 flex-col">
 				{/* The top bar is its own block (owner, top-fade round 4): in flow
 				    above the scroller on the plain page background — no gradient. Its
@@ -1369,6 +1378,27 @@ export function Chat({
 					{/* The plan chip (owner, plan-placement round): session-level
 					    structure beside the phase chip — access to the full-DAG popup
 					    at every width; the marginalia is the wide-screen glance view. */}
+					{readingsEnabled && (
+						<Hint label={readingsTray.open ? "Close readings" : "Readings: primers, deep dives, recaps"} side="bottom">
+<button
+							type="button"
+							data-testid="readings-chip"
+							aria-pressed={readingsTray.open}
+							onClick={(e) => {
+								blurAfterPointerClick(e);
+								if (readingsTray.open) readingsTray.setOpen(false);
+								else readingsTray.seam.open();
+							}}
+							className="lh-no-drag flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border/80 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+						>
+							<BookOpenIcon className="size-3.5 text-primary" aria-hidden />
+							Readings
+							{(readingsTray.readings?.length ?? 0) > 0 && (
+								<span className="tabular-nums text-muted-foreground/80">{readingsTray.readings!.length}</span>
+							)}
+						</button>
+</Hint>
+					)}
 					{planTree && (
 						<Hint label="Open the full plan" side="bottom">
 <button
@@ -1460,6 +1490,8 @@ export function Chat({
 												return <CompactionCutDivider key={pi} data={part.data as CompactionDividerData} />;
 											case "data-practice-thinking":
 												return <ThinkingCard key={pi} data={part.data as PracticeThinkingData} />;
+											case "data-reading-discussion":
+												return <ReadingDiscussedLine key={pi} data={part.data as ReadingDiscussionMarkerDetails} />;
 											case "data-practice-next":
 												// The learner's move-on signal (owner round 16): a compact
 												// centered mono-caps line — chrome, the dismissal register.
@@ -1815,11 +1847,35 @@ export function Chat({
 						onClose={() => setFigureFocus(null)}
 					/>
 				)}
-				{planOpen && <PlanPopup messages={messages} onClose={() => setPlanOpen(false)} />}
+				{planOpen && (
+					<PlanPopup
+						messages={messages}
+						onClose={() => setPlanOpen(false)}
+						onReadDeeper={
+							readingsEnabled ? (nodeId) => readingsTray.seam.request({ kind: "deep-dive", planNodeId: nodeId }) : undefined
+						}
+					/>
+				)}
 				<AbortTurnDialog mode={abortAsk} onClose={() => setAbortAsk(null)} onConfirm={confirmAbort} busy={busy} />
+				{readingsEnabled && <PassageReadDeeper rootRef={sessionFindScopeRef} />}
 				</div>
 			</div>
+			{/* The readings tray (owner ruling 2026-10-27: a side tray beside
+			    the lesson — the transcript stays untouched). A full-height
+			    sibling of the column, like the sidebar on the left; it
+			    overlays the session below lg. */}
+			{readingsEnabled && readingsTray.open && (
+				<ReadingsTray
+					seam={readingsTray.seam}
+					readings={readingsTray.readings}
+					readingId={readingsTray.readingId}
+					onOpenReading={readingsTray.setReadingId}
+					onClose={() => readingsTray.setOpen(false)}
+					tree={planTree}
+				/>
+			)}
 		</div>
+		</SessionReadingsContext.Provider>
 		</JobsContext.Provider>
 		</SessionMermaidContext.Provider>
 		{/* The BYOK setup flow (owner, 2026-09-22): one mount serves the

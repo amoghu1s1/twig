@@ -75,6 +75,7 @@ import { useActivity } from "@/components/activity-dock";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import { MenuShell } from "@/components/menu-shell.tsx";
 import { DeleteNodeDialog } from "@/components/delete-node-dialog.tsx";
+import { NodeReadings } from "@/components/readings/node-readings";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { Hint } from "@/components/ui/hint";
 import {
@@ -1671,6 +1672,9 @@ export function GraphView({
 					) : (
 						<div className="mt-3 text-xs text-muted-foreground">No sessions recorded.</div>
 					)}
+					{/* Readings (docs/readings.md §7): a read-time fold, plus the
+					    deep-dive action — nothing is written into the graph. */}
+					<NodeReadings key={selected.node.id} nodeId={selected.node.id} />
 				</div>
 			)}
 			{/* The chain table overlay (chains-overlay plan, 2026-09-29):

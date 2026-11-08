@@ -52,7 +52,9 @@ export type ModelRole =
 	| "visualMaker"
 	| "pdfReader"
 	| "extractor"
-	| "auditor";
+	| "auditor"
+	/** The readings writer (docs/readings.md) — learner-facing documents. */
+	| "writer";
 
 /**
  * The LIVE graph store (src/store/graph.ts) — owned by the app's extraction

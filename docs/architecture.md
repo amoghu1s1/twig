@@ -89,6 +89,8 @@ A marker in the **saved conversation** acknowledges delivery—not HTTP acceptan
 
 This is single-process coordination over JSON files, not a transactional queue or exactly-once provider execution. In-memory composer steers do not have the same durability as job delivery.
 
+**Readings.** A learner can ask for an opt-in companion document beside a lesson — a primer, overview, deep dive, recap, or graph-node deep dive. The writer runs its own globalThis registry under the background semaphore rather than as a job, so finishing one never wakes the teacher. Every citation is validated against that run's successful fetch log; records live in `data/readings/<id>.json`. Optional Discuss threads run a companion on the writer role and stream their answer; a finished exchange queues a held note that rides the learner's next run. Nothing about a reading reaches the graph or the assessment path. See [`readings.md`](readings.md).
+
 ### Learner-image snapshots
 
 `show_image` displays a local raster picture; `visual` with an image path annotates it. Both use the file-access policy and shared processing: input bounds of 25 MiB, 16 megapixels, and 8192px per side; off-thread orientation/metadata cleanup; stored PNG/JPEG bounded to 1600px per side and below 1 MiB of base64.

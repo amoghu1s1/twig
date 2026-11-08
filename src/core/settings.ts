@@ -328,6 +328,9 @@ export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
 	auditor: "cheap",
 	visualMaker: "vision",
 	pdfReader: "vision",
+	// Readings (docs/readings.md): learner-facing prose — quality-critical,
+	// so the strong tier (the teacher's own model).
+	writer: "strong",
 };
 
 /** General settings — app-level behavior. Version DISPLAY and plans login

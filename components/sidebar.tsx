@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode } from "@/src/core";
-import { DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { BookOpenIcon, DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
@@ -721,6 +721,19 @@ function SessionsSidebar() {
 						<span className="sr-only">create a new practice session</span>
 					</button>
 					<ReviewNavRow />
+					{/* Readings (docs/readings.md): the library of opt-in
+					    companion documents — a destination, not a creation door. */}
+					<Link
+						href="/readings"
+						data-testid="nav-readings"
+						className={cn(
+							"flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+							pathname?.startsWith("/readings") && "bg-accent text-foreground",
+						)}
+					>
+						<BookOpenIcon className="size-3" />
+						Readings
+					</Link>
 				</div>
 
 				<div className="mx-3 mb-2 flex items-center gap-2">

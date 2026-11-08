@@ -101,3 +101,7 @@ export * from "./coverage.ts";
 // ONE session→markdown formatter — the extractor's view and the user-facing
 // export share it. Pure, browser-safe.
 export * from "./session-markdown.ts";
+// Readings (docs/readings.md): the pure companion-document core and the
+// Discuss logic — request grammar, snapshots, citations, folds, export.
+export * from "./readings.ts";
+export * from "./reading-discussions.ts";

@@ -13,6 +13,7 @@ import {
 	CURRENT_SETTINGS_VERSION,
 	FACTORY_SETTINGS,
 	BACKGROUND_MODEL_ROLES,
+	ROLE_SLOT,
 	isHexColor,
 	sanitizeUserSettings,
 } from "../src/core/settings.ts";
@@ -218,5 +219,13 @@ describe("sanitizeUserSettings", () => {
 			"extractor",
 			"auditor",
 		]);
+	});
+
+	it("the readings writer draws on the strong slot without a background-role row (docs/readings.md §12)", () => {
+		// The upstream design ruling: learner-facing prose is quality-critical,
+		// so `writer` resolves from the teacher's own tier. It is deliberately
+		// NOT a BackgroundModelRole, so Agent settings shows no extra row.
+		assert.equal(ROLE_SLOT.writer, "strong");
+		assert.equal((BACKGROUND_MODEL_ROLES as readonly string[]).includes("writer"), false);
 	});
 });
