@@ -36,6 +36,8 @@ Twig keeps LearnHarness's teaching model and adds the parts that matter for dail
 - **Graph exports** — send the knowledge graph to **Anki** with stable ids and reviewable note types, or export it to an **Obsidian** vault as linked Markdown; a tidy-graph review proposes merges, splits and connections. See [anki.md](docs/anki.md), [obsidian.md](docs/obsidian.md), [tidy-graph.md](docs/tidy-graph.md).
 - **Side questions and notes** — ask about a passage without derailing the lesson; each thread stays attached to the block it came from. Per-lesson notes live beside the transcript, support quote-to-notes, and survive reloads.
 - **Quote into the composer** — select tutor prose and quote it directly into your reply, so follow-ups keep the exact wording.
+- **Capstone projects** — a project session where you pitch a real build from graph propositions, the agent sharpens it into a locked brief with file-verifiable criteria, then reviews your directory read-only and reports the gaps.
+- **Scratchpad and calculator** — a pressure-sensitive drawing sidebar with undo/eraser/straight lines, a draggable scientific calculator, and inert `svg` figures rendered directly in lessons.
 - **Edit the last message** — rewrite a sent prompt or a parked steer with a durable rewind of the transcript, plan, graph traces, jobs and queued steers.
 - **Upstream 0.5.0** — the fork carries upstream's attachments/paperclip, learner-image snapshots, folder imports, PDF import, Exa/Firecrawl/Ollama search, file-access restrictions, atomic store writes, Claude CLI guards, and projection/recovery fixes.
 - **Defensive tooling** — SSRF-safe web fetch redirects, bounded regex/pre-read limits, and a sandboxed demo/SVG surface.
