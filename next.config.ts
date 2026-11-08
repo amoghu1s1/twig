@@ -88,6 +88,12 @@ const nextConfig: NextConfig = {
 			"src/agent/image-processing/*.mjs",
 			"src/agent/image-processing/LICENSE",
 			"node_modules/@silvia-odwyer/photon-node/**/*",
+			// The readings writer and its Discuss companion read their prompt
+			// trees from disk at run time (docs/readings.md §5/§14). Their
+			// directory names are built at runtime, so the tracer cannot see
+			// the individual fragments.
+			"src/agent/prompts/readings/**/*.md",
+			"src/agent/prompts/discuss/**/*.md",
 			// Wave E stage 2: resvg rasterizes visual-maker SVGs natively; same
 			// per-platform-binary story as the canvas above (one per build).
 			"node_modules/@resvg/resvg-js-*/**/*",

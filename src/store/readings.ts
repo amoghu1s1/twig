@@ -8,6 +8,9 @@
  * Schema stamp (the chat store's discipline): every write stamps the
  * current version; a record stamped NEWER than this build is refused on
  * read and never rewritten.
+ *
+ * Crash safety (#403): writes go through the shared atomic-write helper —
+ * the same temp-beside-target discipline every record store uses.
  */
 
 import * as fs from "node:fs";
@@ -16,6 +19,7 @@ import { PATHS } from "../../config.ts";
 import { emit } from "../core/events.ts";
 import type { ReadingStore } from "../core/ports.ts";
 import { CURRENT_READING_VERSION, type ReadingRecord } from "../core/contracts.ts";
+import { removeLeftoverTemps, writeFileAtomicSync } from "./atomic-write.ts";
 
 function readingsDir(): string {
 	return path.join(PATHS.data, "readings");
@@ -28,10 +32,9 @@ function readingFile(id: string): string {
 
 function write(record: ReadingRecord): void {
 	fs.mkdirSync(readingsDir(), { recursive: true });
-	const file = readingFile(record.id);
-	const tmp = `${file}.${process.pid}.tmp`;
-	fs.writeFileSync(tmp, JSON.stringify({ ...record, version: CURRENT_READING_VERSION }, null, "\t"), "utf-8");
-	fs.renameSync(tmp, file);
+	writeFileAtomicSync(readingFile(record.id), JSON.stringify({ ...record, version: CURRENT_READING_VERSION }, null, "\t"), {
+		allowInPlaceFallback: true,
+	});
 }
 
 function getReading(id: string): ReadingRecord | null {
@@ -85,11 +88,13 @@ function listReadings(): ReadingRecord[] {
 
 function deleteReading(id: string): boolean {
 	const record = getReading(id);
+	const file = readingFile(id);
 	try {
-		fs.unlinkSync(readingFile(id));
+		fs.unlinkSync(file);
 	} catch {
 		return false;
 	}
+	removeLeftoverTemps(file);
 	emit("readings-changed", record?.anchor.chatId ? { chatId: record.anchor.chatId } : {});
 	return true;
 }

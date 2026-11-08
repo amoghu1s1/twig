@@ -8,6 +8,8 @@
  *
  * Schema stamp: every write stamps the current version; a record stamped
  * NEWER than this build is refused on read and never rewritten.
+ *
+ * Crash safety (#403): writes go through the shared atomic-write helper.
  */
 
 import * as fs from "node:fs";
@@ -16,6 +18,7 @@ import { PATHS } from "../../config.ts";
 import { emit } from "../core/events.ts";
 import type { ReadingDiscussionStore } from "../core/ports.ts";
 import { CURRENT_DISCUSSION_VERSION, type ReadingDiscussionRecord } from "../core/contracts.ts";
+import { removeLeftoverTemps, writeFileAtomicSync } from "./atomic-write.ts";
 
 function discussionsDir(): string {
 	return path.join(PATHS.data, "reading-discussions");
@@ -28,10 +31,9 @@ function discussionFile(readingId: string): string {
 
 function write(record: ReadingDiscussionRecord): void {
 	fs.mkdirSync(discussionsDir(), { recursive: true });
-	const file = discussionFile(record.readingId);
-	const tmp = `${file}.${process.pid}.tmp`;
-	fs.writeFileSync(tmp, JSON.stringify({ ...record, version: CURRENT_DISCUSSION_VERSION }, null, "\t"), "utf-8");
-	fs.renameSync(tmp, file);
+	writeFileAtomicSync(discussionFile(record.readingId), JSON.stringify({ ...record, version: CURRENT_DISCUSSION_VERSION }, null, "\t"), {
+		allowInPlaceFallback: true,
+	});
 }
 
 function getDiscussion(readingId: string): ReadingDiscussionRecord | null {
@@ -78,11 +80,13 @@ function listDiscussions(): ReadingDiscussionRecord[] {
 }
 
 function deleteDiscussion(readingId: string): boolean {
+	const file = discussionFile(readingId);
 	try {
-		fs.unlinkSync(discussionFile(readingId));
+		fs.unlinkSync(file);
 	} catch {
 		return false;
 	}
+	removeLeftoverTemps(file);
 	emit("discussion-changed", { readingId });
 	return true;
 }

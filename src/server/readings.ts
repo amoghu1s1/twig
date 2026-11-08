@@ -8,7 +8,7 @@
 
 import { createReadingsPipeline, readingRunStatuses, type RunningReading } from "../agent/subagents/readings.ts";
 import { piEngineForSpec } from "../agent/models.ts";
-import { providerKeyMissing as providerKeyMissingEnvelope } from "../core/settings.ts";
+import { providerKeyMissing as providerKeyMissingEnvelope, ROLE_SLOT } from "../core/settings.ts";
 import { resolveRoleSpec } from "../core/settings-resolution.ts";
 import {
 	buildNodeSnapshot,
@@ -42,10 +42,14 @@ export type { RunningReading };
  *  itself is globalThis-backed, so every Next route entry shares it). */
 export const readingsPipeline = createReadingsPipeline({
 	readingStore: stores.readingStore,
-	// BYOK: role override → slot → nothing, read FRESH per run.
+	// BYOK: role override → slot → nothing, read FRESH per run. The slot's
+	// cache-retention preference rides the engine like every other role
+	// (the model-slots wave): read fresh per operation, not once.
 	engineFor: (role) => {
 		const spec = resolveRoleSpec(role, stores.settingsStore.readSettings());
-		return spec ? piEngineForSpec(spec) : undefined;
+		if (!spec) return undefined;
+		const slot = ROLE_SLOT[role];
+		return piEngineForSpec(spec, true, undefined, () => stores.settingsStore.readSettings()?.models?.[slot]?.cacheRetention);
 	},
 	providerKeyMissing: (provider, tier) => (providerKeyPresent(provider) ? null : providerKeyMissingEnvelope(provider, [tier])),
 	searchProvider,

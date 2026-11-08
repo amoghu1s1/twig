@@ -16,7 +16,7 @@ import {
 	type RunningAnswer,
 } from "../agent/subagents/reading-discussions.ts";
 import { piEngineForSpec } from "../agent/models.ts";
-import { providerKeyMissing as providerKeyMissingEnvelope } from "../core/settings.ts";
+import { providerKeyMissing as providerKeyMissingEnvelope, ROLE_SLOT } from "../core/settings.ts";
 import { resolveRoleSpec } from "../core/settings-resolution.ts";
 import { buildDiscussionMarker, emptyDiscussion } from "../core/reading-discussions.ts";
 import {
@@ -65,7 +65,9 @@ export const discussionPipeline = createDiscussionPipeline({
 	discussionStore: stores.readingDiscussionStore,
 	engineFor: (role) => {
 		const spec = resolveRoleSpec(role, stores.settingsStore.readSettings());
-		return spec ? piEngineForSpec(spec) : undefined;
+		if (!spec) return undefined;
+		const slot = ROLE_SLOT[role];
+		return piEngineForSpec(spec, true, undefined, () => stores.settingsStore.readSettings()?.models?.[slot]?.cacheRetention);
 	},
 	providerKeyMissing: (provider, tier) => (providerKeyPresent(provider) ? null : providerKeyMissingEnvelope(provider, [tier])),
 	searchProvider,

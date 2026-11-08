@@ -48,6 +48,8 @@ describe("standalone JavaScript tracing exclusions and native workaround policy"
 			"src/agent/image-processing/*.mjs",
 			"src/agent/image-processing/LICENSE",
 			"node_modules/@silvia-odwyer/photon-node/**/*",
+			"src/agent/prompts/readings/**/*.md",
+			"src/agent/prompts/discuss/**/*.md",
 			"node_modules/@resvg/resvg-js-*/**/*",
 			"node_modules/@earendil-works/pi-ai/dist/providers/data/**/*",
 			"node_modules/@earendil-works/pi-ai/dist/auth/oauth/{load,github-copilot,xai,device-code}.js",

@@ -30,6 +30,7 @@ function withPayload(test: (fixture: {
 		write(path.join(STANDALONE, PROMPT));
 		write(path.join(STANDALONE, "src", "agent", "prompts", "teacher", "20-teaching.md"));
 		write(path.join(STANDALONE, "src", "agent", "prompts", "readings", "00-base.md"));
+		write(path.join(STANDALONE, "src", "agent", "prompts", "discuss", "00-base.md"));
 		test({ root, write, run: () => spawnSync(process.execPath, [path.join(root, "scripts", "build-server.mjs")], {
 			cwd: root, encoding: "utf8", timeout: 10_000,
 		}) });
@@ -103,5 +104,19 @@ describe("desktop standalone payload", () => {
 			assert.equal(result.status, 1);
 			assert.match(String(result.stderr), /prompt asset missing/);
 		});
+	});
+
+	it("still refuses a missing reading prompt tree", () => {
+		for (const asset of [
+			path.join("src", "agent", "prompts", "readings", "00-base.md"),
+			path.join("src", "agent", "prompts", "discuss", "00-base.md"),
+		]) {
+			withPayload(({ root, run }) => {
+				fs.rmSync(path.join(root, STANDALONE, asset));
+				const result = run();
+				assert.equal(result.status, 1, asset);
+				assert.match(String(result.stderr), /prompt asset missing/);
+			});
+		}
 	});
 });
