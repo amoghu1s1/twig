@@ -1560,7 +1560,14 @@ export function Chat({
 
 				<SessionFind scopeRef={sessionFindScopeRef} scrollContextRef={scrollContextRef} />
 				<SideChatProvider store={sideStore}>
-				<SideSelectionAsk notes={notes} />
+				<SideSelectionAsk
+					notes={notes}
+					onQuote={(quote) => {
+						const prefix = textRef.current.trim() ? `${textRef.current.replace(/\s*$/, "")}\n\n` : "";
+						applyText(`${prefix}> ${quote.replace(/\n/g, "\n> ")}\n\n`);
+						composerInputRef.current?.focus();
+					}}
+				/>
 				<div ref={sessionFindScopeRef} className="relative flex min-h-0 flex-1">
 				<Conversation className="h-full min-w-0 flex-1" initial="instant" contextRef={scrollContextRef}>
 					<SessionMessageNavigation />

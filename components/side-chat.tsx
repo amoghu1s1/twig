@@ -20,7 +20,7 @@
 import { createContext, memo, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Block, type BlockProps } from "streamdown";
-import { ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, CornerDownLeftIcon, MessageCircleQuestionIcon, MessageCircleReplyIcon, NotebookPenIcon, RotateCcwIcon, SquareIcon, Trash2Icon, XIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, CornerDownLeftIcon, MessageCircleQuestionIcon, MessageCircleReplyIcon, NotebookPenIcon, QuoteIcon, RotateCcwIcon, SquareIcon, Trash2Icon, XIcon } from "lucide-react";
 import type { SideChatAnchor, SideChatMessage } from "@/src/core";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { Shimmer } from "@/components/ai-elements/shimmer";
@@ -570,7 +570,7 @@ interface SelectionTarget {
  *  prose blocks for the ask; the window opens after the block where the
  *  selection ENDS. Notes take the quote whenever the selection starts in
  *  any settled teacher prose (the notes controller decides its panel). */
-export function SideSelectionAsk({ notes }: { notes?: NotesController | null }) {
+export function SideSelectionAsk({ notes, onQuote }: { notes?: NotesController | null; onQuote?: (quote: string) => void }) {
 	const store = useSideChatStore();
 	const [target, setTarget] = useState<SelectionTarget | null>(null);
 	useEffect(() => {
@@ -624,11 +624,11 @@ export function SideSelectionAsk({ notes }: { notes?: NotesController | null }) 
 			document.removeEventListener("selectionchange", onSelectionChange);
 			window.removeEventListener("scroll", onScroll, true);
 		};
-	}, [store, notes]);
+	}, [store, notes, onQuote]);
 	if (!store || !target || typeof document === "undefined") return null;
 	const askable = target.anchor !== undefined;
 	const askWidth = askable ? 132 : 0;
-	const width = askWidth + (notes ? 124 : 0) + (askWidth && notes ? 4 : 0);
+	const width = askWidth + (notes ? 124 : 0) + (onQuote ? 104 : 0) + ((askWidth && (notes || onQuote)) ? 4 : 0);
 	const left = Math.max(8, Math.min(target.x - askWidth / 2 - (notes ? 62 : 0), window.innerWidth - width - 8));
 	const top = Math.min(target.y + 6, window.innerHeight - 36);
 	const keepSelection = { onPointerDown: (e: React.PointerEvent) => e.preventDefault(), onMouseDown: (e: React.MouseEvent) => e.preventDefault() };
@@ -652,6 +652,22 @@ export function SideSelectionAsk({ notes }: { notes?: NotesController | null }) 
 				>
 					<MessageCircleQuestionIcon className="size-3.5" />
 					Ask about this
+				</button>
+			)}
+			{onQuote && (
+				<button
+					type="button"
+					data-testid="side-selection-quote"
+					{...keepSelection}
+					onClick={() => {
+						onQuote(target.quote);
+						dismiss();
+					}}
+					style={{ width: 104 }}
+					className="flex h-7 items-center justify-center gap-1.5 rounded-md border bg-popover font-ui text-xs font-medium text-popover-foreground shadow-md transition-colors hover:bg-accent"
+				>
+					<QuoteIcon className="size-3.5" />
+					Quote
 				</button>
 			)}
 			{notes && (
