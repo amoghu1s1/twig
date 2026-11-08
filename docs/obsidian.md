@@ -1,6 +1,6 @@
 # Obsidian vault
 
-LearnHarness can write your knowledge graph as an Obsidian vault: a folder of linked Markdown notes you can read, search and browse in Obsidian on your Mac and phone. No model is involved, so it costs nothing.
+Twig can write your knowledge graph as an Obsidian vault: a folder of linked Markdown notes you can read, search and browse in Obsidian on your Mac and phone. No model is involved, so it costs nothing.
 
 ## What it writes
 
@@ -15,12 +15,12 @@ Links are ordinary `[[wiki links]]`, so backlinks and Obsidian's graph view work
 ## Where it goes
 
 - If `LH_OBSIDIAN_VAULT` is set, there.
-- Otherwise, if Obsidian keeps vaults in iCloud on this Mac (`~/Library/Mobile Documents/iCloud~md~obsidian/Documents` exists), a vault called **LearnHarness** inside it. It then shows up in Obsidian on your iPhone with no extra setup.
-- Otherwise `~/Documents/LearnHarness Vault`.
+- Otherwise, if Obsidian keeps vaults in iCloud on this Mac (`~/Library/Mobile Documents/iCloud~md~obsidian/Documents` exists), a vault called **Twig** inside it. It then shows up in Obsidian on your iPhone with no extra setup.
+- Otherwise `~/Documents/Twig Vault`.
 
 **Settings → Graph → Obsidian vault** shows the folder in use.
 
-To open it on the Mac: Obsidian → **Open folder as vault** → choose that folder. On the iPhone, with an iCloud vault: Obsidian → open the **LearnHarness** vault.
+To open it on the Mac: Obsidian → **Open folder as vault** → choose that folder. On the iPhone, with an iCloud vault: Obsidian → open the **Twig** vault.
 
 ## Keeping it up to date
 
@@ -31,4 +31,4 @@ Only notes whose text changed are rewritten, so iCloud syncs real edits only.
 
 ## Your own notes
 
-The generated notes are overwritten on every write, so edits to them are lost. Add your own notes as new files anywhere in the vault: LearnHarness keeps a list of the files it wrote (`.learnharness/manifest.json`) and never changes or deletes anything else.
+The generated notes are overwritten on every write, so edits to them are lost. Add your own notes as new files anywhere in the vault: Twig keeps a list of the files it wrote (`.twig/manifest.json`) and never changes or deletes anything else.

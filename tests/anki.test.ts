@@ -104,9 +104,9 @@ function fakeAnki() {
 
 describe("core/anki", () => {
 	it("names decks under the root and flattens nested separators", () => {
-		assert.equal(deckName("Microeconomics"), "LearnHarness::Microeconomics");
-		assert.equal(deckName("A::B"), "LearnHarness::A:B");
-		assert.equal(deckName(undefined), "LearnHarness::Unsorted");
+		assert.equal(deckName("Microeconomics"), "Twig::Microeconomics");
+		assert.equal(deckName("A::B"), "Twig::A:B");
+		assert.equal(deckName(undefined), "Twig::Unsorted");
 	});
 
 	it("escapes markup, keeps line breaks, and converts math to MathJax", () => {
@@ -120,9 +120,9 @@ describe("core/anki", () => {
 		assert.equal(ankiField("2 * 3 * 4"), "2 * 3 * 4");
 	});
 
-	it("builds notes on the LearnHarness note type for each format", () => {
+	it("builds notes on the Twig note type for each format", () => {
 		const record: AnkiNoteRecord = {
-			nodeId: "n_1", sourceId: "chat_a", deck: "LearnHarness::Econ", createdAt: "x",
+			nodeId: "n_1", sourceId: "chat_a", deck: "Twig::Econ", createdAt: "x",
 			cards: [
 				{ kind: "recall", front: "Q", back: "**A**" },
 				{ kind: "recall", format: "cloze", front: "The {{c1::opportunity cost}} is the best alternative.", back: "", extra: "Every yes is a no." },
@@ -131,33 +131,33 @@ describe("core/anki", () => {
 			],
 		};
 		const [basic, cloze, type, reverse] = toAnkiConnectNotes(record, "Opportunity cost");
-		assert.equal(basic!.deckName, "LearnHarness::Econ");
-		assert.equal(basic!.modelName, "LearnHarness Basic");
-		assert.deepEqual(basic!.tags, ["learnharness", "lh::n_1", "lh-card::recall", "lh-format::basic"]);
+		assert.equal(basic!.deckName, "Twig::Econ");
+		assert.equal(basic!.modelName, "Twig Basic");
+		assert.deepEqual(basic!.tags, ["twig", "lh::n_1", "lh-card::recall", "lh-format::basic"]);
 		assert.equal(basic!.fields.Back, "<b>A</b>");
 		assert.equal(basic!.fields.Source, "Opportunity cost");
 		assert.match(basic!.fields.Context ?? "", /Econ<span class="lh-kind">Recall<\/span>/);
 		assert.equal(basic!.options.allowDuplicate, false);
-		assert.equal(cloze!.modelName, "LearnHarness Cloze");
+		assert.equal(cloze!.modelName, "Twig Cloze");
 		assert.equal(cloze!.fields.Text, "The {{c1::opportunity cost}} is the best alternative.");
 		assert.equal(cloze!.fields.Extra, "Every yes is a no.");
-		assert.equal(type!.modelName, "LearnHarness Type-in");
+		assert.equal(type!.modelName, "Twig Type-in");
 		assert.equal(type!.fields.Back, "Sunk cost"); // typed answers are compared as plain text
-		assert.equal(reverse!.modelName, "LearnHarness Reversed");
+		assert.equal(reverse!.modelName, "Twig Reversed");
 		assert.match(reverse!.fields.Context ?? "", /Tell apart/);
 	});
 
 	it("renders an import file whose header maps note type, deck and tag columns", () => {
 		const record: AnkiNoteRecord = {
-			nodeId: "n_1", sourceId: "chat_a", deck: "LearnHarness::Econ", createdAt: "x",
+			nodeId: "n_1", sourceId: "chat_a", deck: "Twig::Econ", createdAt: "x",
 			cards: [{ kind: "recall", front: "Q\twith tab", back: "A" }, { kind: "recall", format: "cloze", front: "{{c1::X}} is Y", back: "" }],
 		};
 		const lines = renderAnkiTsv([record], new Map([["n_1", "Opportunity cost"]])).trimEnd().split("\n");
 		assert.deepEqual(lines.slice(0, 5), ["#separator:tab", "#html:true", "#notetype column:1", "#deck column:2", "#tags column:5"]);
 		const cells = lines[5]!.split("\t");
 		assert.equal(cells.length, 5);
-		assert.deepEqual(cells.slice(0, 3), ["Basic", "LearnHarness::Econ", "Q with tab"]);
-		assert.equal(cells[4], "learnharness lh::n_1 lh-card::recall lh-format::basic");
+		assert.deepEqual(cells.slice(0, 3), ["Basic", "Twig::Econ", "Q with tab"]);
+		assert.equal(cells[4], "twig lh::n_1 lh-card::recall lh-format::basic");
 		const clozeCells = lines[6]!.split("\t");
 		assert.equal(clozeCells[0], "Cloze");
 		assert.equal(clozeCells[2], "{{c1::X}} is Y");
@@ -169,7 +169,7 @@ describe("store/anki", () => {
 		const file = path.join(tmp, "roundtrip.json");
 		const store = createAnkiStore(file);
 		assert.equal(store.readRecords().size, 0);
-		store.upsertRecords([{ nodeId: "n_1", sourceId: "chat_a", deck: "LearnHarness::X", createdAt: "t", cards: [{ kind: "why", format: "basic", front: "Q", back: "A" }] }]);
+		store.upsertRecords([{ nodeId: "n_1", sourceId: "chat_a", deck: "Twig::X", createdAt: "t", cards: [{ kind: "why", format: "basic", front: "Q", back: "A" }] }]);
 		const raw = JSON.parse(fs.readFileSync(file, "utf8"));
 		raw.n_bad = { nodeId: "n_bad", cards: "nope" };
 		fs.writeFileSync(file, JSON.stringify(raw));
@@ -221,7 +221,7 @@ describe("anki sync", () => {
 		const first = await sync.sync();
 		assert.deepEqual(first, { carded: 3, added: 6, alreadyInAnki: 0, waiting: 0, ankiReachable: true });
 		assert.equal(calls.length, 1);
-		assert.deepEqual([...state.decks], ["LearnHarness::Microeconomics"]);
+		assert.deepEqual([...state.decks], ["Twig::Microeconomics"]);
 		assert.ok([...store.readRecords().values()].every((r) => r.deliveredAt && r.noteIds?.length === 2));
 
 		const second = await sync.sync();
@@ -252,7 +252,7 @@ describe("anki sync", () => {
 
 	it("marks a node already in Anki as delivered without adding", async () => {
 		const { anki, state } = fakeAnki();
-		state.notes.push({ id: 1, deck: "LearnHarness::Econ", tags: ["learnharness", "lh::n_1"] });
+		state.notes.push({ id: 1, deck: "Twig::Econ", tags: ["twig", "lh::n_1"] });
 		const sync = createAnkiSync({ graphStore: graphStore(), ankiStore: freshStore(), sourceTitle: () => "Econ", cardWriter: scriptedWriter([]), anki });
 		const result = await sync.sync({ nodeIds: ["n_1", "n_2"] });
 		assert.equal(result.carded, 2);
@@ -267,7 +267,7 @@ describe("anki sync", () => {
 		const result = await sync.sync({ sourceIds: ["chat_b"] });
 		assert.equal(result.carded, 1);
 		assert.deepEqual(calls, [["n_4"]]);
-		assert.match(sync.importFile(), /LearnHarness::chat_b/);
+		assert.match(sync.importFile(), /Twig::chat_b/);
 	});
 
 	it("refuses honestly with no card-writer model", async () => {
@@ -279,7 +279,7 @@ describe("anki sync", () => {
 		const { anki, state } = fakeAnki();
 		const sync = createAnkiSync({ graphStore: graphStore(), ankiStore: freshStore(), sourceTitle: () => "Econ", cardWriter: scriptedWriter([]), anki });
 		await sync.sync({ nodeIds: ["n_1"] });
-		assert.deepEqual([...state.models].sort(), ["LearnHarness Basic", "LearnHarness Cloze", "LearnHarness Reversed", "LearnHarness Type-in"]);
+		assert.deepEqual([...state.models].sort(), ["Twig Basic", "Twig Cloze", "Twig Reversed", "Twig Type-in"]);
 		assert.equal(state.restyled, 0);
 		await sync.sync({ nodeIds: ["n_2"] });
 		assert.ok(state.restyled > 0);

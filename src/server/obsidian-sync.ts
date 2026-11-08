@@ -4,11 +4,11 @@
  *
  * WHERE: LH_OBSIDIAN_VAULT when set; otherwise, when Obsidian's iCloud
  * folder exists (macOS, Obsidian set to store vaults in iCloud), a
- * "LearnHarness" vault inside it, so it reaches the phone with no setup;
- * otherwise ~/Documents/LearnHarness Vault.
+ * "Twig" vault inside it, so it reaches the phone with no setup;
+ * otherwise ~/Documents/Twig Vault.
  *
  * SAFE TO SHARE THE FOLDER: only files this writer wrote are ever
- * changed or deleted. Their list lives in .learnharness/manifest.json; a
+ * changed or deleted. Their list lives in .twig/manifest.json; a
  * file that leaves the render (a merged-away idea) is deleted only if the
  * manifest says it is ours. A file is rewritten only when its content
  * changed, so sync services see real edits only.
@@ -26,8 +26,8 @@ const MANIFEST = path.join(".learnharness", "manifest.json");
 export function defaultVaultDir(override: string | undefined = process.env.LH_OBSIDIAN_VAULT, home = os.homedir(), exists = fs.existsSync): string {
 	if (override) return path.resolve(override);
 	const icloud = path.join(home, "Library", "Mobile Documents", "iCloud~md~obsidian", "Documents");
-	if (exists(icloud)) return path.join(icloud, "LearnHarness");
-	return path.join(home, "Documents", "LearnHarness Vault");
+	if (exists(icloud)) return path.join(icloud, "Twig");
+	return path.join(home, "Documents", "Twig Vault");
 }
 
 export interface VaultWriteResult {

@@ -131,7 +131,7 @@ export function renderVault(input: VaultInput): Map<string, string> {
 		files.set(`${VAULT_TOPICS_DIR}/${topicName.get(sourceId)}.md`, lines.join("\n"));
 	}
 
-	const home = ["# LearnHarness", "", "Written from your knowledge graph. Edits here are overwritten; add your own notes in new files.", "", "## Topics"];
+	const home = ["# Twig", "", "Written from your knowledge graph. Edits here are overwritten; add your own notes in new files.", "", "## Topics"];
 	for (const sourceId of [...topicIds].sort((a, b) => (topicName.get(a) ?? "").localeCompare(topicName.get(b) ?? ""))) {
 		const count = nodes.filter((n) => topicsOf(n).includes(sourceId)).length;
 		home.push(`- ${topic(sourceId)} (${count} ${count === 1 ? "idea" : "ideas"})`);

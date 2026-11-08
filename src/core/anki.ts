@@ -10,7 +10,7 @@
  * AnkiConnect client searches before adding). A rebuild deletes a node's
  * notes and record, then cards it afresh.
  *
- * Cards come in four FORMATS, each its own LearnHarness note type in Anki
+ * Cards come in four FORMATS, each its own Twig note type in Anki
  * (created on first delivery, restyled on every sync so CSS changes land):
  * basic, cloze, type-in, and reversed. This module owns the note-type
  * definitions, the AnkiConnect `addNotes` payloads, and the File > Import
@@ -21,8 +21,8 @@
 
 import type { GraphNode } from "./contracts.ts";
 
-/** Every LearnHarness deck lives under this root (`LearnHarness::<source>`). */
-export const ANKI_DECK_ROOT = "LearnHarness";
+/** Every Twig deck lives under this root (`Twig::<source>`). */
+export const ANKI_DECK_ROOT = "Twig";
 
 /** AnkiConnect's documented default listen address. */
 export const DEFAULT_ANKICONNECT_URL = "http://127.0.0.1:8765";
@@ -76,7 +76,7 @@ export function birthSource(node: Pick<GraphNode, "provenance">): string | undef
 	return node.provenance[0]?.chatId;
 }
 
-/** `LearnHarness::<title>`. Anki splits deck names on "::", so a title
+/** `Twig::<title>`. Anki splits deck names on "::", so a title
  *  containing it would nest; it is flattened to a single colon. */
 export function deckName(sourceTitle: string | undefined): string {
 	const title = (sourceTitle ?? "").replaceAll("::", ":").replace(/\s+/g, " ").trim();
@@ -94,7 +94,7 @@ export function nodeTag(nodeId: string): string {
 }
 
 export function cardTags(record: Pick<AnkiNoteRecord, "nodeId">, card: Pick<AnkiCard, "kind" | "format">): string[] {
-	return ["learnharness", nodeTag(record.nodeId), `lh-card::${card.kind}`, `lh-format::${cardFormat(card)}`];
+	return ["twig", nodeTag(record.nodeId), `lh-card::${card.kind}`, `lh-format::${cardFormat(card)}`];
 }
 
 /** Plain card text → an Anki HTML field: escape markup, keep line breaks,
@@ -126,13 +126,13 @@ const KIND_LABEL: Record<AnkiCardKind, string> = {
 	discriminate: "Tell apart",
 };
 
-// ─── the LearnHarness note types ────────────────────────────────────────────
+// ─── the Twig note types ────────────────────────────────────────────
 
 export const ANKI_MODEL_NAMES: Record<AnkiCardFormat, string> = {
-	basic: "LearnHarness Basic",
-	cloze: "LearnHarness Cloze",
-	type: "LearnHarness Type-in",
-	reverse: "LearnHarness Reversed",
+	basic: "Twig Basic",
+	cloze: "Twig Cloze",
+	type: "Twig Type-in",
+	reverse: "Twig Reversed",
 };
 
 /** Shared card styling: a calm reading card that respects Anki's night mode. */
@@ -227,7 +227,7 @@ function contextField(record: Pick<AnkiNoteRecord, "deck">, card: AnkiCard): str
 }
 
 /** One record → its AnkiConnect `addNotes` entries, each in its format's
- *  LearnHarness note type. The proposition's name rides on the answer side
+ *  Twig note type. The proposition's name rides on the answer side
  *  only (on the question it would name the target). */
 export function toAnkiConnectNotes(record: AnkiNoteRecord, nodeName: string): AnkiConnectNote[] {
 	return record.cards.map((card) => {

@@ -1,6 +1,6 @@
 # Tidy graph
 
-Lessons and notes add ideas to one shared knowledge graph. When an idea comes in, LearnHarness checks whether the graph already holds the same idea and joins them if so. That check happens once, at that moment, so the graph can drift: two topics touch the same subject without a link, one idea gets stated twice in different words, or one idea bundles separate facts that other topics could have linked to.
+Lessons and notes add ideas to one shared knowledge graph. When an idea comes in, Twig checks whether the graph already holds the same idea and joins them if so. That check happens once, at that moment, so the graph can drift: two topics touch the same subject without a link, one idea gets stated twice in different words, or one idea bundles separate facts that other topics could have linked to.
 
 **Tidy graph** reads the whole graph in one pass and suggests fixes. Nothing changes until you approve it.
 
