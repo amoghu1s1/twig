@@ -62,6 +62,9 @@ import { Hint } from "@/components/ui/hint";
 import type React from "react";
 import {
 	COMPACTION_THRESHOLD_FLOOR,
+	MISTAKE_ANALYSIS_DAILY_CAP_DEFAULT,
+	MISTAKE_ANALYSIS_DAILY_CAP_MAX,
+	MISTAKE_ANALYSIS_DAILY_CAP_MIN,
 	MODEL_SLOTS,
 	modelLabel,
 	SEARCH_ENGINES,
@@ -159,6 +162,19 @@ export function composeGraphTools(agent: AgentSettings | undefined, on: boolean)
  *  2026-11-08). Pure — exported for tests. */
 export function composeReaderFallback(agent: AgentSettings | undefined, on: boolean): AgentSettings {
 	return { ...agent, webReaderFallback: on };
+}
+
+/** Compose the mistake analyst's automatic after-turn switch (mistakes
+ *  fork): off = no recording and no cheap-model calls after a turn; the
+ *  Mistakes tab's explicit scan still works. Pure — exported for tests. */
+export function composeMistakeAuto(agent: AgentSettings | undefined, on: boolean): AgentSettings {
+	return { ...agent, mistakeAnalysis: { ...agent?.mistakeAnalysis, auto: on } };
+}
+
+/** Compose the rolling-24-hour analysis cap. Empty = factory default
+ *  (absence is the unset for numbers). Pure — exported for tests. */
+export function composeMistakeDailyCap(agent: AgentSettings | undefined, cap: number | undefined): AgentSettings {
+	return { ...agent, mistakeAnalysis: { ...agent?.mistakeAnalysis, dailyCap: cap } };
 }
 
 /** Compose: one slot's model/thinking override. Empty model = absent
@@ -953,6 +969,47 @@ export function AgentSection({
 						checked={agent?.webReaderFallback === true}
 						label="reader service fallback"
 						onChange={(on) => onSectionChange(composeReaderFallback(agent, on))}
+					/>
+				</SettingsRow>
+				{/* The mistake analyst (mistakes fork): the after-turn cheap-model
+				    call is bounded twice — an explicit opt-out and a rolling
+				    24-hour cap. Recording itself is free; only analyses cost. */}
+				<SettingsRow
+					label="Mistake analysis"
+					hint="After each turn, the cheap model writes a short explanation for every miss"
+					testid="mistake-analysis-row"
+				>
+					<Toggle
+						checked={agent?.mistakeAnalysis?.auto ?? true}
+						label="automatic mistake analysis"
+						onChange={(on) => onSectionChange(composeMistakeAuto(agent, on))}
+					/>
+				</SettingsRow>
+				<SettingsRow
+					label="Daily analysis limit"
+					hint={`${MISTAKE_ANALYSIS_DAILY_CAP_MIN}–${MISTAKE_ANALYSIS_DAILY_CAP_MAX} cheap-model calls per 24 hours`}
+					testid="mistake-analysis-cap-row"
+				>
+					<CommitInput
+						type="number"
+						value={String(agent?.mistakeAnalysis?.dailyCap ?? "")}
+						placeholder={String(MISTAKE_ANALYSIS_DAILY_CAP_DEFAULT)}
+						ariaLabel="daily mistake analysis limit"
+						testid="input-mistake-analysis-cap"
+						onCommit={(v) => {
+							if (v === "") {
+								onSectionChange(composeMistakeDailyCap(agent, undefined));
+								return;
+							}
+							const n = Number(v);
+							if (!Number.isFinite(n)) return;
+							onSectionChange(
+								composeMistakeDailyCap(
+									agent,
+									Math.min(MISTAKE_ANALYSIS_DAILY_CAP_MAX, Math.max(MISTAKE_ANALYSIS_DAILY_CAP_MIN, Math.round(n))),
+								),
+							);
+						}}
 					/>
 				</SettingsRow>
 			</SettingsGroup>

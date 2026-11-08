@@ -119,6 +119,9 @@ export * from "./session-markdown.ts";
 // Readings (docs/readings.md): the pure companion-document core and the
 // Discuss logic — request grammar, snapshots, citations, folds, export.
 export * from "./readings.ts";
+// The learner's mistakes (mistakes fork): finding misses, the error-analysis
+// contract, and the review tab's pure grouping/filter helpers.
+export * from "./mistakes.ts";
 export * from "./reading-discussions.ts";
 // tts.ts + sentence-reader.ts (sentence-reader wave, 2026-10-21): the
 // read-aloud request contract and the reveal-step splitter — pure,

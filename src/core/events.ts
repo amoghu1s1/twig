@@ -64,6 +64,8 @@ export interface ServerEvents {
 	 *  deleted. Notify-then-fetch: open views refetch GET
 	 *  /api/chats/:id/side-chats. Never touches the teaching record. */
 	"side-chats-changed": { chatId: string };
+	/** The learner's mistakes changed (found, analyzed, deleted). */
+	"mistakes-changed": Record<string, never>;
 }
 
 export type ServerEventType = keyof ServerEvents;
@@ -84,6 +86,7 @@ export const SERVER_EVENT_TYPES = [
 	"readings-changed",
 	"discussion-changed",
 	"side-chats-changed",
+	"mistakes-changed",
 ] as const satisfies readonly ServerEventType[];
 
 /** One notification: the type discriminates the payload. */

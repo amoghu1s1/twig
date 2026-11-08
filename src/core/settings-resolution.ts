@@ -30,6 +30,7 @@ import {
 	BACKGROUND_MODEL_ROLES,
 	FACTORY_SETTINGS,
 	MODEL_SLOTS,
+	MISTAKE_ANALYSIS_DAILY_CAP_DEFAULT,
 	ROLE_SLOT,
 	type AgentSettings,
 	type BackgroundModelRole,
@@ -40,6 +41,7 @@ import {
 	type CustomModel,
 	type CustomModelOverride,
 	type GraphSettings,
+	type MistakeAnalysisSettings,
 	type ModelSlot,
 	type ModelSlotName,
 	type RoleModelOverride,
@@ -89,6 +91,9 @@ export interface EffectiveSettings {
 		graphTools: { enabled?: boolean };
 		/** The opt-in third-party reader fallback (absent = off). */
 		webReaderFallback: boolean;
+		/** The mistake analyst (mistakes fork): resolved concrete — absent
+		 *  auto = ON, absent cap = the factory 20. */
+		mistakeAnalysis: Required<MistakeAnalysisSettings>;
 	};
 	/** The resolved strong/cheap/vision slots: each tier's concrete model or
 	 *  NULL when the tier holds no model (no factory floor — BYOK all the
@@ -199,6 +204,10 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			search: agent.search ?? {},
 			graphTools: agent.graphTools ?? {},
 			webReaderFallback: agent.webReaderFallback === true,
+			mistakeAnalysis: {
+				auto: agent.mistakeAnalysis?.auto ?? true,
+				dailyCap: agent.mistakeAnalysis?.dailyCap ?? MISTAKE_ANALYSIS_DAILY_CAP_DEFAULT,
+			},
 		},
 		models: {
 			strong: resolveSlot(modelsSection.strong),

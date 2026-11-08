@@ -70,9 +70,9 @@ export interface RoleModelOverride {
 
 /** The capability tiers a user can pin models into (owner-settled mapping):
  *  strong = prober + teacher (also the per-session default-teacher
- *  starting point); cheap = researcher, demo-builder, extractor, auditor,
-; vision = visual-maker + pdf-reader. Resolution per role:
- *  ROLE OVERRIDE → slot → factory pin. */
+ *  starting point); cheap = researcher, analyst, demo-builder, extractor,
+ *  auditor, card-writer; vision = visual-maker + pdf-reader. Resolution per
+ *  role: ROLE OVERRIDE → slot → factory pin. */
 export const MODEL_SLOTS = ["strong", "cheap", "vision"] as const;
 export type ModelSlotName = (typeof MODEL_SLOTS)[number];
 
@@ -325,6 +325,7 @@ export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
 	prober: "strong",
 	teacher: "strong",
 	researcher: "cheap",
+	analyst: "cheap",
 	demoBuilder: "cheap",
 	extractor: "cheap",
 	auditor: "cheap",
@@ -385,7 +386,26 @@ export interface AgentSettings {
 	 *  third-party reader r.jina.ai, which receives the page URL (security
 	 *  hardening, 2026-11-08: opt-in). Absent = off. */
 	webReaderFallback?: boolean;
+	/** The mistake analyst (mistakes fork, 2026-11-08): after a settled turn
+	 *  the cheap-slot model writes one short analysis per new miss. `auto`
+	 *  absent = ON; false records nothing automatically and makes no model
+	 *  calls (the Mistakes tab's explicit scan still records and analyzes).
+	 *  `dailyCap` bounds analysis ATTEMPTS in a rolling 24 hours (absent =
+	 *  MISTAKE_ANALYSIS_DAILY_CAP_DEFAULT) so the after-turn hook can never
+	 *  spend unboundedly. */
+	mistakeAnalysis?: MistakeAnalysisSettings;
 }
+
+export interface MistakeAnalysisSettings {
+	auto?: boolean;
+	dailyCap?: number;
+}
+
+/** The analyst's rolling-24-hour attempt budget (owner-facing cost cap). */
+export const MISTAKE_ANALYSIS_DAILY_CAP_DEFAULT = 20;
+/** The sanitizer/write-side floor and ceiling for the cap. */
+export const MISTAKE_ANALYSIS_DAILY_CAP_MIN = 1;
+export const MISTAKE_ANALYSIS_DAILY_CAP_MAX = 100;
 
 /** Markdown-rendering knobs — the bare-bones set (owner decision). */
 export interface MdRenderingSettings {
@@ -773,6 +793,18 @@ function sanitizeAgent(raw: Record<string, unknown>): AgentSettings {
 	}
 	const webReaderFallback = boolOrDrop(raw.webReaderFallback);
 	if (webReaderFallback !== undefined) out.webReaderFallback = webReaderFallback;
+	// Mistake analyst (mistakes fork): lenient read side; the write side's
+	// parser is strict. Absent = auto ON with the default cap.
+	if (raw.mistakeAnalysis !== null && typeof raw.mistakeAnalysis === "object" && !Array.isArray(raw.mistakeAnalysis)) {
+		const r = raw.mistakeAnalysis as Record<string, unknown>;
+		const cleaned: MistakeAnalysisSettings = {};
+		const auto = boolOrDrop(r.auto);
+		if (auto !== undefined) cleaned.auto = auto;
+		if (typeof r.dailyCap === "number" && Number.isFinite(r.dailyCap)) {
+			cleaned.dailyCap = clamp(Math.round(r.dailyCap), MISTAKE_ANALYSIS_DAILY_CAP_MIN, MISTAKE_ANALYSIS_DAILY_CAP_MAX);
+		}
+		if (Object.keys(cleaned).length) out.mistakeAnalysis = cleaned;
+	}
 	return out;
 }
 
