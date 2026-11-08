@@ -13,19 +13,12 @@ appId: com.amoghu1s1.twig
 productName: Twig
 directories:
   output: dist
-# Icons (owner ruling, 2026-10-13) — per-platform sources in build/:
-#   mac   build/icon.icon  — the Icon Composer document (layered Liquid
-#         Glass); actool (Xcode 26+) compiles Assets.car (CFBundleIconName,
-#         macOS 26+ renders the true layered icon) + an actool fallback icns
-#         capped at 256px, which scripts/after-pack.cjs swaps for the
-#         hand-packed full-res build/icon.icns (pre-Tahoe keeps 16→1024).
-#         Requires actool ≥ 26: desktop:dist injects DEVELOPER_DIR locally;
-#         the release workflow's mac job runs setup-xcode.
-#   win   build/icon.ico  — generated (16→256) from the flat design by
-#         scripts/make-icons.mjs.
-#   linux build/icon.png  — 512×512, same script. Rounded squircle with
-#         baked transparency on both (owner ruling) — Windows/Linux don't
-#         mask, the shape ships in the artwork.
+# Icons (Twig) — per-platform sources in build/:
+#   mac   build/icon.icns — generated from the Twig mark with all Retina sizes.
+#   win   build/icon.ico  — generated from the Twig mark (16→256).
+#   linux build/icon.png  — generated from the Twig mark (512×512).
+# The Icon Composer document remains in build/icon.icon for future Liquid
+# Glass polish; release builds use the generated icns directly.
 files:
   # Only the shell goes into the asar. ORDER IS LOAD-BEARING (payload
   # wave, 2026-09-24): electron-builder's dependency collector packs the
@@ -105,7 +98,7 @@ mac:
   extraResources:
     - from: electron/server-title-guard.cjs
       to: server-title-guard.cjs
-  icon: build/icon.icon
+  icon: build/icon.icns
   # zip rides next to dmg (flipped 2026-10-08): Squirrel.Mac — Electron's
   # macOS auto-updater — installs from ZIP and cannot read DMGs. DMG is
   # for humans; ZIP + blockmap are the updater's payload.
