@@ -34,7 +34,11 @@ Twig keeps LearnHarness's teaching model and adds the parts that matter for dail
 - **Readings** — generated primer/overview/deep-dive/recap/node readings with a frozen lesson snapshot and a citation law: only sources actually fetched in that run may be cited; Discuss lets you talk through a passage. See [readings.md](docs/readings.md).
 - **Themes** — eleven presets plus **Dark / Light / System** mode, server first paint, Electron chrome sync, and WCAG-checked muted/status colors. See [themes.md](docs/themes.md).
 - **Graph exports** — send the knowledge graph to **Anki** with stable ids and reviewable note types, or export it to an **Obsidian** vault as linked Markdown; a tidy-graph review proposes merges, splits and connections. See [anki.md](docs/anki.md), [obsidian.md](docs/obsidian.md), [tidy-graph.md](docs/tidy-graph.md).
+- **Side questions and notes** — ask about a passage without derailing the lesson; each thread stays attached to the block it came from. Per-lesson notes live beside the transcript, support quote-to-notes, and survive reloads.
+- **Quote into the composer** — select tutor prose and quote it directly into your reply, so follow-ups keep the exact wording.
+- **Edit the last message** — rewrite a sent prompt or a parked steer with a durable rewind of the transcript, plan, graph traces, jobs and queued steers.
 - **Upstream 0.5.0** — the fork carries upstream's attachments/paperclip, learner-image snapshots, folder imports, PDF import, Exa/Firecrawl/Ollama search, file-access restrictions, atomic store writes, Claude CLI guards, and projection/recovery fixes.
+- **Defensive tooling** — SSRF-safe web fetch redirects, bounded regex/pre-read limits, and a sandboxed demo/SVG surface.
 - **Twig identity** — the transparent Twig mark, app title, package/desktop identity, app icon and release metadata are Twig-branded; attribution to LearnHarness remains.
 
 ## How it works
