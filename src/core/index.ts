@@ -105,3 +105,8 @@ export * from "./session-markdown.ts";
 // Discuss logic — request grammar, snapshots, citations, folds, export.
 export * from "./readings.ts";
 export * from "./reading-discussions.ts";
+// tts.ts + sentence-reader.ts (sentence-reader wave, 2026-10-21): the
+// read-aloud request contract and the reveal-step splitter — pure,
+// browser-safe (the overlay renders steps; the server module owns the call).
+export * from "./tts.ts";
+export * from "./sentence-reader.ts";

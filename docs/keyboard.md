@@ -19,6 +19,9 @@ in-app cheat sheet. See [Getting started](getting-started.md) for setup.
 | Rename current session | F2 |
 | Toggle all your thinking in the session | Mod+T |
 | Find in session / search graph or chains view | Mod+F |
+| Read latest passage by sentence | Mod+R |
+| Jump to session start | g g |
+| Jump to session end | G |
 | Shortcut cheat sheet | ? |
 
 Surface-specific actions require their surface to be mounted. Bare shortcuts
@@ -27,8 +30,32 @@ such as **?** and **F2** do not fire while typing; modifier shortcuts still do.
 **Settings → Keyboard** displays the registry and offers Rebind, per-action
 Reset, and Reset all controls. Overrides are stored on this device in
 localStorage (`lh:keymap`), not in the learning-data settings file. Contextual
-question keys are shown as **Fixed — part of this screen**, not rebindable.
-Tab and Esc also have dedicated handling outside ordinary registry dispatch.
+question keys are shown as **Fixed — part of this screen**, not rebindable,
+and so are the vim-style session edges **gg** / **G** (shown as
+**Fixed — vim-style key**). Tab and Esc also have dedicated handling outside
+ordinary registry dispatch.
+
+## Read by sentence
+
+The **Read by sentence** button beside a teacher passage (or **Mod+R**: the
+newest finished passage) opens a full-screen reader that reveals the prose
+one sentence at a time — math, code, tables, and headings stay whole — with
+blur/hide/dim masking and adjustable text size. Inside the reader:
+
+- **Space / J / →** reveal the next sentence; **K / ←** go back; **Shift+J / Shift+K**
+  jump whole paragraphs; **Shift+G** reveals everything; **Shift+R** restarts;
+  **Esc** closes.
+- **S** speaks the current sentence aloud. Read-aloud uses the browser's
+  built-in voice by default; turning **Cloud voice** on routes speech through
+  the app's server to ElevenLabs (add an `ELEVENLABS_API_KEY` in Settings →
+  Keys), and falls back to the browser voice if that call fails. **Shift+S**
+  auto-reads each sentence as it is revealed.
+
+**gg** and **G** work anywhere in a session outside a text field: they jump
+to the start / end of the transcript, releasing and re-engaging
+sticky-bottom follow respectively. A bare "g" waits up to one second for its
+second "g". When Esc has nothing left to dismiss, it leaves the focused
+field instead, so bare-key bindings are reachable from the keyboard alone.
 
 ## Keyboard layouts
 
@@ -58,8 +85,10 @@ handling; this is not a guarantee for every OS/IME or layout-specific key.
   so one Esc does not also act on lower layers. With no layer claiming it, the
   fallback closes the cheat sheet or cancels dictation (discarding its pending
   transcript) before reaching the chat's confirmation to dismiss a pending
-  question/problem or abort a running turn. Confirmed turn abort signals the
-  server, including for background turns; it also detaches any local stream.
+  question/problem or abort a running turn; when even that has nothing to do,
+  Esc blurs the focused field (unless an IME composition owns it). Confirmed
+  turn abort signals the server, including for background turns; it also
+  detaches any local stream.
 
 To keep dictated text, stop dictation with **Mod+D** / Stop rather than the
 fallback Esc cancellation.

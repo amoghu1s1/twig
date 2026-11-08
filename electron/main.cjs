@@ -619,7 +619,9 @@ function installMenu() {
 		{
 			label: "View",
 			submenu: [
-				{ role: "reload" },
+				// Reload moved off ⌘R: the renderer owns it for "read by sentence"
+				// (a menu-claimed key never reaches the page).
+				{ role: "reload", accelerator: "CommandOrControl+Shift+R" },
 				{ role: "toggleDevTools" },
 				{ type: "separator" },
 				// OWNED zoom (see applyZoom): the roles change zoomLevel

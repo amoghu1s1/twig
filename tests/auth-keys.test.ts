@@ -15,7 +15,7 @@ describe("the catalog", () => {
 	it("lists the curated app-service keys (provider keys live in the provider table)", () => {
 		assert.deepEqual(
 			AUTH_KEYS.map((k) => k.id),
-			["DEEPGRAM_API_KEY", "TAVILY_API_KEY", "BRAVE_API_KEY", "EXA_API_KEY", "FIRECRAWL_API_KEY", "OLLAMA_API_KEY"],
+			["DEEPGRAM_API_KEY", "ELEVENLABS_API_KEY", "TAVILY_API_KEY", "BRAVE_API_KEY", "EXA_API_KEY", "FIRECRAWL_API_KEY", "OLLAMA_API_KEY"],
 		);
 		for (const k of AUTH_KEYS) {
 			assert.ok(k.label.length > 0, `${k.id} has a label`);
@@ -70,6 +70,12 @@ describe("validateKeyShape (the 400 gate — curated keys)", () => {
 		assert.ok(validateKeyShape("DEEPGRAM_API_KEY", "a".repeat(40)).ok);
 		assert.ok(!validateKeyShape("DEEPGRAM_API_KEY", "a".repeat(19)).ok, "truncated paste");
 		assert.ok(!validateKeyShape("DEEPGRAM_API_KEY", "a b c d e f g h i j k l m n o p q r s").ok, "whitespace");
+	});
+
+	it("ElevenLabs: no public format — a ≥20-char truncation guard, no whitespace", () => {
+		assert.ok(validateKeyShape("ELEVENLABS_API_KEY", "e".repeat(40)).ok);
+		assert.ok(!validateKeyShape("ELEVENLABS_API_KEY", "e".repeat(19)).ok, "truncated paste");
+		assert.ok(!validateKeyShape("ELEVENLABS_API_KEY", "e l a b o r a t e p a s t e").ok, "whitespace");
 	});
 
 	it("Exa: accepts whitespace-free keys without assuming a prefix", () => {
