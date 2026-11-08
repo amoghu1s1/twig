@@ -184,11 +184,19 @@ it("the fullscreen button opens the same SVG image and inversion; download keeps
 			}
 			return element;
 		}) as typeof originalCreateElement;
+		// The download menu (security review, 2026-11-08): PNG first, the raw
+		// SVG second and labeled untrusted. The source item exports the
+		// original bytes unchanged, as inert text/plain.
 		await act(async () => { host.querySelector('[data-testid="visual-download"]')!.dispatchEvent(new dom.window.Event("click", { bubbles: true })); });
+		const items = [...host.querySelectorAll('[data-testid="visual-download-menu"] [role="menuitem"]')].map((el) => el.textContent);
+		assert.equal(items.length, 2);
+		assert.match(items[0]!, /Image \(\.png\)/);
+		assert.match(items[1]!, /untrusted code/);
+		await act(async () => { host.querySelector('[data-testid="visual-download-source"]')!.dispatchEvent(new dom.window.Event("click", { bubbles: true })); });
 		assert.ok(downloaded);
 		assert.equal(await downloaded.text(), originalSvg);
-		assert.equal(downloaded.type, "image/svg+xml");
-		assert.deepEqual(clicked, { name: "figure.svg", href: "blob:figure-test" });
+		assert.equal(downloaded.type, "text/plain");
+		assert.deepEqual(clicked, { name: "figure.source.svg", href: "blob:figure-test" });
 		assert.equal(revoked, "blob:figure-test");
 	} finally {
 		try {

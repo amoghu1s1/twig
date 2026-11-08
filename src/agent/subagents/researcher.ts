@@ -86,6 +86,9 @@ export interface ResearcherRunOptions {
 	 *  reports that in its output — no crash, no silent fallback). Absent
 	 *  seam reads as unavailable; web_fetch remains usable without it. */
 	search?: () => SearchProvider | null;
+	/** The opt-in third-party reader fallback for JS-rendered pages
+	 *  (r.jina.ai), read per call. Absent = off. */
+	readerFallback?: () => boolean;
 	/** The researcher's PDF dir (PDF wave, 2026-10-07): when present, the
 	 *  toolset gains web_fetch_pdf + pdf_info/pdf_extract/pdf_search scoped
 	 *  to this per-job temp dir — PDFs from the web, read page-level. The
@@ -105,7 +108,7 @@ export interface ResearcherRunOptions {
  */
 export async function runResearcherAgent(prompt: string, opts: ResearcherRunOptions = {}): Promise<string> {
 	if (opts.abortSignal?.aborted) throw new DOMException("aborted", "AbortError");
-	const tools = Object.values(createWebTools(opts.search ?? (() => null)));
+	const tools = Object.values(createWebTools(opts.search ?? (() => null), opts.readerFallback));
 	if (opts.pdfDir) tools.push(...Object.values(createPdfReadTools(opts.pdfDir)));
 	const shared = {
 		role: "researcher" as const,

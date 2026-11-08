@@ -5,8 +5,8 @@
  *      bound, EXIF baked upright, format conversion, readable failures
  *   2. show_image: one text line to the teacher, the picture as details
  *   3. visual with an image: dispatch-time path check, the maker's
- *      placeholder protocol (fake model + fake headless), one REAL resvg
- *      render of an embedded raster, and the job runner end to end
+ *      placeholder protocol (fake model + fake headless), and the job
+ *      runner end to end
  *   4. the cards: no invert switch on images, the ImageCard chrome
  *
  * Cleanup follows tests/demos.test.tsx (created chat/job files removed in
@@ -40,7 +40,7 @@ import { embedLearnerImage } from "../src/core/learner-image-svg.ts";
 import type { ImageSnapshot } from "../src/core/contracts.ts";
 import { jobTools } from "../src/agent/tools/jobs.ts";
 import { LEARNER_IMAGE_HREF, runVisualMaker } from "../src/agent/subagents/visual-maker.ts";
-import { headlessOverride, realHeadless, type HeadlessApi } from "../src/agent/subagents/headless.ts";
+import { headlessOverride, type HeadlessApi } from "../src/agent/subagents/headless.ts";
 import { createJobRunner, visualModelOverride } from "../src/agent/subagents/runner.ts";
 import { isSubagentFailure, type JobRecord, type SteerMessage, type VisualResult } from "../src/core/contracts.ts";
 import type { JobStore } from "../src/core/ports.ts";
@@ -359,21 +359,6 @@ describe("visual maker with a learner image (fake model + fake headless)", () =>
 		const result = await runVisualMaker({ brief: "b" }, { engine, headless: fakeHeadless() });
 		assert.equal(result.svg, UNPLACED_SVG);
 		assert.ok(!("image" in result));
-	});
-});
-
-describe("native render of an embedded learner image (real resvg)", () => {
-	it("native-only annotation rendering refuses malformed SVG without a browser fallback", async () => {
-		await assert.rejects(realHeadless.renderSvg("<svg><unclosed>", { nativeOnly: true }));
-	});
-	it("draws the picture under the marks", async () => {
-		const image = await loadLearnerImage(file("resvg.png", raster(40, 30)));
-		const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30"><image href="data:${image.mimeType};base64,${image.data}" x="0" y="0" width="40" height="30"/></svg>`;
-		const png = await realHeadless.renderSvg(svg, { nativeOnly: true });
-		const [lr, lg, lb] = pixel(png, 5, 15);
-		const [rr, rg, rb] = pixel(png, 35, 15);
-		assert.ok(lr > 200 && lg > 150 && lb < 80, `left half is the picture's yellow (got ${lr},${lg},${lb})`);
-		assert.ok(rr < 80 && rb > 150, `right half is the picture's blue (got ${rr},${rg},${rb})`);
 	});
 });
 

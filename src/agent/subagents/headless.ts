@@ -1,17 +1,28 @@
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
-import * as os from "node:os";
 import * as path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { standardFontsDir } from "./pdf-ops";
+import { fileURLToPath } from "node:url";
+import { DEMO_CSP, DEMO_SANDBOX_URL } from "../../core/demo-sandbox.ts";
+import { assertPdfSize, standardFontsDir } from "./pdf-ops";
 import { FIGURE_MAX_CHARS } from "../../core/question-core.ts";
 import { svgImageSource } from "../../core/svg-source.ts";
+import { sanitizeSvg } from "./svg-sanitize.ts";
 
 /**
- * Verification engines for sub-agents: demos use the app's own Electron
- * browser-service via puppeteer-core, with system Chrome as fallback.
- * SVGs use resvg (browser fallback); PDFs use pdfjs + Skia (no browser).
- * No extra Chromium is shipped or downloaded.
+ * Verification engines for sub-agents: demos AND generated SVGs use the
+ * app's own Electron browser-service via puppeteer-core (sandboxed page),
+ * with sandboxed system Chrome as fallback. PDFs use pdfjs + Skia (no
+ * browser). No extra Chromium is shipped or downloaded.
+ *
+ * GENERATED CONTENT IS SANDBOXED (security hardening, ported from the
+ * jacobderechin fork, 2026-11-08): pages load at the opaque
+ * DEMO_SANDBOX_URL (never file://) through request interception, served
+ * with the no-network DEMO_CSP; every other request is aborted and reported
+ * as a failed request. The helper process itself runs on a throwaway
+ * profile with permissions, popups and navigation denied (electron/main.cjs),
+ * and shuts down after HELPER_IDLE_MS so its local debugging port is open
+ * only while jobs run. The Chrome fallback keeps Chrome's OS sandbox ON —
+ * no --no-sandbox, ever.
  *
  * Chrome fallback resolution: CHROME_PATH first, then common macOS,
  * Windows and Linux install paths. `available()` is a cheap executable
@@ -43,8 +54,6 @@ export interface RunDemoOptions {
 }
 
 export interface RenderSvgOptions {
-	/** Annotation images use only the static native rasterizer, never executable browser markup. */
-	nativeOnly?: boolean;
 	/** Viewport size — defaults to the SVG's width/height attrs, else 900×700. */
 	width?: number;
 	height?: number;
@@ -162,7 +171,30 @@ export function browserServiceBinary(): string | null {
 }
 
 const BROWSER_SERVICE_TIMEOUT_MS = 15_000;
+/** Helper idle shutdown: no job for this long → kill it (the next job
+ *  respawns it), so the CDP port is not left listening between jobs. */
+export const HELPER_IDLE_MS = 2 * 60_000;
 let browserServiceProc: import("node:child_process").ChildProcess | null = null;
+let helperIdleTimer: ReturnType<typeof setTimeout> | null = null;
+let helperActiveJobs = 0;
+
+function helperJobStarted(): void {
+	helperActiveJobs++;
+	if (helperIdleTimer) clearTimeout(helperIdleTimer);
+	helperIdleTimer = null;
+}
+
+function helperJobFinished(): void {
+	helperActiveJobs = Math.max(0, helperActiveJobs - 1);
+	if (helperActiveJobs > 0) return;
+	helperIdleTimer = setTimeout(() => {
+		helperIdleTimer = null;
+		if (helperActiveJobs > 0) return;
+		browserServiceProc?.kill();
+		browserServiceProc = null;
+	}, HELPER_IDLE_MS);
+	helperIdleTimer.unref?.();
+}
 
 async function connectBrowserService(): Promise<import("puppeteer-core").Browser | null> {
 	const puppeteer = (await import("puppeteer-core")).default;
@@ -241,7 +273,14 @@ let helperPageChain: Promise<unknown> = Promise.resolve();
 async function withBrowserPage<T>(fn: (page: import("puppeteer-core").Page) => Promise<T>): Promise<T> {
 	// Helper first (owner ruling 2026-10-10: the app's own Chromium primary,
 	// system Chrome fallback) — deterministic across users, zero install.
-	const helper = await connectBrowserService();
+	helperJobStarted();
+	let helper: import("puppeteer-core").Browser | null;
+	try {
+		helper = await connectBrowserService();
+	} catch (err) {
+		helperJobFinished();
+		throw err;
+	}
 	if (helper) {
 		const run = async (): Promise<T> => {
 			const pages = await helper.pages();
@@ -250,16 +289,24 @@ async function withBrowserPage<T>(fn: (page: import("puppeteer-core").Page) => P
 			try {
 				return await fn(page);
 			} finally {
-				// Drop all page state (JS heap, listeners) between jobs.
+				// Drop all page state (JS heap, interception) between jobs,
+				// then this job's CDP connection — its page listeners die with
+				// it, so the next job's fresh connection sees a clean page.
+				await page.setRequestInterception(false).catch(() => {});
 				await page.goto("about:blank").catch(() => {});
+				await helper.disconnect().catch(() => {});
 			}
 		};
-		const next = helperPageChain.then(run, run);
+		const next = helperPageChain.then(run, run).finally(helperJobFinished);
 		helperPageChain = next.catch(() => {});
 		return next;
 	}
+	helperJobFinished();
 
-	// Chrome fallback: per-job launch, close on the way out (old semantics).
+	// Chrome fallback: per-job launch on puppeteer's throwaway profile, close
+	// on the way out. Chrome's OS sandbox stays ON (security hardening,
+	// 2026-11-08): where it cannot start sandboxed, the job fails honestly
+	// rather than running generated code unsandboxed.
 	const puppeteer = (await import("puppeteer-core")).default;
 	const executablePath = resolveChromeExecutablePath();
 	const browser = await puppeteer.launch({
@@ -267,7 +314,12 @@ async function withBrowserPage<T>(fn: (page: import("puppeteer-core").Page) => P
 		// Explicit path when we found one; otherwise let puppeteer resolve the
 		// system Chrome install itself via the "chrome" channel.
 		...(executablePath ? { executablePath } : { channel: "chrome" as const }),
-		args: ["--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"],
+		args: ["--disable-gpu", "--disable-dev-shm-usage"],
+	}).catch((err: unknown) => {
+		throw new Error(
+			`System Chrome could not start with its sandbox enabled (${err instanceof Error ? err.message : String(err)}). ` +
+				"Generated code is never run unsandboxed.",
+		);
 	});
 	try {
 		const page = await browser.newPage();
@@ -277,18 +329,52 @@ async function withBrowserPage<T>(fn: (page: import("puppeteer-core").Page) => P
 	}
 }
 
-/** A temp dir per invocation; removed in finally. */
-function tempDir(prefix: string): string {
-	return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+// ─── Demo execution ──────────────────────────────────────────────────────────
+
+/** Classify a request made by a generated document: the sandbox document
+ *  itself, an inline resource (data:/blob:), or a network/file request that
+ *  must be blocked. Pure — exported for tests. */
+export function sandboxRequestKind(url: string): "document" | "inline" | "block" {
+	if (url === DEMO_SANDBOX_URL) return "document";
+	if (url.startsWith("data:") || url.startsWith("blob:")) return "inline";
+	return "block";
 }
 
-// ─── Demo execution ──────────────────────────────────────────────────────────
+/**
+ * Load a generated document in the sandbox: intercept every request, serve
+ * `html` at DEMO_SANDBOX_URL with the no-network CSP, let data:/blob: pass,
+ * abort everything else (the page's requestfailed listeners record it).
+ * Popups are closed on sight (the helper also denies them natively).
+ */
+export async function loadSandboxed(
+	page: import("puppeteer-core").Page,
+	html: string,
+	opts: { timeout?: number; contentType?: string } = {},
+): Promise<void> {
+	await page.setRequestInterception(true);
+	page.on("request", (req) => {
+		if (req.isInterceptResolutionHandled()) return;
+		const url = req.url();
+		const kind = sandboxRequestKind(url);
+		if (kind === "document" && req.isNavigationRequest() && req.frame() === page.mainFrame()) {
+			void req.respond({
+				status: 200,
+				contentType: opts.contentType ?? "text/html; charset=utf-8",
+				headers: { "content-security-policy": DEMO_CSP },
+				body: html,
+			});
+		} else if (kind === "inline") {
+			void req.continue();
+		} else {
+			void req.abort("blockedbyclient");
+		}
+	});
+	page.on("popup", (popup) => void popup?.close().catch(() => {}));
+	await page.goto(DEMO_SANDBOX_URL, { waitUntil: "load", timeout: opts.timeout ?? 30_000 });
+}
 
 async function runDemo(html: string, opts: RunDemoOptions = {}): Promise<DemoRunResult> {
 	const settleMs = opts.settleMs ?? 2000;
-	const dir = tempDir("lh-demo-");
-	const file = path.join(dir, "demo.html");
-	fs.writeFileSync(file, html, "utf-8");
 
 	const consoleErrors: string[] = [];
 	const pageErrors: string[] = [];
@@ -296,8 +382,7 @@ async function runDemo(html: string, opts: RunDemoOptions = {}): Promise<DemoRun
 	let probeResult: unknown;
 	let probed = false;
 
-	try {
-		await withBrowserPage(async (page) => {
+	await withBrowserPage(async (page) => {
 		page.on("console", (msg) => {
 			if (msg.type() === "error") consoleErrors.push(msg.text());
 		});
@@ -305,7 +390,7 @@ async function runDemo(html: string, opts: RunDemoOptions = {}): Promise<DemoRun
 		page.on("requestfailed", (req) => failedRequests.push(`${req.url()} (${req.failure()?.errorText ?? "failed"})`));
 
 		try {
-			await page.goto(pathToFileURL(file).href, { waitUntil: "load", timeout: 30_000 });
+			await loadSandboxed(page, html);
 			await new Promise((resolve) => setTimeout(resolve, settleMs));
 			if (opts.probe) {
 				try {
@@ -318,14 +403,7 @@ async function runDemo(html: string, opts: RunDemoOptions = {}): Promise<DemoRun
 		} catch (err) {
 			pageErrors.push(err instanceof Error ? err.message : String(err));
 		}
-		});
-	} finally {
-		try {
-			fs.rmSync(dir, { recursive: true, force: true });
-		} catch {
-			/* best-effort cleanup */
-		}
-	}
+	});
 
 	return {
 		consoleErrors,
@@ -426,8 +504,12 @@ export async function figureProblems(figure?: string): Promise<string[]> {
 	}
 	try {
 		const { Resvg } = await import("@resvg/resvg-js");
+		// Sanitize BEFORE the native parser sees it: resvg resolves local
+		// image paths itself, so a generated file/URL reference must never
+		// reach it (security review, 2026-11-08).
+		const sealed = sanitizeSvg(figure);
 		// The bytes the learner's browser gets (SvgImage's display repairs).
-		new Resvg(svgImageSource(figure), { font: { loadSystemFonts: false } });
+		new Resvg(svgImageSource(sealed), { font: { loadSystemFonts: false } });
 		return [];
 	} catch (err) {
 		return [`figure is not valid SVG: ${err instanceof Error ? err.message : String(err)}`];
@@ -435,50 +517,29 @@ export async function figureProblems(figure?: string): Promise<string[]> {
 }
 
 async function renderSvg(svg: string, opts: RenderSvgOptions = {}): Promise<Buffer> {
-	// NATIVE FIRST (Wave E stage 2, owner 2026-10-10): resvg rasterizes
-	// static SVG in-process — visual-maker SVGs never execute script, so a
-	// browser adds nothing but a process. White background mirrors the old
-	// Chrome page (html,body{background:#fff}); fitTo width mirrors
-	// svgViewport semantics (attrs win, viewBox-only gets the 900 default,
-	// opts override). The browser path below stays as the fallback for
-	// exotic-SVG features resvg cannot parse — failures there used to be
-	// the ONLY path, so nothing regresses.
-	const { width } = svgViewport(svg, opts);
-	try {
-		const { Resvg } = await import("@resvg/resvg-js");
-		const resvg = new Resvg(svg, {
-			fitTo: { mode: "width", value: width },
-			font: { loadSystemFonts: true },
-			background: "#ffffff",
-		});
-		return providerSafePng(resvg.render().asPng());
-	} catch (error) {
-		if (opts.nativeOnly) throw error;
-		/* fall through to the browser path */
-	}
-	const dir = tempDir("lh-visual-");
-	const file = path.join(dir, "figure.html");
-	fs.writeFileSync(
-		file,
-		`<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:#fff}svg{display:block}</style></head><body>${svg}</body></html>`,
-		"utf-8",
-	);
+	// SANDBOXED BROWSER ONLY (security review, ported from the fork,
+	// 2026-11-08): the native rasterizer (resvg) resolved local image paths
+	// itself — a generated <image href="/abs/path"> (under ANY namespace
+	// prefix) pulled files outside the learner's grants into the PNG the
+	// vision model sees, with no hook to stop it. Generated SVGs now render
+	// only in the same sandboxed page as demos (DEMO_SANDBOX_URL: no
+	// file://, no network), after the namespace-aware sanitizer
+	// (svg-sanitize.ts) as a second layer. No browser = an honest error,
+	// never an unsandboxed fallback. Served AS an SVG document (not embedded
+	// in HTML): the browser parses exactly the XML the sanitizer checked.
+	const sealed = sanitizeSvg(svg);
 
-	return withBrowserPage(async (page) => {
+	return withBrowserPage(async (browserPage) => {
 		const { width, height } = svgViewport(svg, opts);
-		await page.setViewport({ width, height });
-		await page.goto(pathToFileURL(file).href, { waitUntil: "load", timeout: 30_000 });
-		const shot = (await page.screenshot({ fullPage: true, type: "png" })) as Buffer;
+		await browserPage.setViewport({ width, height });
+		await loadSandboxed(browserPage, sealed, { contentType: "image/svg+xml; charset=utf-8" });
+		// Viewport shot (sized to the figure above): fullPage measurement
+		// never settles on a bare SVG document.
+		const shot = (await browserPage.screenshot({ type: "png" })) as Buffer;
 		// Chrome's raw split-IDAT PNG is canonicalized before it reaches a
 		// provider (see providerSafePng) — the visual-maker feeds this exact
 		// buffer back to the vision model as its only way to "look".
 		return providerSafePng(Buffer.from(shot));
-	}).finally(() => {
-		try {
-			fs.rmSync(dir, { recursive: true, force: true });
-		} catch {
-			/* best-effort cleanup */
-		}
 	});
 }
 
@@ -558,6 +619,7 @@ async function renderPdfPages(
 	// needed a browser; now renders don't either.
 	const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
 	const { createCanvas } = await import("@napi-rs/canvas");
+	await assertPdfSize(path.resolve(pdfPath));
 	const data = new Uint8Array(fs.readFileSync(path.resolve(pdfPath)));
 	// Standard-font data as a directory path (live-smoke finding 2026-09-19:
 	// without it pdfjs renders non-embedded standard fonts via fallback);

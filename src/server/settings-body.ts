@@ -212,6 +212,10 @@ export function parseAgentSettingsBody(body: unknown): SettingsBodyResult<AgentS
 		}
 		settings.graphTools = graphTools.enabled === undefined ? {} : { enabled: graphTools.enabled };
 	}
+	if (raw.webReaderFallback !== undefined) {
+		if (typeof raw.webReaderFallback !== "boolean") return { ok: false, error: "webReaderFallback must be a boolean" };
+		settings.webReaderFallback = raw.webReaderFallback;
+	}
 	if (raw.fileAccess !== undefined) {
 		const parsed = parseFileAccessSettings(raw.fileAccess);
 		if (!parsed.ok) return parsed;

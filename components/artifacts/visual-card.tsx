@@ -2,13 +2,14 @@
 
 import { useContext, useState } from "react";
 import { ChatActionsContext } from "@/components/chat";
-import { DownloadIcon, MaximizeIcon } from "lucide-react";
+import { MaximizeIcon } from "lucide-react";
 import { InvertDiscIcon } from "@/components/artifacts/invert-disc";
 import { Toggle } from "@/components/settings/controls";
 import { useSessionMermaid } from "@/components/session-overlay";
-import { downloadFile } from "@/components/artifacts/download";
+import { downloadFile, svgToPng } from "@/components/artifacts/download";
+import { DownloadMenu } from "@/components/artifacts/download-menu";
 import { DispatchCard } from "@/components/artifacts/dispatch-card";
-import { SvgImage } from "@/components/artifacts/svg-image";
+import { SvgImage, svgImageSource } from "@/components/artifacts/svg-image";
 import { embedLearnerImage, type ArtifactPartProps, type VisualResult } from "@/src/core";
 import { useImageSnapshot } from "./use-image-snapshot";
 
@@ -153,16 +154,22 @@ export function VisualOutputCard({
 							discIcon={<InvertDiscIcon className="size-3" />}
 						/>
 					)}
-					<button
-						type="button"
-						aria-label="Download figure as SVG"
-						title="Download as SVG"
-						onClick={() => downloadFile("figure.svg", svg, "image/svg+xml")}
-						data-testid="visual-download"
-						className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-					>
-						<DownloadIcon className="size-3.5" />
-					</button>
+					<DownloadMenu
+						ariaLabel="Download figure"
+						testid="visual-download"
+						safe={{
+							label: "Image (.png)",
+							hint: "A flat picture of the figure",
+							testid: "visual-download-safe",
+							run: async () => downloadFile("figure.png", await svgToPng(svgImageSource(svg)), "image/png"),
+						}}
+						source={{
+							label: "Source — untrusted code (.svg)",
+							hint: "Raw generated SVG; can run code when opened on its own",
+							testid: "visual-download-source",
+							run: () => downloadFile("figure.source.svg", svg, "text/plain"),
+						}}
+					/>
 					{overlay && (
 						<button
 							type="button"

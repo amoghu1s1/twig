@@ -16,6 +16,7 @@ import {
 	WALK_TIMEOUT_MS,
 } from "./fs-shared.ts";
 import { resolvePolicy } from "./file-access.ts";
+import { checkPattern, escapeRegex, RegexScanner, RegexTooSlowError } from "./safe-regex.ts";
 
 /**
  * The grep tool — sources v1 (2026-09-19): pi's dist/core/tools/grep.js
@@ -57,10 +58,12 @@ export const grepTool: AgentTool<typeof grepInput> = {
 		const policy = resolvePolicy();
 		const { roots, notices, multiRoot } = sourceSearchRoots(input.path, policy);
 
-		const regex = new RegExp(
-			input.literal ? input.pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : input.pattern,
-			input.ignoreCase ? "i" : undefined,
-		);
+		// Literal = escaped, linear, in-thread. A model-written regex runs in a
+		// worker with a time budget (safe-regex.ts) — catastrophic
+		// backtracking must never freeze the server.
+		const flags = input.ignoreCase ? "i" : undefined;
+		const literal = input.literal ? new RegExp(escapeRegex(input.pattern), flags) : null;
+		if (!literal) checkPattern(input.pattern, flags); // length + syntax, before any walk
 		const contextValue = input.context && input.context > 0 ? input.context : 0;
 		const effectiveLimit = Math.max(1, input.limit ?? DEFAULT_LIMIT);
 
@@ -98,41 +101,51 @@ export const grepTool: AgentTool<typeof grepInput> = {
 		const scanDeadline = Date.now() + WALK_TIMEOUT_MS;
 		let scanTimedOut = false;
 
-		for (const { filePath, searchPath, isDirectory } of files) {
-			if (ctx?.signal?.aborted) {
-				aborted = true;
-				break;
-			}
-			if (Date.now() > scanDeadline) {
-				scanTimedOut = true;
-				break;
-			}
-			if (matchCount >= effectiveLimit) {
-				limitReached = true;
-				break;
-			}
-			let fileStat;
-			try {
-				fileStat = await fs.stat(filePath);
-			} catch {
-				continue;
-			}
-			if (fileStat.size > MAX_FILE_BYTES) continue; // rg-style silent skip of huge files
-			if (await isBinaryFile(filePath).catch(() => true)) continue;
+		const scanner = literal ? null : new RegexScanner(input.pattern, flags);
+		try {
+			for (const { filePath, searchPath, isDirectory } of files) {
+				if (ctx?.signal?.aborted) {
+					aborted = true;
+					break;
+				}
+				if (Date.now() > scanDeadline) {
+					scanTimedOut = true;
+					break;
+				}
+				if (matchCount >= effectiveLimit) {
+					limitReached = true;
+					break;
+				}
+				let fileStat;
+				try {
+					fileStat = await fs.stat(filePath);
+				} catch {
+					continue;
+				}
+				if (fileStat.size > MAX_FILE_BYTES) continue; // rg-style silent skip of huge files
+				if (await isBinaryFile(filePath).catch(() => true)) continue;
 
-			let content: string;
-			try {
-				content = await fs.readFile(filePath, "utf-8");
-			} catch {
-				continue;
-			}
-			const lines = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
-			const rel = multiRoot ? filePath : isDirectory
-				? path.relative(searchPath, filePath).split(path.sep).join("/")
-				: path.basename(filePath);
+				let content: string;
+				try {
+					content = await fs.readFile(filePath, "utf-8");
+				} catch {
+					continue;
+				}
+				const lines = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+				const rel = multiRoot ? filePath : isDirectory
+					? path.relative(searchPath, filePath).split(path.sep).join("/")
+					: path.basename(filePath);
 
-			for (let i = 0; i < lines.length; i++) {
-				if (regex.test(lines[i]!)) {
+				let matched: number[];
+				try {
+					matched = literal
+						? lines.flatMap((line, i) => (literal.test(line) ? [i] : []))
+						: await scanner!.matchLines(lines);
+				} catch (err) {
+					if (err instanceof RegexTooSlowError) return err.message;
+					throw err;
+				}
+				for (const i of matched) {
 					if (matchCount >= effectiveLimit) {
 						limitReached = true;
 						break;
@@ -147,8 +160,10 @@ export const grepTool: AgentTool<typeof grepInput> = {
 						outLines.push(current === i + 1 ? `${rel}:${current}: ${text}` : `${rel}-${current}- ${text}`);
 					}
 				}
+				if (limitReached) break;
 			}
-			if (limitReached) break;
+		} finally {
+			scanner?.close();
 		}
 
 		const finish = (body: string): string => notices.length ? `${body}\n\n[${notices.join(". ")}]` : body;

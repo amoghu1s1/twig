@@ -214,7 +214,7 @@ export async function runVisualMaker(input: VisualMakerInput, opts: VisualMakerO
 	}
 	/** Render-only embedding; persisted SVGs keep the small placeholder. */
 	const embed = (svg: string): string => learnerImage ? embedLearnerImage(svg, learnerImage) : svg;
-	const render = (svg: string) => headless.renderSvg(embed(svg), learnerImage ? { nativeOnly: true } : undefined);
+	const render = (svg: string) => headless.renderSvg(embed(svg));
 	/** Image mode: the problem with an SVG that doesn't place the picture
 	 *  exactly once (null = fine, and always fine without an image). */
 	const placementProblem = (svg: string): string | null => {

@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { documentToMarkdown, type PdfPage } from "./pdf-markdown.ts";
+import { checkPattern, escapeRegex, RegexScanner } from "../tools/safe-regex.ts";
 
 /**
  * PDF plumbing for the pdf-reader sub-agent — sources v0 (2026-09): Node
@@ -55,7 +56,19 @@ export function standardFontsDir(): string {
 	return path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "node_modules", "pdfjs-dist", "standard_fonts") + "/";
 }
 
+/** The largest PDF any tool will load into memory (security hardening,
+ *  2026-11-08) — a size check before the read, never after. */
+export const MAX_PDF_FILE_BYTES = 100 * 1024 * 1024;
+
+/** Refuse non-files and oversized files before reading them. */
+export async function assertPdfSize(filePath: string): Promise<void> {
+	const stat = await fs.stat(filePath);
+	if (!stat.isFile()) throw new Error("not a regular file");
+	if (stat.size > MAX_PDF_FILE_BYTES) throw new Error(`PDF too large (over ${MAX_PDF_FILE_BYTES / 1024 / 1024} MB)`);
+}
+
 async function openDocument(filePath: string) {
+	await assertPdfSize(filePath);
 	return openBytes(new Uint8Array(await fs.readFile(filePath)));
 }
 
@@ -219,40 +232,35 @@ export async function pdfSearch(
 	opts?: { contextLines?: number; literal?: boolean },
 ): Promise<{ hits: PdfSearchHit[]; pageTexts: Map<number, string> }> {
 	const contextLines = opts?.contextLines ?? 3;
+	// Literal = escaped, linear, in-thread; a model-written regex runs in a
+	// time-budgeted worker (tools/safe-regex.ts — no event-loop freeze).
+	const literal = opts?.literal ? new RegExp(escapeRegex(query), "i") : null;
+	if (!literal) checkPattern(query, "i");
 	const { doc } = await openDocument(filePath);
-	let pattern: RegExp;
-	if (opts?.literal) {
-		pattern = new RegExp(escapeRegex(query), "i");
-	} else {
-		try {
-			pattern = new RegExp(query, "i");
-		} catch (err) {
-			throw new Error(`Invalid regex: ${(err as Error).message}`);
-		}
-	}
+	const scanner = literal ? null : new RegexScanner(query, "i");
 	const hits: PdfSearchHit[] = [];
 	const pageTexts = new Map<number, string>();
-	for (const page of await documentToMarkdown(doc)) {
-		const i = page.number;
-		const text = pageMarkdown(page);
-		pageTexts.set(i, text);
-		const lines = text.split("\n");
-		for (let ln = 0; ln < lines.length; ln++) {
-			if (!pattern.test(lines[ln]!)) continue;
-			const start = Math.max(0, ln - contextLines);
-			const end = Math.min(lines.length, ln + contextLines + 1);
-			const context = lines
-				.slice(start, end)
-				.map((l, j) => `${start + j === ln ? ">>>" : "   "} ${l}`)
-				.join("\n");
-			hits.push({ page: i, line: ln + 1, context });
+	try {
+		for (const page of await documentToMarkdown(doc)) {
+			const i = page.number;
+			const text = pageMarkdown(page);
+			pageTexts.set(i, text);
+			const lines = text.split("\n");
+			const matched = literal ? lines.flatMap((line, ln) => (literal.test(line) ? [ln] : [])) : await scanner!.matchLines(lines);
+			for (const ln of matched) {
+				const start = Math.max(0, ln - contextLines);
+				const end = Math.min(lines.length, ln + contextLines + 1);
+				const context = lines
+					.slice(start, end)
+					.map((l, j) => `${start + j === ln ? ">>>" : "   "} ${l}`)
+					.join("\n");
+				hits.push({ page: i, line: ln + 1, context });
+			}
 		}
+	} finally {
+		scanner?.close();
 	}
 	return { hits, pageTexts };
-}
-
-function escapeRegex(s: string): string {
-	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /** Where rendered pages land (mirrors the skill's /tmp convention). */

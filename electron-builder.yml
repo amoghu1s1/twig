@@ -151,6 +151,24 @@ dmg:
       type: link
       path: /Applications
 afterPack: scripts/after-pack.cjs
+# Electron fuses (security hardening, ported from the jacobderechin fork,
+# 2026-11-08) — flipped in the binary at package time:
+#  - runAsNode stays ON: the standalone server is spawned as
+#    ELECTRON_RUN_AS_NODE (main.cjs startServer) — a documented residual.
+#  - NODE_OPTIONS and --inspect* are ignored, so the packaged app cannot be
+#    code-injected through its environment or debug flags.
+#  - the app loads only from its own app.asar, with embedded integrity
+#    validation (macOS/Windows) so the shipped main-process code can't be
+#    swapped.
+#  - file:// pages get no extra privileges (nothing in the app uses file://).
+electronFuses:
+  runAsNode: true
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  grantFileProtocolExtraPrivileges: false
 win:
   icon: build/icon.ico
   target:

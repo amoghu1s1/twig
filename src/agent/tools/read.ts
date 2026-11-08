@@ -31,6 +31,11 @@ import { detectSupportedImageMimeTypeFromFile, processImage } from "../image-pro
 
 const MAX_LINES = 2000;
 const MAX_BYTES = 50 * 1024;
+/** Files larger than this are refused BEFORE they are loaded (security
+ *  hardening, 2026-11-08): the output caps above only trimmed after a full
+ *  read, so one huge file could exhaust the server's memory. */
+const MAX_TEXT_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_IMAGE_FILE_BYTES = 5 * 1024 * 1024;
 
 const readInput = Type.Object({
 	path: Type.String({ minLength: 1, description: "Path to the file to read (relative or absolute)" }),
@@ -99,7 +104,13 @@ export function createReadTool(model?: ReadModel): AgentTool<typeof readInput> {
 		parameters: readInput,
 		execute: serverExecute("read", readInput, async ({ path: rawPath, offset, limit }, { signal }): Promise<string | ImageFileResult> => {
 			const absolute = resolveSourcePath(rawPath);
+			const stat = await fs.stat(absolute); // ENOENT/EACCES → error result the model sees
+			if (!stat.isFile()) throw new Error(`Not a regular file: ${rawPath}`);
 			const mime = await detectSupportedImageMimeTypeFromFile(absolute);
+			const cap = mime ? MAX_IMAGE_FILE_BYTES : MAX_TEXT_FILE_BYTES;
+			if (stat.size > cap) {
+				throw new Error(`File too large to read (${formatSize(stat.size)}; the limit is ${formatSize(cap)}). Use grep to find the relevant part.`);
+			}
 			const buffer = await fs.readFile(absolute, { signal });
 			if (mime) {
 				const processed = await processImage(buffer, mime, { resizeOptions: model?.inputLimits?.images?.resize });
