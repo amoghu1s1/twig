@@ -35,6 +35,8 @@ Twig keeps LearnHarness's teaching model and adds the parts that matter for dail
 - **Themes** — eleven presets plus **Dark / Light / System** mode, server first paint, Electron chrome sync, and WCAG-checked muted/status colors. See [themes.md](docs/themes.md).
 - **Graph exports** — send the knowledge graph to **Anki** with stable ids and reviewable note types, or export it to an **Obsidian** vault as linked Markdown; a tidy-graph review proposes merges, splits and connections. See [anki.md](docs/anki.md), [obsidian.md](docs/obsidian.md), [tidy-graph.md](docs/tidy-graph.md).
 - **Side questions and notes** — ask about a passage without derailing the lesson; each thread stays attached to the block it came from. Per-lesson notes live beside the transcript, support quote-to-notes, and survive reloads.
+- **Session attachments** — attach PDFs, EPUBs, images and other files from the composer; contents are stored once by content hash under `data/attachments/`, previewed from the session, and read through scoped PDF/EPUB tools. Removing an attachment is reversible, and unreferenced blobs are swept.
+- **Mistakes review** — every miss is classified, analyzed, and collected on a Mistakes page with a short "why" for each one. The analyst is opt-out and cost-capped.
 - **Quote into the composer** — select tutor prose and quote it directly into your reply, so follow-ups keep the exact wording.
 - **Capstone projects** — a project session where you pitch a real build from graph propositions, the agent sharpens it into a locked brief with file-verifiable criteria, then reviews your directory read-only and reports the gaps.
 - **Scratchpad and calculator** — a pressure-sensitive drawing sidebar with undo/eraser/straight lines, a draggable scientific calculator, and inert `svg` figures rendered directly in lessons.
@@ -54,7 +56,7 @@ Twig keeps LearnHarness's teaching model and adds the parts that matter for dail
 
 **Read at your pace.** *Read by sentence* turns a finished teacher passage into a full-screen reading surface: one sentence at a time, optional read-aloud, and keyboard navigation. *Readings* can also generate a primer, overview, deep dive, recap or node-specific reading from the lesson's frozen snapshot.
 
-**Bring your files.** In the desktop app, attach PDFs, photos, or any other file with the paperclip, or drag them in. The file stays where it is: the message carries its path, and the agent reads it from there.
+**Bring your files.** In the desktop app, attach PDFs, EPUBs, photos, or other files with the paperclip, or drag them in. Files can stay where they are (the message carries the path) or be attached once to the session and stored locally by content hash; the agent gets a scoped reader for each.
 
 The agent can also research questions in the background, create visual explanations, show your own images in the lesson and mark them up with arrows and labels, and build interactive demonstrations.
 
