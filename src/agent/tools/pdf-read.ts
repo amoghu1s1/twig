@@ -4,6 +4,7 @@ import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { serverExecute } from "../tool-execute.ts";
 import { pdfExtract, pdfInfo, pdfProbe, pdfSearch } from "../subagents/pdf-ops.ts";
+import { guardedFetch } from "./net-guard.ts";
 
 /**
  * PDF reading tools for the RESEARCHER sub-agent (owner design B,
@@ -111,23 +112,25 @@ export function createPdfReadTools(dir: string): Record<string, AgentTool<any>> 
 					return `web_fetch_pdf failed: invalid URL "${url}"`;
 				}
 				try {
-					const resp = await fetch(url, {
+					// The network guard (net-guard.ts): public addresses only, every
+					// redirect re-checked, the 25 MB cap enforced while streaming.
+					const resp = await guardedFetch(url, {
 						headers: {
 							"User-Agent": USER_AGENT,
 							Accept: "application/pdf,application/octet-stream,*/*",
 						},
-						signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+						timeoutMs: FETCH_TIMEOUT_MS,
+						maxBytes: MAX_PDF_BYTES,
+					}).catch((err: unknown) => {
+						throw err instanceof Error && err.message === "Response too large" ? new Error("PDF too large (over 25 MB)") : err;
 					});
-					if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
+					if (resp.status < 200 || resp.status >= 300) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
 					const contentType = resp.headers.get("content-type") ?? "";
 					if (!/application\/pdf/i.test(contentType) && !/\.pdf(\?|$)/i.test(parsedPathname(url))) {
 						throw new Error(`Not a PDF (content-type ${contentType.split(";")[0] || "unknown"})`);
 					}
-					const declared = Number(resp.headers.get("content-length") ?? 0);
-					if (declared > MAX_PDF_BYTES) throw new Error("PDF too large (over 25 MB)");
-					const bytes = new Uint8Array(await resp.arrayBuffer());
+					const bytes = new Uint8Array(resp.body);
 					if (bytes.length === 0) throw new Error("Empty response");
-					if (bytes.length > MAX_PDF_BYTES) throw new Error("PDF too large (over 25 MB)");
 					const filePath = path.join(dir, pdfFileName(url));
 					await fs.writeFile(filePath, bytes);
 					try {

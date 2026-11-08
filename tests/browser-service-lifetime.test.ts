@@ -20,7 +20,15 @@ function helperFixture(connected = true, channel = true) {
 	const appReady = new Promise<void>((resolve) => { allowAppReady = resolve; });
 	let allowReadiness!: () => void;
 	const readiness = new Promise<void>((resolve) => { allowReadiness = resolve; });
-	const state = { quits: 0, exits: [] as number[], windows: 0, readinessCalls: 0, stdinReads: 0, signal: undefined as AbortSignal | undefined };
+	const state = {
+		quits: 0, exits: [] as number[], windows: 0, readinessCalls: 0, stdinReads: 0, signal: undefined as AbortSignal | undefined,
+		userData: undefined as string | undefined,
+		permission: undefined as ((wc: unknown, p: string, cb: (ok: boolean) => void) => void) | undefined,
+		check: undefined as (() => boolean) | undefined,
+		beforeRequest: undefined as ((d: { url: string }, cb: (r: { cancel: boolean }) => void) => void) | undefined,
+		created: [] as Array<(e: unknown, c: unknown) => void>,
+		windowPrefs: [] as unknown[],
+	};
 	const logs: string[] = [];
 	const errors: string[] = [];
 	// Match Electron 44's Windows override, not a native pipe.
@@ -33,10 +41,19 @@ function helperFixture(connected = true, channel = true) {
 	Object.defineProperty(process, "stdin", { get() { state.stdinReads++; return stdin; } });
 	const app = {
 		setName() {}, commandLine: { appendSwitch() {} }, whenReady: () => appReady,
+		setPath(name: string, value: string) { if (name === "userData") state.userData = value; },
+		on(event: string, listener: (e: unknown, c: unknown) => void) { if (event === "web-contents-created") state.created.push(listener); },
 		quit() { state.quits++; }, exit(code: number) { state.exits.push(code); },
 	};
+	const session = {
+		defaultSession: {
+			setPermissionRequestHandler(handler: typeof state.permission) { state.permission = handler; },
+			setPermissionCheckHandler(handler: typeof state.check) { state.check = handler; },
+			webRequest: { onBeforeRequest(_filter: unknown, handler: typeof state.beforeRequest) { state.beforeRequest = handler; } },
+		},
+	};
 	class FakeWindow {
-		constructor() { state.windows++; }
+		constructor(options?: { webPreferences?: unknown }) { state.windows++; state.windowPrefs.push(options?.webPreferences); }
 		async loadURL(url: string) { assert.equal(url, "about:blank"); }
 	}
 	const net = {
@@ -55,7 +72,7 @@ function helperFixture(connected = true, channel = true) {
 		});
 	};
 	runInNewContext(mainSource, {
-		require: (id: string) => id === "electron" ? { app, BrowserWindow: FakeWindow }
+		require: (id: string) => id === "electron" ? { app, BrowserWindow: FakeWindow, session }
 			: id === "node:net" ? net
 			: id === "./browser-service-readiness.cjs" ? { waitForBrowserService }
 			: requireMain(id),
@@ -86,6 +103,45 @@ describe("browser-service IPC-owned lifetime", () => {
 		assert.deepEqual(helper.state.exits, []);
 		helper.disconnect();
 		assert.equal(helper.state.quits, 1);
+	});
+
+	it("locks the helper down: throwaway profile, no permissions/popups/navigation, sandbox-only requests", async () => {
+		const helper = helperFixture();
+		helper.allowAppReady();
+		await turn();
+		assert.match(helper.state.userData ?? "", /lh-browser-service-/, "userData is a throwaway temp profile");
+		// vm-realm objects: compare by value, not prototype.
+		assert.equal(JSON.stringify(helper.state.windowPrefs[0]), JSON.stringify({ offscreen: true, sandbox: true, contextIsolation: true, nodeIntegration: false }));
+		let granted: boolean | undefined;
+		helper.state.permission!({}, "media", (ok) => { granted = ok; });
+		assert.equal(granted, false);
+		assert.equal(helper.state.check!(), false);
+		const verdict = (url: string) => { let cancel: boolean | undefined; helper.state.beforeRequest!({ url }, (r) => { cancel = r.cancel; }); return cancel; };
+		assert.equal(verdict("https://demo.invalid/"), false);
+		assert.equal(verdict("data:image/png;base64,AA=="), false);
+		assert.equal(verdict("file:///etc/passwd"), true);
+		assert.equal(verdict("http://127.0.0.1:3000/api/keys"), true);
+		assert.equal(verdict("https://cdn.jsdelivr.net/npm/d3"), true);
+		const contents = {
+			windowOpen: undefined as undefined | (() => unknown),
+			nav: undefined as undefined | ((e: { preventDefault(): void }, t: string) => void),
+			onAttach: undefined as undefined | ((e: { preventDefault(): void }) => void),
+			setWindowOpenHandler(h: () => unknown) { this.windowOpen = h; },
+			on(event: string, h: (e: { preventDefault(): void }, t: string) => void) {
+				if (event === "will-navigate") this.nav = h;
+				if (event === "will-attach-webview") this.onAttach = h as unknown as typeof this.onAttach;
+			},
+		};
+		helper.state.created[0]!({}, contents);
+		assert.equal(JSON.stringify(contents.windowOpen!()), JSON.stringify({ action: "deny" }));
+		let prevented = false;
+		contents.nav!({ preventDefault: () => { prevented = true; } }, "https://evil.example/");
+		assert.equal(prevented, true);
+		let webviewPrevented = false;
+		contents.onAttach!({ preventDefault: () => { webviewPrevented = true; } });
+		assert.equal(webviewPrevented, true);
+		helper.process.emit("exit");
+		helper.allowReadiness();
 	});
 
 	it("disconnect during readiness aborts it, quits once, and never announces", async () => {

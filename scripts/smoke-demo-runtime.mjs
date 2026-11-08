@@ -172,25 +172,45 @@ async function browserProbe(puppeteer) {
 		const pages = await browser.pages();
 		const page = pages.find((candidate) => candidate.target().type() === "page");
 		assert.ok(page, "browser-service has no page target");
+		// The production sandbox protocol (src/agent/subagents/headless.ts
+		// loadSandboxed, security hardening 2026-11-08): the document is
+		// served at the opaque https origin with the no-network CSP; every
+		// other request is aborted. Mirrors DEMO_SANDBOX_URL / DEMO_CSP.
+		const SANDBOX_URL = "https://demo.invalid/";
+		const CSP = "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' blob:; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; worker-src blob:; connect-src 'none'; form-action 'none'; base-uri 'none'";
+		let documentHtml = "";
 		const failures = [];
+		const blocked = [];
 		page.on("console", (msg) => { if (msg.type() === "error") failures.push(msg.text()); });
 		page.on("pageerror", (err) => failures.push(String(err)));
-		page.on("requestfailed", (req) => failures.push(`failed request: ${req.url()}`));
+		page.on("requestfailed", (req) => blocked.push(req.url()));
 		await page.setRequestInterception(true);
 		page.on("request", (req) => {
-			if (/^(file:|about:|data:)/.test(req.url())) void req.continue();
-			else { failures.push(`unexpected network request: ${req.url()}`); void req.abort(); }
+			if (req.url() === SANDBOX_URL) void req.respond({ status: 200, contentType: "text/html; charset=utf-8", headers: { "content-security-policy": CSP }, body: documentHtml });
+			else if (/^(data:|blob:)/.test(req.url())) void req.continue();
+			else void req.abort("blockedbyclient");
 		});
-		const html = path.join(home, "demo.html");
-		fs.writeFileSync(html, '<!doctype html><meta charset="utf-8"><button id="increment">Increment</button><output id="count">0</output><script>document.querySelector("#increment").onclick = () => { document.querySelector("#count").textContent = "1"; };</script>');
-		await page.goto(pathToFileURL(html).href, { waitUntil: "load", timeout: 10_000 });
+		documentHtml = '<!doctype html><meta charset="utf-8"><button id="increment">Increment</button><output id="count">0</output><script>document.querySelector("#increment").onclick = () => { document.querySelector("#count").textContent = "1"; };</script>';
+		await page.goto(SANDBOX_URL, { waitUntil: "load", timeout: 10_000 });
 		assert.equal(await page.$eval("#count", (element) => element.textContent), "0");
 		await page.click("#increment");
 		assert.equal(await page.$eval("#count", (element) => element.textContent), "1");
+		assert.deepEqual(failures, [], "demo console/page errors");
+		assert.deepEqual(blocked, [], "a self-contained demo makes no requests");
+		// Exfiltration attempts: local files, the app's own server, a CDN
+		// script, and an outbound fetch must all fail inside the sandbox.
+		documentHtml = `<!doctype html><meta charset="utf-8"><script src="https://cdn.jsdelivr.net/npm/d3@7"></script><script>
+			window.results = {};
+			const probe = (name, url) => fetch(url).then((r) => r.text()).then((t) => { window.results[name] = "LEAKED:" + t.length; }, () => { window.results[name] = "blocked"; });
+			window.done = Promise.all([probe("file", "file:///etc/hostname"), probe("local", "http://127.0.0.1:${port}/json/version"), probe("remote", "https://example.com/")]);
+		</script><img src="file:///etc/hostname">`;
+		await page.goto(SANDBOX_URL, { waitUntil: "load", timeout: 10_000 });
+		const results = await page.evaluate(async () => { await window.done; return window.results; });
+		assert.deepEqual(results, { file: "blocked", local: "blocked", remote: "blocked" }, "sandboxed fetches never succeed");
+		assert.equal(await page.evaluate(() => typeof window.d3), "undefined", "CDN scripts never load");
 		await page.goto("about:blank");
 		assert.equal(await page.$("#increment"), null, "page state was not cleared");
-		assert.deepEqual(failures, [], "demo console/page/network errors");
-		console.log("[smoke-demo-runtime] packaged browser-service: JS button 0 → 1, clean console/page, page reset ok (no Chrome fallback)");
+		console.log("[smoke-demo-runtime] packaged browser-service: JS button 0 → 1 in the sandbox origin, file/localhost/remote/CDN all blocked, page reset ok (no Chrome fallback)");
 	} catch (err) {
 		failed = true;
 		throw new Error(`browser-service probe failed at local CDP/browser interaction\n--- browser-service output ---\n${output}\n${errors}`, { cause: err });

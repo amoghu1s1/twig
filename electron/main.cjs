@@ -37,6 +37,7 @@ const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
 const net = require("node:net");
+const os = require("node:os");
 const path = require("node:path");
 
 // Mirrors SIDEBAR_AUTOCLOSE in components/sidebar.tsx — keep in sync (the
@@ -90,13 +91,26 @@ if (process.argv.includes("--browser-service")) {
 			if (!process.channel || !process.connected) throw new Error("browser-service requires connected parent IPC");
 			process.once("disconnect", parentClosed);
 			app.dock?.hide();
+			// A THROWAWAY PROFILE (security hardening, 2026-11-08): generated
+			// code must never share the real app's userData (cookies, storage,
+			// credentials). Removed on exit.
+			const profile = fs.mkdtempSync(path.join(os.tmpdir(), "lh-browser-service-"));
+			app.setPath("userData", profile);
+			process.once("exit", () => fs.rmSync(profile, { recursive: true, force: true }));
 			const port = await freePort();
 			// Must land before app-ready for Chromium to pick it up.
 			app.commandLine.appendSwitch("remote-debugging-port", String(port));
 			await app.whenReady();
+			lockDownBrowserService();
 			// A hidden window keeps the app lifecycle ordinary on every
 			// platform (no window-all-closed handler is installed here).
-			const win = new BrowserWindow({ show: false });
+			// OFFSCREEN rendering: a merely hidden window never paints, so CDP
+			// screenshots (the sandboxed SVG rasterizer, headless.ts) hang;
+			// offscreen paints to an in-memory bitmap — still nothing shown.
+			const win = new BrowserWindow({
+				show: false,
+				webPreferences: { offscreen: true, sandbox: true, contextIsolation: true, nodeIntegration: false },
+			});
 			await win.loadURL("about:blank");
 			// Window load is not a DevTools HTTP readiness barrier. Confirm the
 			// endpoint before both production and smoke clients see the handshake.
@@ -108,7 +122,53 @@ if (process.argv.includes("--browser-service")) {
 			app.exit(1);
 		}
 	})();
-} else {
+}
+
+/** The browser-service helper runs LLM-generated documents (security
+ *  hardening, 2026-11-08): deny every permission, popup, and navigation,
+ *  and cancel every request except the sandbox document itself
+ *  (DEMO_SANDBOX_URL in src/core/demo-sandbox.ts) and inline data:/blob:
+ *  — defense in depth under the CDP request interception headless.ts
+ *  installs, so the policy holds even if that connection drops. */
+const DEMO_SANDBOX_URL = "https://demo.invalid/";
+function helperAllowedUrl(url) {
+	return url === DEMO_SANDBOX_URL || url === "about:blank" || url.startsWith("data:") || url.startsWith("blob:") || url.startsWith("devtools:");
+}
+function lockDownBrowserService() {
+	const ses = session.defaultSession;
+	ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+	ses.setPermissionCheckHandler(() => false);
+	ses.webRequest.onBeforeRequest({ urls: ["<all_urls>"] }, (details, callback) => callback({ cancel: !helperAllowedUrl(details.url) }));
+	app.on("web-contents-created", (_event, contents) => {
+		contents.setWindowOpenHandler(() => ({ action: "deny" }));
+		contents.on("will-navigate", (event, target) => {
+			if (!helperAllowedUrl(target)) event.preventDefault();
+		});
+		contents.on("will-attach-webview", (event) => event.preventDefault());
+	});
+}
+
+/** shell.openExternal hands a URL to the OS — any scheme would reach its
+ *  registered handler (file:, smb: credential leaks, custom protocol
+ *  handlers). Only web and mail links leave the app (security hardening,
+ *  2026-11-08); everything else is dropped and logged. */
+const EXTERNAL_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
+function safeOpenExternal(target) {
+	let parsed;
+	try {
+		parsed = new URL(target);
+	} catch {
+		log("openExternal refused: unparseable URL");
+		return Promise.resolve();
+	}
+	if (!EXTERNAL_PROTOCOLS.has(parsed.protocol) || parsed.username || parsed.password) {
+		log(`openExternal refused: ${parsed.protocol} URL`);
+		return Promise.resolve();
+	}
+	return shell.openExternal(parsed.href);
+}
+
+if (!process.argv.includes("--browser-service")) {
 	// Dev shell (LH_DEV_URL) runs BESIDE the packaged app, not instead of it:
 	// its own userData so (a) the single-instance lock — checked below — doesn't
 	// silently kill it, and (b) it never reads/writes the real app's
@@ -361,13 +421,15 @@ function createWindow(url) {
 	});
 
 	win.webContents.on("will-navigate", (event, target) => {
-		if (new URL(target).origin !== allowedOrigin()) {
+		let sameOrigin = false;
+		try { sameOrigin = new URL(target).origin === allowedOrigin(); } catch { /* unparseable: never navigate */ }
+		if (!sameOrigin) {
 			event.preventDefault();
-			void shell.openExternal(target);
+			void safeOpenExternal(target);
 		}
 	});
 	win.webContents.setWindowOpenHandler(({ url: target }) => {
-		void shell.openExternal(target);
+		void safeOpenExternal(target);
 		return { action: "deny" };
 	});
 
@@ -681,7 +743,7 @@ async function main() {
 		});
 		chatgpt = createChatGPT({
 			store: fileStore(path.join(app.getPath("userData"), "chatgpt-credentials.json")),
-			openExternal: (target) => shell.openExternal(target),
+			openExternal: (target) => safeOpenExternal(target),
 			onChange: (value) => {
 				chatgptChild?.send(value);
 				for (const win of BrowserWindow.getAllWindows()) win.webContents.send("lh:chatgpt:changed");
@@ -690,7 +752,7 @@ async function main() {
 		subscriptions = createSubscriptions({
 			directory: app.getPath("userData"),
 			loadSDK: () => loadSubscriptionSDK(path.dirname(serverEntry())),
-			openExternal: (target) => shell.openExternal(target),
+			openExternal: (target) => safeOpenExternal(target),
 			onChange: (snapshot) => {
 				subscriptionChild?.send(snapshot);
 				for (const win of BrowserWindow.getAllWindows()) win.webContents.send("lh:subscriptions:changed");
@@ -728,7 +790,7 @@ async function main() {
 	// Next server may be resolved here; never accept an arbitrary external URL.
 	ipcMain.handle("lh:subscriptions:web-browser", async (event, action) => {
 		if (!devUrl || !trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) throw new Error("Untrusted development request.");
-		await openWebSubscriptionBrowser(action, new URL(url).origin, { openExternal: (target) => shell.openExternal(target) });
+		await openWebSubscriptionBrowser(action, new URL(url).origin, { openExternal: (target) => safeOpenExternal(target) });
 	});
 
 	ipcMain.handle("lh:attachment:pick", (event, mode) => pickAttachmentPath(event, mode, {
@@ -767,8 +829,13 @@ async function main() {
 	// window grows right. No-op when already wide.
 	// The renderer's first paint can race did-finish-load — it asks for
 	// the current factor itself (mirrors "lh:zoom" pushes).
-	ipcMain.handle("lh:zoom:get", (event) => BrowserWindow.fromWebContents(event.sender)?.webContents.getZoomFactor() ?? 1);
+	const trustedEvent = (event) => trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) && trustedSender(event, new URL(url).origin, BrowserWindow);
+	ipcMain.handle("lh:zoom:get", (event) => {
+		if (!trustedEvent(event)) throw new Error("Untrusted desktop request.");
+		return BrowserWindow.fromWebContents(event.sender)?.webContents.getZoomFactor() ?? 1;
+	});
 	ipcMain.on("lh:expand-window", (event) => {
+		if (!trustedEvent(event)) return;
 		const win = BrowserWindow.fromWebContents(event.sender);
 		if (!win) return;
 		const { x, y, width, height } = win.getBounds();

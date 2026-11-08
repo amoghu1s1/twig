@@ -93,6 +93,9 @@ export interface JobRunnerDeps {
 	 *  Injected because the agent layer may not read the key store; absent
 	 *  in tests that inject engines directly (test engines never owe a key). */
 	providerKeyMissing?: (provider: string, tier: ModelSlotName) => ProviderKeyMissing | null;
+	/** Settings → Agent → Tools "Reader service fallback" for web_fetch
+	 *  (r.jina.ai, a third party), read per job. Absent = off. */
+	webReaderFallback?: () => boolean;
 }
 
 export interface JobRunner {
@@ -374,6 +377,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 			const brief = await runResearcherAgent(prompt, {
 				engine: model,
 				search: deps.searchProvider,
+				readerFallback: deps.webReaderFallback,
 				pdfDir,
 				abortSignal: loop.abortSignal,
 				chatId: loop.chatId,

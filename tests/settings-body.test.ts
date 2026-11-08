@@ -101,6 +101,16 @@ describe("parseAgentSettingsBody", () => {
 		assert.equal(parseAgentSettingsBody({ graphTools: null }).ok, false);
 	});
 
+	it("webReaderFallback: opt-in boolean, strict write side — security hardening, 2026-11-08", () => {
+		const on = parseAgentSettingsBody({ webReaderFallback: true });
+		assert.ok(on.ok);
+		assert.equal(on.settings.webReaderFallback, true);
+		const off = parseAgentSettingsBody({ webReaderFallback: false });
+		assert.ok(off.ok);
+		assert.equal(off.settings.webReaderFallback, false);
+		assert.equal(parseAgentSettingsBody({ webReaderFallback: "yes" }).ok, false);
+	});
+
 	it("an empty {} agent section parses to {} (replace-whole clear)", () => {
 		const r = parseAgentSettingsBody({});
 		assert.ok(r.ok);

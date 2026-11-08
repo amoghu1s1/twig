@@ -115,6 +115,8 @@ const jobRunner = createJobRunner({
 	// null = honestly unavailable; the dispatch-level drop (below) uses the
 	// same signal so keyless servers never see the research tool at all.
 	searchProvider,
+	// web_fetch's third-party reader fallback: opt-in, read per job.
+	webReaderFallback: () => effectiveSettings().agent.webReaderFallback,
 });
 /** The app's ONE extraction pipeline instance — both front doors share it:
  *  quiz-triggered session runs (turn-service) and notes imports

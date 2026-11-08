@@ -5,6 +5,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { netGuardTransport } from "../src/agent/tools/net-guard.ts";
 import { createWebTools } from "../src/agent/tools/web.ts";
 import { jobTools } from "../src/agent/tools/jobs.ts";
 import { runResearcherAgent } from "../src/agent/subagents/researcher.ts";
@@ -87,11 +88,9 @@ describe("web_search on the injected port (web.ts)", () => {
 		// so the happy path runs hermetically: a VALID url must REACH the
 		// fetch stage.
 		const { web_fetch } = createWebTools(() => null);
-		const realFetch = globalThis.fetch;
-		globalThis.fetch = (async () =>
-			new Response("A plain text page with enough content to matter for the test.", {
-				headers: { "content-type": "text/plain" },
-			})) as typeof fetch;
+		netGuardTransport.current = async () => new Response("A plain text page with enough content to matter for the test.", {
+			headers: { "content-type": "text/plain" },
+		});
 		try {
 			const ok = await web_fetch!.execute!("c-ok", { url: "https://example.com/page" });
 			assert.ok(
@@ -103,7 +102,7 @@ describe("web_search on the injected port (web.ts)", () => {
 			const ftp = await web_fetch!.execute!("c-ftp", { url: "ftp://example.com/file" });
 			assert.match(String(ftp.details), /invalid URL/, "non-http(s) schemes still rejected");
 		} finally {
-			globalThis.fetch = realFetch;
+			netGuardTransport.current = undefined;
 		}
 	});
 });
@@ -163,13 +162,12 @@ describe("keyless researcher loop", () => {
 			});
 			const faux = createFauxCore({});
 			faux.setResponses(steps);
-			const realFetch = globalThis.fetch;
 			const fetched: string[] = [];
-			globalThis.fetch = (async (input) => {
-				fetched.push(String(input));
-				assert.equal(String(input), url, "only the supplied URL is fetched");
+			netGuardTransport.current = async (input) => {
+				fetched.push(input.href);
+				assert.equal(input.href, url, "only the supplied URL is fetched");
 				return new Response("Synthetic verified source content", { headers: { "content-type": "text/plain" } });
-			}) as typeof fetch;
+			};
 			try {
 				assert.equal(await runResearcherAgent(`Verify ${url}`, {
 					engine: { model: faux.getModel(), streamFn: faux.streamSimple },
@@ -177,7 +175,7 @@ describe("keyless researcher loop", () => {
 				}), brief);
 				assert.deepEqual(fetched, [url]);
 			} finally {
-				globalThis.fetch = realFetch;
+				netGuardTransport.current = undefined;
 			}
 		});
 	}

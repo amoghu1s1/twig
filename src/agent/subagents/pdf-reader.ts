@@ -9,7 +9,7 @@ import { providerEventObserver, type ProviderEventObserver } from "../provider-e
 import { backgroundCaptureStream, createBackgroundCapture, type BackgroundCapture } from "../background-capture.ts";
 import type { PdfResult, PdfToolInput } from "../../core/contracts.ts";
 import { getHeadless, type HeadlessApi } from "./headless.ts";
-import { pdfExtract, pdfInfo, pdfProbe, pdfSearch, type PdfSearchHit } from "./pdf-ops.ts";
+import { assertPdfSize, pdfExtract, pdfInfo, pdfProbe, pdfSearch, type PdfSearchHit } from "./pdf-ops.ts";
 
 /**
  * The pdf-reader sub-agent (sources v0, 2026-09): reads a learner-provided
@@ -407,6 +407,7 @@ async function probeReadable(pdfPath: string): Promise<string | null> {
 		const stat = await fs.stat(pdfPath);
 		if (!stat.isFile()) return "not a regular file";
 		if (stat.size === 0) return "file is empty";
+		await assertPdfSize(pdfPath);
 		// parse probe: pdfProbe throws pdfjs's precise error for garbage files
 		await pdfProbe(pdfPath);
 		return null;

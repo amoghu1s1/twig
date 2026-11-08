@@ -377,6 +377,10 @@ export interface AgentSettings {
 	 *  the current policy is read per new tool call/job start. Existing
 	 *  sensitive-location/credential denials always win, not a whole-data ban. */
 	fileAccess?: FileAccessSettings;
+	/** web_fetch's fallback for JavaScript-rendered pages through the
+	 *  third-party reader r.jina.ai, which receives the page URL (security
+	 *  hardening, 2026-11-08: opt-in). Absent = off. */
+	webReaderFallback?: boolean;
 }
 
 /** Markdown-rendering knobs — the bare-bones set (owner decision). */
@@ -739,6 +743,8 @@ function sanitizeAgent(raw: Record<string, unknown>): AgentSettings {
 		const parsed = parseFileAccessSettings(raw.fileAccess);
 		out.fileAccess = parsed.ok ? parsed.settings : { restricted: true, folders: [] };
 	}
+	const webReaderFallback = boolOrDrop(raw.webReaderFallback);
+	if (webReaderFallback !== undefined) out.webReaderFallback = webReaderFallback;
 	return out;
 }
 

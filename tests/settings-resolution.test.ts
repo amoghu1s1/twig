@@ -267,4 +267,10 @@ describe("the graph channel gates (the wave's seam honoring)", () => {
 		const off = resolveSettings({ version: 1, agent: { graphTools: { enabled: false } } });
 		assert.deepEqual(off.agent.graphTools, { enabled: false });
 	});
+
+	it("webReaderFallback: absent = off; an explicit true passes through (security hardening, 2026-11-08)", () => {
+		assert.equal(resolveSettings(null).agent.webReaderFallback, false);
+		assert.equal(resolveSettings({ version: 1, agent: { webReaderFallback: true } }).agent.webReaderFallback, true);
+		assert.equal(resolveSettings({ version: 1, agent: { webReaderFallback: false } }).agent.webReaderFallback, false);
+	});
 });

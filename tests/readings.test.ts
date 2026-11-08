@@ -18,6 +18,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, type FauxResponseStep } from "@earendil-works/pi-ai";
+import { netGuardTransport } from "../src/agent/tools/net-guard.ts";
 
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-readings-"));
 process.env.LH_DATA_DIR = TMP_DATA;
@@ -348,13 +349,11 @@ describe("the writer pipeline", () => {
 	const URL_OK = "https://example.org/derivative";
 
 	async function withFetchStub<T>(fn: () => Promise<T>): Promise<T> {
-		const real = globalThis.fetch;
-		globalThis.fetch = (async () =>
-			new Response("Synthetic page about derivatives.", { headers: { "content-type": "text/plain" } })) as typeof fetch;
+		netGuardTransport.current = async () => new Response("Synthetic page about derivatives.", { headers: { "content-type": "text/plain" } });
 		try {
 			return await fn();
 		} finally {
-			globalThis.fetch = real;
+			netGuardTransport.current = undefined;
 		}
 	}
 

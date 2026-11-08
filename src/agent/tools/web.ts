@@ -8,6 +8,7 @@ export type { WebSearchResult };
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
+import { guardedFetch } from "./net-guard.ts";
 
 /**
  * Server-side web tools for the researcher sub-agent — a minimal port of the
@@ -50,15 +51,19 @@ function truncate(text: string): string {
 	return `${text.slice(0, MAX_CONTENT_CHARS)}\n\n[Truncated at ${MAX_CONTENT_CHARS} characters]`;
 }
 
-/** Jina Reader fallback for JS-rendered pages (no deps — plain fetch). */
+/** Jina Reader fallback for JS-rendered pages — OPT-IN (security
+ *  hardening, ported from the fork, 2026-11-08: it sends the full URL to a
+ *  third party, so it runs only when Settings → Agent → Tools → "Reader
+ *  service fallback" is on). */
 async function fetchViaJina(url: string): Promise<string | null> {
 	try {
-		const res = await fetch(`https://r.jina.ai/${url}`, {
+		const res = await guardedFetch(`https://r.jina.ai/${url}`, {
 			headers: { Accept: "text/markdown", "X-No-Cache": "true" },
-			signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+			timeoutMs: FETCH_TIMEOUT_MS,
+			maxBytes: MAX_RESPONSE_BYTES,
 		});
-		if (!res.ok) return null;
-		const content = await res.text();
+		if (res.status < 200 || res.status >= 300) return null;
+		const content = res.body.toString("utf-8");
 		const marker = "Markdown Content:";
 		const start = content.indexOf(marker);
 		if (start < 0) return null;
@@ -79,16 +84,19 @@ function htmlToMarkdown(html: string): { title: string; content: string } | null
 	return { title: article.title ?? "", content: markdown };
 }
 
-async function fetchAndExtract(url: string): Promise<string> {
-	const resp = await fetch(url, {
+async function fetchAndExtract(url: string, readerFallback: boolean): Promise<string> {
+	// The network guard (net-guard.ts): public addresses only, every
+	// redirect hop re-checked, body capped while streaming.
+	const resp = await guardedFetch(url, {
 		headers: {
 			"User-Agent": USER_AGENT,
 			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 			"Accept-Language": "en-US,en;q=0.9",
 		},
-		signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+		timeoutMs: FETCH_TIMEOUT_MS,
+		maxBytes: MAX_RESPONSE_BYTES,
 	});
-	if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
+	if (resp.status < 200 || resp.status >= 300) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
 
 	// Final URL after redirects + status — the researcher's only way to
 	// tell a real page from a 200-served error body (owner-reported
@@ -104,10 +112,7 @@ async function fetchAndExtract(url: string): Promise<string> {
 	if (/image\/|audio\/|video\/|zip|octet-stream/.test(contentType)) {
 		throw new Error(`Unsupported content type: ${contentType.split(";")[0]}`);
 	}
-	const length = Number(resp.headers.get("content-length") ?? 0);
-	if (length > MAX_RESPONSE_BYTES) throw new Error("Response too large");
-
-	const text = await resp.text();
+	const text = resp.body.toString("utf-8");
 	if (!contentType.includes("html")) return `${sourceLine}\n\n${truncate(text)}`; // plain text / markdown / code
 
 	const extracted = htmlToMarkdown(text);
@@ -115,9 +120,11 @@ async function fetchAndExtract(url: string): Promise<string> {
 		const header = extracted.title ? `# ${extracted.title}\n\n${sourceLine}\n\n---\n\n` : `${sourceLine}\n\n---\n\n`;
 		return header + truncate(extracted.content);
 	}
-	// Readability failed — likely JS-rendered. Try Jina Reader.
-	const jina = await fetchViaJina(url);
-	if (jina) return truncate(jina);
+	// Readability failed — likely JS-rendered. Jina Reader, if opted in.
+	if (readerFallback) {
+		const jina = await fetchViaJina(url);
+		if (jina) return truncate(jina);
+	}
 	throw new Error("Could not extract readable content (the page may be JavaScript-rendered)");
 }
 
@@ -134,7 +141,13 @@ const webFetchInput = Type.Object({
 	url: Type.String({ description: "The URL to fetch" }),
 });
 
-export function createWebTools(search: () => SearchProvider | null): Record<string, AgentTool<any>> {
+export function createWebTools(
+	search: () => SearchProvider | null,
+	/** Settings → Agent → Tools "Reader service fallback" (r.jina.ai), read
+	 *  per call. Absent = off: page URLs never leave for a third party by
+	 *  default. */
+	readerFallback: () => boolean = () => false,
+): Record<string, AgentTool<any>> {
 	return {
 		web_search: {
 			name: "web_search",
@@ -162,8 +175,8 @@ export function createWebTools(search: () => SearchProvider | null): Record<stri
 			name: "web_fetch",
 			label: "web_fetch",
 			description:
-				"Fetch a web page and extract its readable content as markdown (Readability). " +
-				"Handles HTML pages and plain text; JS-rendered pages fall back to a reader service.",
+				"Fetch a public web page and extract its readable content as markdown (Readability). " +
+				"Handles HTML pages and plain text. Local and private-network addresses are refused.",
 			parameters: webFetchInput,
 			execute: serverExecute("web_fetch", webFetchInput, async ({ url }): Promise<string> => {
 				try {
@@ -178,7 +191,7 @@ export function createWebTools(search: () => SearchProvider | null): Record<stri
 					return `web_fetch failed: invalid URL "${url}"`;
 				}
 				try {
-					return await fetchAndExtract(url);
+					return await fetchAndExtract(url, readerFallback());
 				} catch (err) {
 					return `web_fetch failed for ${url}: ${err instanceof Error ? err.message : String(err)}`;
 				}

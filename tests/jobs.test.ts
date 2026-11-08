@@ -46,6 +46,7 @@ import {
 } from "../src/core/contracts.ts";
 import { composeInstructions, createTeacherAgent } from "../src/agent/teacher-agent.ts";
 import { createTeacherTools } from "../src/agent/tools.ts";
+import { netGuardTransport } from "../src/agent/tools/net-guard.ts";
 import { webTools } from "../src/agent/tools/web.ts";
 import { handleChatRequest } from "../src/server/chat-handler.ts";
 import { runningTurn } from "../src/server/turn-runs.ts";
@@ -678,12 +679,11 @@ describe("research runner (async protocol §3)", () => {
 		const delivery = fakeDeliver();
 		const runner = createJobRunner({ chatStore, jobStore, deliver: delivery.deliver, searchProvider: () => null });
 		const fetched: string[] = [];
-		const realFetch = globalThis.fetch;
-		globalThis.fetch = (async (source) => {
-			fetched.push(String(source));
-			assert.equal(String(source), url);
+		netGuardTransport.current = async (source) => {
+			fetched.push(source.href);
+			assert.equal(source.href, url);
 			return new Response("Synthetic verified source content", { headers: { "content-type": "text/plain" } });
-		}) as typeof fetch;
+		};
 		researchModelOverride.current = fauxEngine([
 			fauxAssistantMessage([fauxToolCall("web_fetch", { url }, { id: "keyless-fetch" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxText(brief)]),
@@ -692,7 +692,7 @@ describe("research runner (async protocol §3)", () => {
 			await runner.runJob(job.id);
 		} finally {
 			researchModelOverride.current = undefined;
-			globalThis.fetch = realFetch;
+			netGuardTransport.current = undefined;
 		}
 		assert.deepEqual(fetched, [url]);
 		const done = jobStore.getJob(job.id)!;

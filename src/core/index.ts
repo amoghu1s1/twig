@@ -16,6 +16,7 @@
  */
 
 export * from "./contracts.ts";
+export * from "./demo-sandbox.ts";
 export { embedLearnerImage } from "./learner-image-svg.ts";
 export * from "./ports.ts";
 export * from "./chains.ts";
