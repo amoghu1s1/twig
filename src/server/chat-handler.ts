@@ -13,7 +13,14 @@ import { chatGPTStreamError } from "../agent/chatgpt-stream.ts";
 import { SubscriptionRequestCycle, type SubscriptionDispatchLifecycle } from "../agent/subscription-request-cycle.ts";
 import { reconstructRequestCause } from "../core/native-messages.ts";
 import { createJobRunner } from "../agent/subagents/runner.ts";
-import { createExtractionPipeline } from "../agent/subagents/extraction.ts";
+import { createExtractionPipeline, extractionStatuses } from "../agent/subagents/extraction.ts";
+import { createAnkiSync } from "./anki-sync.ts";
+import { createGraphTidy } from "./graph-tidy.ts";
+import { createObsidianSync } from "./obsidian-sync.ts";
+import { tidyStore } from "../store/tidy.ts";
+import { rehomeTidyConnections, TIDY_SOURCE_ID, TIDY_SOURCE_LABEL } from "../core/graph-tidy.ts";
+import { ankiStore } from "../store/anki.ts";
+import * as path from "node:path";
 import type { ModelRole } from "../../config.ts";
 import {
 	deliverJobResult,
@@ -42,7 +49,7 @@ import {
 	resolveConversationSpec,
 	resolveRoleSpec,
 } from "../core/settings-resolution.ts";
-import { modelsNotConfigured, providerKeyMissing as providerKeyMissingEnvelope, ROLE_SLOT, type ModelSlotName, type ProviderKeyMissing } from "../core/settings.ts";
+import { ModelsNotConfiguredError, ProviderKeyMissingError, modelsNotConfigured, providerKeyMissing as providerKeyMissingEnvelope, ROLE_SLOT, type ModelSlotName, type ProviderKeyMissing } from "../core/settings.ts";
 import { beginTurn, endTurn } from "./turn-liveness.ts";
 import { applyParkedDismissal } from "./dismissal-park.ts";
 import { registerTurn, rememberTurnFailure, unregisterTurn } from "./turn-runs.ts";
@@ -134,6 +141,87 @@ export const extraction = createExtractionPipeline({
 		providerKeyPresent(provider) ? null : providerKeyMissingEnvelope(provider, [tier]),
 });
 
+/** A source's display title, as the chains view shows it. */
+function ankiSyncTitle(sourceId: string): string | undefined {
+	if (sourceId === TIDY_SOURCE_ID) return TIDY_SOURCE_LABEL;
+	const renamed = stores.sourceOrganizationStore.read().placements[sourceId]?.name;
+	if (renamed) return renamed;
+	const chat = stores.chatStore.getChat(sourceId);
+	if (chat) return chat.title;
+	const notes = stores.graphStore.readSources().find((s) => s.id === sourceId);
+	return notes ? path.basename(notes.filePath).replace(/\.[^.]+$/, "") : undefined;
+}
+
+/** The graph → Anki channel (src/server/anki-sync.ts): the card writer
+ *  resolves like the extraction stages (role override → cheap slot →
+ *  nothing, read fresh), with the same key-presence refusal. Decks are
+ *  named after a proposition's birth source as the chains view shows it. */
+export const ankiSync = createAnkiSync({
+	graphStore: stores.graphStore,
+	ankiStore,
+	sourceTitle: ankiSyncTitle,
+
+	engineFor: (role) => resolveEngine(role),
+	providerKeyMissing: (provider, tier) =>
+		providerKeyPresent(provider) ? null : providerKeyMissingEnvelope(provider, [tier]),
+});
+
+/** Auto-sync after an extraction run that added propositions (graph
+ *  settings ankiSync). Fire-and-forget like the trigger itself: an
+ *  unconfigured card writer skips quietly; an unreachable Anki is not a
+ *  failure (the cards wait for the next sync). */
+function autoSyncAnki(): void {
+	void ankiSync.sync().catch((err) => {
+		if (err instanceof ModelsNotConfiguredError || err instanceof ProviderKeyMissingError) {
+			console.info(`[anki] auto-sync skipped — ${err.message}`);
+			return;
+		}
+		console.error("[anki] auto-sync failed:", err);
+	});
+}
+
+/** The Obsidian vault (src/server/obsidian-sync.ts): topics titled as the
+ *  chains view titles them. */
+export const obsidianSync = createObsidianSync({ graphStore: stores.graphStore, topicTitle: ankiSyncTitle });
+
+/** After the graph changed (an extraction run that added propositions, a
+ *  re-read, a tidy): the opt-in followers, read fresh from settings. */
+function afterGraphChange(grew: boolean): void {
+	const graph = effectiveSettings().graph;
+	if (grew && graph.ankiSync) autoSyncAnki();
+	if (graph.obsidianSync) void obsidianSync.write().catch((err) => console.error("[obsidian] vault write failed:", err));
+}
+
+/** Tidy graph (src/server/graph-tidy.ts): the tidier resolves like the
+ *  other background roles (override → strong slot). An apply retires the
+ *  merged-away nodes' Anki cards and, with Anki sync on, cards the new
+ *  ones. */
+// One-time repair at boot (sync, before any extraction can run): bridge
+// ideas the first tidy release filed under "Connections" move to the
+// topics they connect.
+try {
+	const moved = rehomeTidyConnections(stores.graphStore);
+	if (moved > 0) console.info(`[tidy] re-homed ${moved} connection line(s) under their topics`);
+} catch (err) {
+	console.error("[tidy] re-homing connections failed:", err);
+}
+
+export const graphTidy = createGraphTidy({
+	graphStore: stores.graphStore,
+	store: tidyStore,
+	topicTitle: (sourceId) => ankiSyncTitle(sourceId) ?? "Untitled",
+	engineFor: (role) => resolveEngine(role),
+	providerKeyMissing: (provider, tier) =>
+		providerKeyPresent(provider) ? null : providerKeyMissingEnvelope(provider, [tier]),
+	extractionRunning: () => extractionStatuses().length > 0,
+	onApplied: (result) => {
+		if (result.removedNodeIds.length > 0) {
+			void ankiSync.retire(result.removedNodeIds).catch((err) => console.error("[anki] retire failed:", err));
+		}
+		afterGraphChange(result.createdNodeIds.length > 0);
+		emit("sources-changed", {});
+	},
+});
 
 // Wake-pipeline wiring (contracts.ts "THE ASYNC PROTOCOL" §4): the pipeline
 // delivers its steers through THIS composition root (one event: the steer
@@ -613,7 +701,8 @@ export async function handleChatInput(
 					// Fresh per-turn read of the graph section's chunk budget
 					// (extraction-UX redesign, 2026-09-24): the trigger compares
 					// against it and the pipeline's batches share it.
-					triggerExtraction(stores, extraction, chatId, effective.graph.extractionChunkTokens);
+					triggerExtraction(stores, extraction, chatId, effective.graph.extractionChunkTokens,
+						effective.graph.ankiSync || effective.graph.obsidianSync ? () => afterGraphChange(true) : undefined);
 				}
 				// PARKED DISMISSAL (owner, 2026-10-04): a dismissal that arrived
 				// mid-turn was parked by the dismiss route (202); now that

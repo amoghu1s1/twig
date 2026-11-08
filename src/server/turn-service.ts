@@ -111,6 +111,9 @@ export function triggerExtraction(
 	extraction: ExtractionPipeline,
 	chatId: string,
 	chunkTokens: number,
+	/** Runs after a successful extraction that merged new propositions
+	 *  (the Anki auto-sync seam). */
+	onNewPropositions?: () => void,
 ): void {
 	if (process.env.NODE_ENV === "test") return;
 	try {
@@ -118,7 +121,9 @@ export function triggerExtraction(
 		if (!record) return;
 		const covered = coverageOf(record.messages, deps.graphStore.readCoverage(), chatId);
 		if (covered.uncoveredTokens < chunkTokens) return;
-		void extraction.runExtraction(chatId).catch((err) => {
+		void extraction.runExtraction(chatId).then((stats) => {
+			if (stats.nodes > 0) onNewPropositions?.();
+		}).catch((err) => {
 			// BYOK (owner, 2026-09-22) + key presence (provider-key interlude,
 			// 2026-09-25): an unconfigured OR keyless write channel SKIPS (the
 			// coverage ledger keeps the messages uncovered — the next trigger

@@ -226,6 +226,9 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			// (pre-redesign record, fresh install) resolves to the factory
 			// 4096; the sanitizer has already clamped/floored any stored value.
 			extractionChunkTokens: graph.extractionChunkTokens ?? FACTORY_SETTINGS.graph.extractionChunkTokens,
+			// Anki sync: carding costs model money, so it is opt-in.
+			ankiSync: graph.ankiSync ?? FACTORY_SETTINGS.graph.ankiSync,
+			obsidianSync: graph.obsidianSync ?? FACTORY_SETTINGS.graph.obsidianSync,
 		},
 		compaction: {
 			thresholdTokens: record?.compaction?.thresholdTokens ?? FACTORY_SETTINGS.compaction.thresholdTokens,
