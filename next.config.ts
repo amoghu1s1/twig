@@ -83,6 +83,9 @@ const nextConfig: NextConfig = {
 			// npm installs only the current platform's binary, so this glob
 			// resolves to exactly one Skia binary per build.
 			"node_modules/@napi-rs/canvas-*/**/*",
+			// Side questions: the side model's base prompt is read
+			// from disk per ask — a directory no agent-composition read names.
+			"src/agent/prompts/side-chat/*.md",
 			// Pi-compatible image resizing runs in an unbundled worker. Photon
 			// loads its colocated WASM through Node, also in packaged Electron.
 			"src/agent/image-processing/*.mjs",

@@ -100,3 +100,9 @@ export * from "./coverage.ts";
 // ONE session→markdown formatter — the extractor's view and the user-facing
 // export share it. Pure, browser-safe.
 export * from "./session-markdown.ts";
+// side-chat.ts (inline side questions): ask-input validation,
+// thread lookup and the side model's lesson document. Pure, browser-safe.
+export * from "./side-chat.ts";
+// notes.ts (per-session lesson notes): the save-input sanitizer + the
+// stale-write fingerprint. Pure, browser-safe.
+export * from "./notes.ts";

@@ -29,6 +29,9 @@ export default async function ChatPage({
 				// derived app-side (core/view.ts projectView; GET serves the same
 				// native messages).
 				initialMessages={chat.messages}
+			// Notes (notes wave): the record's saved notes — the first paint's
+			// text; the controller re-reads on mount (B/F can replay stale).
+			initialNotes={chat.notes ?? ""}
 			initialError={turnFailure(chat.id)}
 			initialConfigured={slotsConfigured(record?.models)}
 			initialPrompt={prompt}
