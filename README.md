@@ -24,14 +24,29 @@ Instead of just giving you an explanation, it uses your answers and thinking to 
 
 ![Twig teaching session](docs/assets/teaching-session.png)
 
+## What is different in Twig
+
+Twig keeps LearnHarness's teaching model and adds the parts that matter for daily personal use:
+
+- **FSRS-6 review** — completed practice becomes a derived spaced-repetition queue. Review sessions are ordinary practice sessions; nothing is written back to the graph. See [review-plan.md](docs/review-plan.md).
+- **Code exercises in four languages** — the teacher can pose runnable exercises in **Python, JavaScript, TypeScript and C++**. Python runs in bundled Pyodide, JS/TS in an opaque-origin worker, and C++ through a locally detected `clang++`/`g++` with bounded compile/run limits.
+- **Read by sentence** — a full-screen reading mode for finished teacher prose. Reveal one sentence at a time with blur/hide/dim, adjustable type, optional **ElevenLabs** read-aloud, browser-voice fallback, `Mod+R` on the latest passage, and `gg`/`G` session navigation. See [keyboard.md](docs/keyboard.md#read-by-sentence).
+- **Readings** — generated primer/overview/deep-dive/recap/node readings with a frozen lesson snapshot and a citation law: only sources actually fetched in that run may be cited; Discuss lets you talk through a passage. See [readings.md](docs/readings.md).
+- **Themes** — eleven presets plus **Dark / Light / System** mode, server first paint, Electron chrome sync, and WCAG-checked muted/status colors. See [themes.md](docs/themes.md).
+- **Graph exports** — send the knowledge graph to **Anki** with stable ids and reviewable note types, or export it to an **Obsidian** vault as linked Markdown; a tidy-graph review proposes merges, splits and connections. See [anki.md](docs/anki.md), [obsidian.md](docs/obsidian.md), [tidy-graph.md](docs/tidy-graph.md).
+- **Upstream 0.5.0** — the fork carries upstream's attachments/paperclip, learner-image snapshots, folder imports, PDF import, Exa/Firecrawl/Ollama search, file-access restrictions, atomic store writes, Claude CLI guards, and projection/recovery fixes.
+- **Twig identity** — the transparent Twig mark, app title, package/desktop identity, app icon and release metadata are Twig-branded; attribution to LearnHarness remains.
+
 ## How it works
 
 1. **Measure.** Before teaching, the agent finds where your understanding ends on each part the lesson depends on. Your answers, confidence, and thinking show it where to start.
 2. **Plan.** It works out a dependency map from that starting point to your goal. You can see the plan, and the lesson adapts when your understanding turns out different.
 3. **Teach.** Each step builds on something you already understand. You predict, get an explanation, and check your understanding. Confusions are repaired before anything is built on them. The aim is for the goal to feel obviously true, not merely familiar.
-4. **Practice.** Separate sessions pose varied problems that require the right knowledge to come to mind without being named first. Problems and hints adapt to your reasoning.
+4. **Practice.** Separate sessions pose varied problems that require the right knowledge to come to mind without being named first. Problems and hints adapt to your reasoning. Completed practice feeds the spaced-review queue.
 
 **Think out loud.** The thinking fields let you explain your reasoning, uncertainties, and reactions in your own words. This is how the agent gets a detailed picture rather than just a record of right and wrong answers. You can type or use dictation.
+
+**Read at your pace.** *Read by sentence* turns a finished teacher passage into a full-screen reading surface: one sentence at a time, optional read-aloud, and keyboard navigation. *Readings* can also generate a primer, overview, deep dive, recap or node-specific reading from the lesson's frozen snapshot.
 
 **Bring your files.** In the desktop app, attach PDFs, photos, or any other file with the paperclip, or drag them in. The file stays where it is: the message carries its path, and the agent reads it from there.
 
