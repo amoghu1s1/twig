@@ -63,6 +63,7 @@ import type React from "react";
 import {
 	COMPACTION_THRESHOLD_FLOOR,
 	MODEL_SLOTS,
+	modelLabel,
 	SEARCH_ENGINES,
 	resolveSettings,
 	isFileAccessFolder,
@@ -675,7 +676,7 @@ export function AgentSection({
 								{slot !== "strong" && <><ChatGPTBackgroundAccess provider={coord?.provider} /><NativeSubscriptionBackgroundAccess provider={coord?.provider} /></>}
 								<MenuTrigger
 									value={modelId ? prettyModel(modelId) : ""}
-									hint={modelId ? `${provider}:${modelId}` : undefined}
+									hint={modelId ? modelLabel(provider, modelId) : undefined}
 									emptyLabel="—"
 									ariaLabel={`${SLOT_META[slot].label} model`}
 									testid={`slot-model-${slot}`}
@@ -966,6 +967,17 @@ export function AgentSection({
 								thresholdTokens: Math.max(COMPACTION_THRESHOLD_FLOOR, Math.round(n)),
 							});
 						}}
+					/>
+				</SettingsRow>
+				<SettingsRow
+					label="Include reasoning in token estimates (OpenAI Responses only)"
+					hint="Use saved output-token usage to account for replayed reasoning on matching OpenAI Responses models. Off uses the original text-based estimate."
+					testid="compaction-row-reasoning"
+				>
+					<Toggle
+						label="Include reasoning in token estimates (OpenAI Responses only)"
+						checked={resolvedCompaction.includeReasoning}
+						onChange={(includeReasoning) => onCompactionChange({ ...compaction, includeReasoning })}
 					/>
 				</SettingsRow>
 			</SettingsGroup>
