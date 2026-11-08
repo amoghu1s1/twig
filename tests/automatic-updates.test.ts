@@ -101,6 +101,13 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 					return settings;
 				}, mkdirSync() {}, appendFileSync() {},
 			};
+			if (id === "node:http" || id === "http") return {
+				get: (_url: string, callback: (res: { resume(): void; statusCode: number }) => void) => {
+					const request = new EventEmitter();
+					queueMicrotask(() => callback({ resume() {}, statusCode: 200 }));
+					return request;
+				},
+			};
 			return mainRequire(id);
 		},
 		process: { argv: [], env: { LH_DEV_URL: "http://127.0.0.1:9000" }, platform: "darwin", on() {} },
