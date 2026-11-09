@@ -14,9 +14,9 @@ productName: Twig
 directories:
   output: dist
 # Icons (Twig) — per-platform sources in build/:
-#   mac   build/icon.icns — generated from the Twig mark with all Retina sizes.
-#   win   build/icon.ico  — generated from the Twig mark (16→256).
-#   linux build/icon.png  — generated from the Twig mark (512×512).
+#   mac   build/icon.icns — generated from the transparent Twig emblem, all Retina sizes.
+#   win   build/icon.ico  — generated from the transparent Twig emblem (16→256).
+#   linux build/icon.png  — generated from the transparent Twig emblem (512×512).
 # The Icon Composer document remains in build/icon.icon for future Liquid
 # Glass polish; release builds use the generated icns directly.
 files:

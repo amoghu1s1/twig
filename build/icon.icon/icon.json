@@ -1,31 +1,14 @@
 {
-  "fill" : {
-    "automatic-gradient" : "srgb:0.07843,0.07843,0.07843,1.00000"
-  },
+  "fill" : "none",
   "groups" : [
     {
       "layers" : [
         {
-          "image-name" : "lh_2 2.svg",
-          "name" : "lh_2 2"
-        },
-        {
-          "image-name" : "lh_1 2.svg",
-          "name" : "lh_1 2"
-        },
-        {
-          "image-name" : "lh_0 2.svg",
-          "name" : "lh_0 2"
+          "image-name" : "emblem.png",
+          "name" : "Emblem"
         }
       ],
-      "shadow" : {
-        "kind" : "neutral",
-        "opacity" : 0.5
-      },
-      "translucency" : {
-        "enabled" : true,
-        "value" : 0.3
-      }
+      "name" : "Emblem"
     }
   ],
   "supported-platforms" : {

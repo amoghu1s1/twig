@@ -5,8 +5,8 @@
 // Liquid Glass render) PLUS a backwards-compat icns — but actool's
 // fallback icns caps at 256px (known actool behavior), which looks soft
 // at Finder/Launchpad sizes on pre-Tahoe macOS. This hook swaps in the
-// hand-packed full-res build/icon.icns (all 10 entries, 16→1024, packed
-// via iconutil from the design's PNG exports) AFTER packaging and BEFORE
+// full-res build/icon.icns (all 7 entries, 16→1024, packed from the
+// transparent emblem by scripts/make-icons.mjs) AFTER packaging and BEFORE
 // signing, so:
 //
 //   macOS 26+  → Assets.car (CFBundleIconName) — true layered glass icon;
