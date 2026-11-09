@@ -121,8 +121,9 @@ question marks. `--strict` exits with status 1 when a hard failure is present.
 
 ## Comparing models
 
-Run the same six prompts on DeepSeek and MiMo, five samples each, in fresh sessions.
-Save the outputs under a scratch directory, then run the checker on each file.
+Run the same six prompts on each model you are comparing, five samples each, in
+fresh sessions. Save the outputs under a scratch directory, then run the checker on
+each file.
 
 Record:
 
