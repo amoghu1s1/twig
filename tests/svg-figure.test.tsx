@@ -131,9 +131,9 @@ describe("a mounted figure", () => {
 describe("drawing rules", () => {
 	it("the tutor draws figures as svg, inside question text too, and never ASCII art", () => {
 		const formatting = fs.readFileSync("src/agent/prompts/shared/40-formatting.md", "utf-8");
-		assert.match(formatting, /write an ```svg fenced block instead; it renders as a real picture, in messages and inside question text alike/);
-		assert.match(formatting, /Never draw ASCII-art diagrams/);
+		assert.match(formatting, /write an ```svg fenced block\. It renders as a real picture, both in messages and inside question text/);
+		assert.match(formatting, /Do not draw ASCII-art diagrams/);
 		const demos = fs.readFileSync("src/agent/prompts/teacher/50-demos.md", "utf-8");
-		assert.match(demos, /any figure inside a question, is an inline ```svg block/);
+		assert.match(demos, /any figure inside a question, can be an inline ```svg block/);
 	});
 });

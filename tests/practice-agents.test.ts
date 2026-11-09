@@ -302,7 +302,8 @@ describe("persistent practice nudges", () => {
 			assert.ok(prompt.includes(`**${rung} —`));
 		}
 		assert.match(prompt, /Concluding ends your turn; the next problem is posed only when the learner explicitly moves on/);
-		assert.match(prompt, /After the conclude's result.*END YOUR TURN: no further tool calls in that reply, never another problem/);
+		assert.match(prompt, /After the conclude's result/);
+		assert.match(prompt, /END YOUR TURN\. Do not make further tool calls in that reply, and never pose another problem there/);
 		assert.match(prompt, /A clarification question is never the go-ahead; when in doubt, answer and wait/);
 		assert.match(prompt, /The learner may discard a problem without concluding it/);
 	});
@@ -330,7 +331,7 @@ describe("practice prompt composition (own directory + the formatting appendix)"
 	it("composes base + doctrine — never the teaching base or question/confidence mechanics", () => {
 		const prompt = composeInstructions("practice");
 		// The base's voice section and the doctrine's spine are present…
-		assert.match(prompt, /Everything in this section deletes a default/);
+		assert.match(prompt, /Write clear explanatory prose/);
 		assert.match(prompt, /You run practice sessions\./);
 		assert.match(prompt, /## Standing prohibitions/);
 		// …and nothing from the teaching system prompt or shared fragments.
@@ -346,7 +347,7 @@ describe("practice prompt composition (own directory + the formatting appendix)"
 		// one law across every agent; the old round-10 pointer lived in the
 		// accuracy chunk, the mechanics now live in each agent's own sections
 		assert.match(prompt, /one confidently-delivered hallucination poisons that/);
-		assert.match(prompt, /The bar is the doubt itself/);
+		assert.match(prompt, /If you doubt it, check it/);
 		// practice's own fact-check law (the rarely-needed framing is dead)
 		assert.match(prompt, /grades the learner against a lie/);
 		assert.ok(!prompt.includes("exceptions, not habits"), "the rarely-needed framing is gone");
@@ -356,8 +357,8 @@ describe("practice prompt composition (own directory + the formatting appendix)"
 		// the teacher composes the same shared chunks (one law)
 		const teacher = composeInstructions("teacher");
 		assert.match(teacher, /one confidently-delivered hallucination poisons that/);
-		assert.match(teacher, /Everything in this section deletes a default/);
-		assert.match(teacher, /The bar is the doubt itself/);
+		assert.match(teacher, /Write clear explanatory prose/);
+		assert.match(teacher, /If you doubt it, check it/);
 		assert.match(teacher, /primary data/);
 		// the no-double-plan rule (owner-reported: plan drawn twice)
 		assert.match(teacher, /Never draw the plan again in your prose/);
@@ -379,7 +380,7 @@ describe("practice prompt composition (own directory + the formatting appendix)"
 		assert.match(prober, /Strands inform each other/);
 		assert.match(prober, /never descending into already-bracketed territory/);
 		// the confidence + thinking signals are wired into question selection
-		assert.match(prober, /the verdict, his confidence, and his thinking field together set where the next question should sit/);
+		assert.match(prober, /the verdict, the learner's confidence, and the learner's thinking field together set where the next question should sit/);
 	});
 
 	it("the SHARED formatting guide composes (owner, 2026-10-04 late): LaTeX delimiters in every setting", () => {
@@ -387,7 +388,7 @@ describe("practice prompt composition (own directory + the formatting appendix)"
 		// The standard delimiter law is shared by all three authoring agents.
 		for (const agent of ["practice", "prober", "teacher"] as const) {
 			const instructions = composeInstructions(agent);
-			assert.ok(instructions.includes("Inline `$f(x)$`, display `$$` fenced on its own lines."));
+			assert.ok(instructions.includes("Write inline math as `$f(x)$` and display math as `$$...$$` on separate lines."));
 			assert.ok(!instructions.includes("NEVER `$` or `$$`"));
 		}
 		assert.ok(prompt.indexOf("# The practice session") < prompt.indexOf("## Formatting"), "formatting rides as the appendix");

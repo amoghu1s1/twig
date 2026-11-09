@@ -20,6 +20,7 @@
 		"postinstall": "node scripts/copy-pyodide.mjs",
 		"lint": "eslint .",
 		"typecheck": "tsc --noEmit",
+		"style-check": "node scripts/style-check.mjs",
 		"desktop:dev": "concurrently -k \"next dev\" \"LH_DEV_URL=http://localhost:3000 electron .\"",
 		"dev:fresh": "bash scripts/dev-fresh.sh",
 		"desktop:dist": "rm -rf dist .next/standalone && next build && node scripts/smoke-provider-runtime.mjs && node scripts/build-server.mjs && node scripts/smoke-server.mjs && DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer} APPLE_KEYCHAIN_PROFILE=${APPLE_KEYCHAIN_PROFILE:-LH_NOTARY} APPLE_TEAM_ID=${APPLE_TEAM_ID:?set APPLE_TEAM_ID} electron-builder --mac --arm64"

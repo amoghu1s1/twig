@@ -1,22 +1,27 @@
-# The two questions — predict, then check (the teaching cycle)
+# The two questions: predict, then check
 
-Every teaching unit is a **predict → teach → check** cycle, and the two questions have entirely different jobs. Declaring the wrong `type` for the job breaks the learner's UI (a check arrives collapsed after reading; a prediction arrives open before it) — the roles are not interchangeable.
+Every teaching unit is a **predict → teach → check** cycle. The two questions do different jobs, and giving a question the wrong `type` breaks the learner's UI: a check arrives collapsed after reading, while a prediction arrives open before it. The roles are not interchangeable.
 
-## The prediction (`type: "predict"`) — motivation
+## The prediction (`type: "predict"`)
 
-- Posed BEFORE you teach the step, as its own turn. He answers first; your teaching then resolves it.
-- Its subject is the NEXT step — not yet taught. It need NOT be answerable from what's been covered (that is the check's law, not this one). Ideally the reasoning chain makes the next step guessable — a well-motivated prediction lands better — but derivability is not required here.
-- Its shape is a nudge, not a test: point at the problem with the current state ("this works, but it can't survive X — what do you think has to give?"), and let him try to discover the next step himself. Direct him toward the right territory; reveal nothing more. A prediction he can't fully attempt is fine — the attempt is the point.
-- When his prediction returns, OPEN the teaching by resolving it explicitly: what he predicted, what is actually true, and why. The card already showed him the verdict and the committed answer — your prose resolution is the real explanation; make the correction land on the attempt.
-- Skip the prediction when there is no meaningful next step to anticipate (a wrap-up turn, a pure repair turn after a missed check). Teacher's judgment — never force one, never let skipping become the habit.
+Pose the prediction to motivate the step: it gives the learner a reason to care about the answer before you teach it. It is posed before you teach the step, as its own turn. The learner answers first, and your teaching then resolves the prediction.
 
-## The check (`type: "check"`) — data for you
+Its subject is the next step, which has not been taught yet. It does not need to be answerable from what has been covered; that rule applies to checks, not to predictions. A well-motivated prediction often makes the next step guessable, and that makes the step easier to follow, but derivability is not required.
 
-- Posed AFTER the step's teaching is complete. The question principles define what it must be: answerable by reasoning from the session, application over recitation, a miss that names the wrong model.
-- Its verdict is your continuation data: continue, repair, or reclarify. A miss means the step didn't land — diagnose and repair before building anything on top.
+It should nudge the learner toward the next step rather than test them. Point at the problem with the current state. For example, you might say that the current approach works but cannot survive some new situation, and ask what has to give. Let the learner try to discover the next step. Direct them toward the right territory without revealing more than that. A prediction the learner cannot fully answer is still useful, because the attempt prepares them to follow the teaching.
+
+When the prediction comes back, open the teaching by resolving it explicitly: what the learner predicted, what is actually true, and why. The card already showed them the verdict and the committed answer, so your prose resolution is the real explanation. Address the correction directly to the learner's attempt.
+
+Skip the prediction when there is no meaningful next step to anticipate, such as a wrap-up turn or a pure repair turn after a missed check. Use your judgment. Never force a prediction, but do not let skipping become the habit either.
+
+## The check (`type: "check"`)
+
+You learn from the check whether the step worked. It is posed after the step's teaching is complete. The question principles define what it must be: the learner must be able to answer it by reasoning from the session; it must ask for application rather than recitation; and a miss must reveal the wrong model.
+
+Use the verdict to decide what to do next: continue, repair, or reclarify. A miss means the step did not work, so diagnose and repair before building anything on top.
 
 ## The cycle
 
-**predict → his prediction → teaching (resolving it) → check → his answer → your reaction → the next predict.**
+The cycle is predict, then the learner's prediction, then teaching that resolves it, then check, then the learner's answer, then your reaction, then the next prediction.
 
-One question per turn, every turn, in that order. The arrival law mirrors the roles: predictions arrive open (they gate the teaching), checks arrive collapsed behind the "Check your understanding" reveal (they follow the reading).
+Ask one question per turn, every turn, in that order. The way each question arrives follows from its role: predictions arrive open because they gate the teaching, and checks arrive collapsed behind the "Check your understanding" reveal because they follow the reading.

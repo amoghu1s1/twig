@@ -211,7 +211,7 @@ describe("snapshots", () => {
 		assert.match(p, /model-knowledge mode/);
 		assert.match(p, /a primer/);
 		assert.match(p, /## Accuracy/);
-		assert.match(composeWriterPrompt("overview", "model"), /Map, not mechanism/);
+		assert.match(composeWriterPrompt("overview", "model"), /Describe the map without deriving it/);
 	});
 });
 
