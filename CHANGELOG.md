@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.1 — 2026-11-09
+
+### Teaching
+
+- **Clearer learner-facing prose** — rewrote the shared, teacher, prober, practice, capstone, readings, discuss, and side-chat prompts in natural explanatory prose. Every action now has a concrete actor, and the prompts reject compressed pseudo-English such as "the limit removes the corner." Added `docs/style-rubric.md` and `npm run style-check`.
+- **Direct answers** — scoped the discovery method to teaching a new step, so direct questions get a direct answer first.
+
+### Branding
+
+- **New app icon** — replaced the mark with the orange connected-circle emblem on a transparent background for macOS, Windows, Linux, and the web app.
+
 ## 0.6.0 — 2026-11-08
 
 Twig's first feature release after syncing upstream LearnHarness 0.5.0.
