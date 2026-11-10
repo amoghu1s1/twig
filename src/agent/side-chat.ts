@@ -19,6 +19,7 @@ import { PATHS } from "../../config.ts";
 import type { SideModelTurn } from "../core/side-chat.ts";
 import type { PiEngine } from "./models.ts";
 import { readPromptOverride } from "./prompt-segments.ts";
+import { CLAUDE_CODE_PROVIDER } from "./claude-code/constants.ts";
 
 const PROMPTS_DIR = path.join(PATHS.root, "src", "agent", "prompts");
 const SIDE_BASE = path.join(PROMPTS_DIR, "side-chat", "00-base.md");
@@ -75,6 +76,11 @@ export async function streamSideAnswer(opts: {
 	engine: PiEngine;
 	instructions: string;
 	turns: readonly SideModelTurn[];
+	/** Stable per-conversation identity (the side thread id). Providers such
+	 *  as OpenCode require it for routing (x-opencode-session); cache-affinity
+	 *  providers use it too. A call without one is a different conversation
+	 *  every time. */
+	sessionId: string;
 	signal?: AbortSignal;
 	onText?: (text: string) => void;
 }): Promise<SideAnswerResult> {
@@ -95,7 +101,13 @@ export async function streamSideAnswer(opts: {
 	);
 	let text = "";
 	try {
+		// Session identity is required by OpenCode's routing header and gives
+		// cache affinity elsewhere. Claude Code is the exception: its live CLI
+		// process is retained by session id, and a side question is deliberately
+		// not a second handle on the lesson's process.
+		const sessionId = opts.engine.model.provider === CLAUDE_CODE_PROVIDER ? undefined : opts.sessionId;
 		const stream = opts.engine.streamFn(opts.engine.model, normalizeContext({ systemPrompt: opts.instructions, messages, tools: [] }), {
+			...(sessionId ? { sessionId } : {}),
 			signal: opts.signal,
 		} as never);
 		for await (const event of stream) {

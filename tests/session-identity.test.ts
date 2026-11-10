@@ -7,6 +7,7 @@ import { APP_IDENTITY, piEngineForSpec, type PiEngine } from "../src/agent/model
 import { createProberAgent, createTeacherAgent, createPracticeAgent, type AgentBuildOptions } from "../src/agent/teacher-agent.ts";
 import { runSubagent } from "../src/agent/subagents/pi-run.ts";
 import { healToolRecord } from "../src/agent/tools/heal.ts";
+import { streamSideAnswer } from "../src/agent/side-chat.ts";
 import metadata from "../package.json" with { type: "json" };
 
 const factories = [
@@ -113,6 +114,25 @@ describe("native app and conversation identity", { concurrency: false }, () => {
 			}
 		}));
 	}
+
+	it("side answers carry OpenCode's required per-conversation session header", async () => closed(async () => {
+		// Side questions run outside the agent loop. Before the fix they passed
+		// no session identity, so OpenCode Go/Zen requests went out without
+		// x-opencode-session — the header those providers require for routing.
+		for (const provider of ["opencode-go", "opencode"] as const) {
+			const engine = piEngineForSpec({ provider, id: "glm-5.3", thinkingLevel: "off" });
+			let headers = new Headers();
+			globalThis.fetch = async (input, init) => {
+				const request = new Request(input, init);
+				headers = request.headers;
+				await request.text();
+				return new Response('{"error":{"message":"closed fixture"}}', { status: 400, headers: { "content-type": "application/json" } });
+			};
+			const result = await streamSideAnswer({ engine, instructions: "offline", turns: [{ role: "user", text: "offline" }], sessionId: "side_wire_exact" });
+			assert.equal(result.outcome, "error", "the closed fixture ends the call");
+			assert.equal(headers.get("x-opencode-session"), "side_wire_exact");
+		}
+	}));
 
 	it("native OpenAI cache keys clamp to 64 characters while affinity retains exact session", async () => closed(async () => {
 		const engine = piEngineForSpec({ provider: "openai", id: "gpt-4o-mini", thinkingLevel: "off" });

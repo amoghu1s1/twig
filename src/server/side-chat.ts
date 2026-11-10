@@ -177,6 +177,10 @@ export function createSideChatService(deps: SideChatDeps): SideChatService {
 					engine,
 					instructions: deps.instructions(),
 					turns,
+					// The side thread is its own conversation: keep one stable
+					// identity across its questions and retries. OpenCode Go (and
+					// Zen) REQUIRE it for the x-opencode-session routing header.
+					sessionId: thread.id,
 					signal: controller.signal,
 					onText: (text) => {
 						run.text = text;

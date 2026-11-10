@@ -310,7 +310,14 @@ async function readAll(res: Response): Promise<Ndjson[]> {
 
 function setup(opts: { tokensPerSecond?: number } = {}) {
 	const faux = createFauxCore({ tokensPerSecond: opts.tokensPerSecond });
-	const engine: PiEngine = { model: faux.getModel(), streamFn: faux.streamSimple };
+	const requests: Array<{ sessionId?: string }> = [];
+	const engine: PiEngine = {
+		model: faux.getModel(),
+		streamFn: (model, context, options) => {
+			requests.push(options ?? {});
+			return faux.streamSimple(model, context, options);
+		},
+	};
 	const contexts: TranscriptContext[] = [];
 	let refusal: Response | null = null;
 	const service = createSideChatService({
@@ -329,12 +336,12 @@ function setup(opts: { tokensPerSecond?: number } = {}) {
 				return typeof reply === "string" ? fauxAssistantMessage(reply) : reply;
 			},
 		]);
-	return { faux, service, chatId: chat.id, anchor, answer, contexts, refuse: (r: Response | null) => (refusal = r) };
+	return { faux, service, chatId: chat.id, anchor, answer, contexts, requests, refuse: (r: Response | null) => (refusal = r) };
 }
 
 describe("side chat service", () => {
 	it("answers a first question: NDJSON wire, saved thread, usage, events, untouched messages, no turn liveness", async () => {
-		const { service, chatId, anchor, answer, contexts } = setup();
+		const { service, chatId, anchor, answer, contexts, requests } = setup();
 		const events: string[] = [];
 		const off = subscribe((e) => {
 			if ("chatId" in e && e.chatId === chatId) events.push(e.type);
@@ -357,6 +364,7 @@ describe("side chat service", () => {
 		assert.deepEqual(thread.anchor, anchor);
 		assert.deepEqual(thread.messages.map((m) => m.role), ["user", "assistant"]);
 		assert.deepEqual(thread.messages[0]!.quotes, ["the limit"]);
+		assert.equal(requests[0]?.sessionId, thread.id, "the side thread id is the provider conversation identity");
 		assert.ok(record.turns?.some((t) => t.messageId === thread.messages[1]!.id), "usage keyed to the side answer");
 		assert.equal(isTurnRunning(chatId), false, "a side answer is NOT an application turn");
 		assert.ok(events.includes("side-chats-changed"));
