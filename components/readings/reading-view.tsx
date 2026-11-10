@@ -58,6 +58,8 @@ import {
 } from "@/components/readings/api";
 import { useDiscussion } from "@/components/readings/discussion-api";
 import { blockKeys, DiscussPanel, DiscussProvider, PassageAsk, ReadingBlocks } from "@/components/readings/discussion";
+import { openModelPicker, selectedModelUnavailable, useModelSetup } from "@/components/setup-cta";
+import { useSettingsDialog } from "@/components/settings/settings-dialog";
 
 export function ModeToggle({
 	mode,
@@ -146,6 +148,8 @@ export function ReadingDocument({
 	onOpenReading?: (id: string) => void;
 }) {
 	const router = useRouter();
+	const { catalog, zeroKeys } = useModelSetup(false);
+	const { open: openSettings } = useSettingsDialog();
 	const [busy, setBusy] = useState<null | "practice" | "rerun" | "delete">(null);
 	const [error, setError] = useState<string | null>(null);
 	const [confirmDelete, setConfirmDelete] = useState(false);
@@ -198,6 +202,21 @@ export function ReadingDocument({
 		else router.push(`/readings/${res.id}`);
 	};
 	const practice = async () => {
+		// The same pre-send guards as home/draft/review: never create an
+		// orphan chat that the first turn will refuse.
+		if (zeroKeys) {
+			openSettings("keys");
+			return;
+		}
+		const strong = catalog?.slots.strong?.model;
+		if (catalog && !strong) {
+			openSettings("agent");
+			return;
+		}
+		if (selectedModelUnavailable(catalog, strong ? `${strong.provider}:${strong.id}` : undefined)) {
+			openModelPicker();
+			return;
+		}
 		setBusy("practice");
 		const target = await startPractice(r.title, r.practice);
 		setBusy(null);

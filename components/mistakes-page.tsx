@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ChevronDownIcon, ChevronRightIcon, TrashIcon } from "lucide-react";
 import {
@@ -51,22 +51,39 @@ export function MistakesPage() {
 	const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set());
 	const [scanNote, setScanNote] = useState<{ found: number; retry: number } | null>(null);
 	const [busy, setBusy] = useState(false);
+	const [loadError, setLoadError] = useState<string | null>(null);
 
 	const load = useCallback(async () => {
 		try {
 			const res = await fetch("/api/mistakes", { cache: "no-store" });
-			if (!res.ok) return;
-			const body = (await res.json()) as { mistakes: MistakeRecord[]; progress: Progress };
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			const body = (await res.json()) as { mistakes?: MistakeRecord[]; progress?: Progress };
+			if (!Array.isArray(body.mistakes) || !body.progress) throw new Error("Malformed response");
 			setRecords(body.mistakes);
 			setProgress(body.progress);
+			setLoadError(null);
 		} catch {
-			setRecords((prev) => prev ?? []);
+			// Never turn a failed read into "No mistakes yet" or an endless
+			// Loading…: keep the last good list and offer a retry.
+			setLoadError("Couldn't load mistakes.");
 		}
 	}, []);
 	useEffect(() => {
 		void load();
 	}, [load]);
-	useServerEvent("mistakes-changed", () => void load());
+	// Analyzing a batch emits one event per miss; debounce the refetch like
+	// the other list surfaces instead of firing N full-list requests.
+	const changeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	useServerEvent("mistakes-changed", () => {
+		if (changeTimer.current) clearTimeout(changeTimer.current);
+		changeTimer.current = setTimeout(() => {
+			changeTimer.current = undefined;
+			void load();
+		}, 250);
+	});
+	useEffect(() => () => {
+		if (changeTimer.current) clearTimeout(changeTimer.current);
+	}, []);
 
 	const filtered = useMemo(() => filterMistakes(records ?? [], { query, errorType, kind, chatId }), [records, query, errorType, kind, chatId]);
 	const groups = useMemo(() => groupMistakes(filtered, by), [filtered, by]);
@@ -100,13 +117,15 @@ export function MistakesPage() {
 	};
 	const scan = async (confirm: boolean) => {
 		setBusy(true);
+		setLoadError(null);
 		try {
 			const res = await fetch("/api/mistakes/scan", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ confirm }),
 			});
-			const body = (await res.json()) as { found?: number; retry?: number };
+			const body = (await res.json().catch(() => ({}))) as { found?: number; retry?: number; error?: string };
+			if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
 			if (confirm) {
 				setScanNote(null);
 				await load();
@@ -115,6 +134,8 @@ export function MistakesPage() {
 			} else {
 				setScanNote({ found: body.found ?? 0, retry: body.retry ?? 0 });
 			}
+		} catch (err) {
+			setLoadError(err instanceof Error ? err.message : "Couldn't scan past sessions.");
 		} finally {
 			setBusy(false);
 		}
@@ -288,15 +309,28 @@ export function MistakesPage() {
 					<button
 						type="button"
 						data-testid="mistakes-expand-all"
-						onClick={() => setOpen((prev) => (prev.size >= filtered.length && filtered.length > 0 ? new Set() : new Set(filtered.map((r) => r.id))))}
+						onClick={() => {
+							const allVisibleOpen = filtered.length > 0 && filtered.every((r) => open.has(r.id));
+							setOpen(allVisibleOpen ? new Set() : new Set(filtered.map((r) => r.id)));
+						}}
 						className="rounded-lg px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					>
-						{open.size >= filtered.length && filtered.length > 0 ? "Collapse all" : "Expand all"}
+						{filtered.length > 0 && filtered.every((r) => open.has(r.id)) ? "Collapse all" : "Expand all"}
 					</button>
 				</div>
 
 				<div className="min-h-0 flex-1 overflow-y-auto" data-testid="mistakes-list">
-					{records === null ? (
+					{loadError && (
+						<div role="alert" className="mb-3 flex items-center gap-3 rounded-lg border border-error/40 px-3 py-2 text-xs text-error" data-testid="mistakes-error">
+							<span className="min-w-0 flex-1">{loadError}</span>
+							<button type="button" onClick={() => void load()} className="rounded-md px-2 py-1 text-foreground hover:bg-accent">
+								Retry
+							</button>
+						</div>
+					)}
+					{records === null && loadError ? (
+						<p className="text-sm text-muted-foreground">Couldn&rsquo;t load mistakes.</p>
+					) : records === null ? (
 						<p className="text-sm text-muted-foreground">Loading…</p>
 					) : records.length === 0 ? (
 						<div className="rounded-2xl border bg-card p-6 text-sm text-muted-foreground">
@@ -313,6 +347,7 @@ export function MistakesPage() {
 									<section key={g.key} data-testid="mistakes-group">
 										<button
 											type="button"
+											aria-expanded={!collapsed}
 											onClick={() => toggleGroup(g.key)}
 											className="mb-2 flex w-full items-center gap-2 text-left"
 										>

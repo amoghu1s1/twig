@@ -197,6 +197,7 @@ function TrayList({
 					(nodes.length > 0 ? (
 						<select
 							data-testid="reading-node-select"
+							aria-label="Idea for the deep dive"
 							value={nodeId}
 							onChange={(e) => setNodeId(e.target.value)}
 							className="rounded-md border border-border bg-background px-2 py-1.5 text-sm"
@@ -215,6 +216,7 @@ function TrayList({
 					))}
 				<textarea
 					value={requestText}
+					aria-label="What should the reading focus on?"
 					onChange={(e) => setRequestText(e.target.value)}
 					placeholder="Optional: what should it focus on?"
 					rows={2}

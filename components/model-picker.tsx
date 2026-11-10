@@ -306,6 +306,8 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 				<button
 				type="button"
 				data-testid="stats-thinking"
+				disabled={entry === undefined}
+				title={entry === undefined ? "Pick a model first" : undefined}
 				onClick={() => {
 					// No model picked → nothing to set a level FOR: the click
 					// is a no-op, never an empty menu.
@@ -317,7 +319,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 				// view's floating top-right buttons (import notes, gear,
 				// coverage) — blurred, fuller opacity, shadowed — so the
 				// graph no longer bleeds through these pills.
-				className="flex items-center gap-1.5 rounded-full border bg-card/85 px-2.5 py-1 shadow-lg backdrop-blur transition-colors hover:border-border hover:bg-muted"
+				className="flex items-center gap-1.5 rounded-full border bg-card/85 px-2.5 py-1 shadow-lg backdrop-blur transition-colors hover:border-border hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
 			>
 				{/* Just the level — the button reads like the model button reads
 				   the model name (owner, stats-control round 1). */}

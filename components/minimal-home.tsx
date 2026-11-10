@@ -18,7 +18,7 @@
  * The practice pick flow mirrors GraphView's contract verbatim (home
  * lifts the pick set; the chip opens the overlay in select mode).
  */
-import { useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import { ListTreeIcon } from "lucide-react";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { GraphCostControl } from "@/components/graph-view.tsx";
@@ -81,7 +81,7 @@ export function KnowledgeSummary({
 	);
 }
 
-export function MinimalHome({
+export const MinimalHome = memo(function MinimalHome({
 	chainSelectOpen = false,
 	practiceSelection,
 	onPracticeSelectionChange,
@@ -207,4 +207,4 @@ export function MinimalHome({
 			/>
 		</div>
 	);
-}
+});

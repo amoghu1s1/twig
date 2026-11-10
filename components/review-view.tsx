@@ -14,6 +14,8 @@ import { useState } from "react";
 import { startDraftSession } from "@/components/new-session";
 import { useReviewPayload } from "@/components/review-payload-hook";
 import { TopBar } from "@/components/top-bar";
+import { openModelPicker, selectedModelUnavailable, useModelSetup } from "@/components/setup-cta";
+import { useSettingsDialog } from "@/components/settings/settings-dialog";
 import { REVIEW_SESSION_MAX, type ReviewItem, type ReviewPayload } from "@/src/core";
 
 const DAY = 86_400_000;
@@ -126,12 +128,15 @@ export function ReviewBody({
 	payload,
 	selected,
 	busy,
+	error,
 	onToggle,
 	onStart,
 }: {
 	payload: ReviewPayload | null;
 	selected: ReadonlySet<string>;
 	busy: boolean;
+	/** A refused start (no model/key, or the create call failed). */
+	error?: string | null;
 	onToggle: (id: string) => void;
 	onStart: () => void;
 }) {
@@ -169,6 +174,11 @@ export function ReviewBody({
 						Today&rsquo;s target is {dailyLimit} — the remaining {due.length - dailyLimit} can wait.
 					</p>
 				)}
+				{error && (
+					<p role="alert" data-testid="review-error" className="mt-2 text-xs text-destructive">
+						{error}
+					</p>
+				)}
 				{due.length === 0 ? (
 					<p data-testid="review-empty" className="mt-3 text-sm text-muted-foreground">
 						Nothing is due. Propositions you practice will return here when recall is due.
@@ -198,22 +208,46 @@ export function ReviewBody({
 export function ReviewView() {
 	const router = useRouter();
 	const payload = useReviewPayload();
+	const { catalog, zeroKeys } = useModelSetup(false);
+	const { open: openSettings } = useSettingsDialog();
 	const [picked, setPicked] = useState<Set<string> | null>(null);
 	const [busy, setBusy] = useState(false);
+	const [startError, setStartError] = useState<string | null>(null);
 	const selected = effectiveSelection(payload, picked);
 
 	const start = async () => {
+		if (busy) return;
 		const picks = (payload?.due ?? [])
 			.filter((i) => selected.has(i.id))
 			.map(({ id, name, statement }) => ({ id, name, statement }));
 		if (picks.length === 0) return;
+		// The same pre-send guards as home and the draft: a refused first send
+		// would otherwise leave an orphan error-shell session in the sidebar.
+		if (zeroKeys) {
+			openSettings("keys");
+			return;
+		}
+		const strong = catalog?.slots.strong?.model;
+		if (catalog && !strong) {
+			openSettings("agent");
+			return;
+		}
+		if (selectedModelUnavailable(catalog, strong ? `${strong.provider}:${strong.id}` : undefined)) {
+			openModelPicker();
+			return;
+		}
+		setStartError(null);
 		setBusy(true);
 		try {
 			const url = await startDraftSession(reviewSessionText(picks), fetch, "practice", picks);
 			if (url) router.push(url);
-			else setBusy(false);
+			else {
+				setBusy(false);
+				setStartError("Couldn't start a review session. Try again.");
+			}
 		} catch {
 			setBusy(false);
+			setStartError("Couldn't start a review session. Check your provider connection and try again.");
 		}
 	};
 
@@ -228,6 +262,7 @@ export function ReviewView() {
 						payload={payload}
 						selected={selected}
 						busy={busy}
+						error={startError}
 						onToggle={(id) => setPicked(toggleSelection(selected, id))}
 						onStart={() => void start()}
 					/>

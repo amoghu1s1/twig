@@ -325,6 +325,7 @@ function AskBox({
 				<textarea
 					ref={ref}
 					data-testid="discuss-input"
+					aria-label={placeholder ?? "Ask about this reading"}
 					rows={1}
 					value={text}
 					disabled={disabled}

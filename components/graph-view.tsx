@@ -63,7 +63,7 @@
  * camera never moves.
  */
 
-import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { NotesImportControl, NotesImportErrors, NotesImportNotices, useNotesImport } from "@/components/notes-import.tsx";
 import Link from "next/link";
 import { FileTextIcon, ListTreeIcon, Loader2Icon, RotateCcwIcon, SearchIcon, SettingsIcon, WaypointsIcon } from "lucide-react";
@@ -941,7 +941,7 @@ export function GraphChromeRow({
 	);
 }
 
-export function GraphView({
+export const GraphView = memo(function GraphView({
 	chainSelectOpen = false,
 	practiceSelection,
 	onPracticeSelectionChange,
@@ -1721,4 +1721,4 @@ export function GraphView({
 				}}
 			/>		</div>
 	);
-}
+});
