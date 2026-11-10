@@ -9,7 +9,7 @@
  * control together) and the control itself locks — the row owns the dim.
  */
 
-import { useState, type ComponentPropsWithRef, type ReactNode } from "react";
+import { useRef, useState, type ComponentPropsWithRef, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /** A section block: pronounced mono heading + content. */
@@ -229,6 +229,9 @@ export function CommitInput({
 	// what landed.
 	const [draft, setDraft] = useState(value);
 	const [editing, setEditing] = useState(false);
+	// Escape discards: blur follows, and its handler must not commit the
+	// cancelled draft (the old path saw editing=true and committed it).
+	const cancelled = useRef(false);
 	return (
 		<input
 			type={type}
@@ -243,12 +246,19 @@ export function CommitInput({
 			onBlur={() => {
 				if (!editing) return;
 				setEditing(false);
+				if (cancelled.current) {
+					cancelled.current = false;
+					setDraft(value);
+					return;
+				}
 				const next = draft.trim();
 				if (next !== value) onCommit(next);
 			}}
 			onKeyDown={(e) => {
 				if (e.key === "Enter") e.currentTarget.blur();
 				if (e.key === "Escape") {
+					e.stopPropagation();
+					cancelled.current = true;
 					setEditing(false);
 					e.currentTarget.blur();
 				}

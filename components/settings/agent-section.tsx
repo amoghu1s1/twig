@@ -452,15 +452,19 @@ export function AgentSection({
 		};
 		const onKeyDown = (e: KeyboardEvent) => {
 			if (e.key === "Escape") {
-				e.stopPropagation();
+				// CAPTURE + immediate: a bubble listener on the same document
+				// cannot be silenced by stopPropagation, and the settings
+				// dialog's own Escape listener is registered first.
+				e.preventDefault();
+				e.stopImmediatePropagation();
 				setOpenMenu(null);
 			}
 		};
 		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
+		document.addEventListener("keydown", onKeyDown, true);
 		return () => {
 			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
+			document.removeEventListener("keydown", onKeyDown, true);
 		};
 	}, [openMenu]);
 

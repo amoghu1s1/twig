@@ -180,6 +180,51 @@ export function SettingsDialogBody({
 			window.removeEventListener(MENU_CLOSE_EVENT, onClose);
 		};
 	}, []);
+	const dialogRef = useRef<HTMLDivElement | null>(null);
+	const recordRef = useRef(record);
+	recordRef.current = record;
+	// Keyboard ownership (the ConnectionDialog precedent): initial focus,
+	// a real Tab walk inside the modal, Escape owned by the dialog (unless a
+	// field or a menu claimed it first), and focus restored on close. The
+	// app-wide Tab suppression otherwise leaves this modal unreachable.
+	useEffect(() => {
+		const previous = document.activeElement as HTMLElement | null;
+		const focusable = () => [
+			...(dialogRef.current?.querySelectorAll<HTMLElement>(
+				'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+			) ?? []),
+		];
+		focusable()[0]?.focus();
+		const key = (event: KeyboardEvent) => {
+			if (event.key !== "Tab") return;
+			// A nested dialog (connection sign-in) owns its own trap.
+			const focused = document.activeElement;
+			if (focused instanceof Element && focused.closest('[role="dialog"]') && !dialogRef.current?.contains(focused)) return;
+			const items = focusable();
+			const first = items[0];
+			const last = items.at(-1);
+			if (!first) {
+				event.preventDefault();
+				return;
+			}
+			if (event.shiftKey && (document.activeElement === first || !dialogRef.current?.contains(document.activeElement))) {
+				event.preventDefault();
+				last?.focus();
+			} else if (!event.shiftKey && (document.activeElement === last || !dialogRef.current?.contains(document.activeElement))) {
+				event.preventDefault();
+				first.focus();
+			}
+			// The app-wide Tab handler must not replace this native walk with
+			// the composer's text-field cycle.
+			event.stopPropagation();
+		};
+		document.addEventListener("keydown", key, true);
+		return () => {
+			document.removeEventListener("keydown", key, true);
+			if (previous?.isConnected) previous.focus();
+		};
+	}, []);
+
 	const [active, setActive] = useState<SectionId>(initialSection);
 	// A deep-link fired while the dialog is ALREADY open (first exercised by
 	// the wave-6 embedding picker's "Add a provider key first…" link — the
@@ -192,8 +237,9 @@ export function SettingsDialogBody({
 
 	// Fetch once per dialog mount. 200 {settings: null} is FIRST BOOT
 	// (no record = factory everything), not a failure — the error state is
-	// a non-200 or a network throw only.
-	useEffect(() => {
+	// a non-200 or a network throw only. Retry re-runs exactly this read.
+	const loadSettings = useCallback(() => {
+		setRecord(undefined);
 		fetch("/api/settings")
 			.then((r) =>
 				r.ok ? r.json() : Promise.reject(new Error(`status ${r.status}`)),
@@ -204,67 +250,90 @@ export function SettingsDialogBody({
 			})
 			.catch(() => setRecord(null));
 	}, []);
+	useEffect(() => {
+		loadSettings();
+	}, [loadSettings]);
 
 	// Escape closes — the layered-dismiss convention (Esc is dead for the
 	// sections' own editors while they hold focus; this listener is the
 	// dialog's outer layer).
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				// THE ONE-ESC LAW (owner, keyboard round 2026-10-06): claim
-				// at the document level — the window chain (dictation →
-				// abort) must not also act. One Esc, one action.
-				e.preventDefault();
-				e.stopPropagation();
-				onClose();
-			}
+			if (e.key !== "Escape" || e.defaultPrevented) return;
+			// A field or an open menu owns its first Escape. Closing the whole
+			// dialog here used to discard in-progress text and commit the field
+			// draft through its blur path.
+			const target = e.target instanceof Element ? e.target : null;
+			if (target?.closest("input, textarea, select, [contenteditable='true'], [data-lh-menu]")) return;
+			// THE ONE-ESC LAW (owner, keyboard round 2026-10-06): claim
+			// at the document level — the window chain (dictation →
+			// abort) must not also act. One Esc, one action.
+			e.preventDefault();
+			e.stopPropagation();
+			onClose();
 		};
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
 	}, [onClose]);
 
 	/** ONE writer for the whole dialog: PUT the whole section, keep the
-	 *  record mirror in sync, surface route errors inline (a 400 is a
-	 *  schema mistake caught by the validation surface). */
+	 *  record mirror in sync, surface route/network errors inline. Writes
+	 *  are SERIALIZED — two fast toggles must not race their whole-section
+	 *  payloads. The optimistic mirror lands before the request so the next
+	 *  click composes from the value the learner just chose. */
+	const writeQueue = useRef<Promise<void>>(Promise.resolve());
 	const write = useCallback(
-		async (
+		(
 			section: "general" | "agent" | "models" | "appearance" | "graph" | "compaction",
 			body: object,
-		) => {
-			setError(null);
-			const res = await fetch(`/api/settings/${section}`, {
-				method: "PUT",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify(body),
+		): Promise<void> => {
+			const task = writeQueue.current.then(async () => {
+				setError(null);
+				const before = recordRef.current;
+				setRecord((prev) => (prev ? ({ ...prev, [section]: body } as UserSettings) : prev));
+				try {
+					const res = await fetch(`/api/settings/${section}`, {
+						method: "PUT",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify(body),
+					});
+					if (!res.ok) {
+						const detail = (await res.json().catch(() => ({}))) as {
+							error?: string;
+						};
+						setRecord(before);
+						setError(`${section}: ${detail.error ?? res.status}`);
+						return;
+					}
+					// Server truth, never the request body (fix wave, owner repro):
+					// the models section clamps pinned thinking levels on write
+					// (bd68486) — a swap that rides an unsupported level lands
+					// CLAMPED in the record, and the writing surface must show the
+					// stored value in this same interaction, not the optimistic one.
+					const reply = (await res.json().catch(() => null)) as { settings?: UserSettings; fileAccessError?: string } | null;
+					const stored = reply?.settings;
+					setFileAccessError(reply?.fileAccessError ?? null);
+					setRecord(
+						(prev) =>
+							stored ?? ({ ...(prev ?? {}), [section]: body }) as UserSettings,
+					);
+					notifySettingsSaved(section);
+					if (section === "appearance")
+						onAppearanceChange(body as AppearanceSettings);
+				} catch {
+					setRecord(before);
+					setError(`${section}: couldn't reach the app server. Try again.`);
+				}
 			});
-			if (!res.ok) {
-				const detail = (await res.json().catch(() => ({}))) as {
-					error?: string;
-				};
-				setError(`${section}: ${detail.error ?? res.status}`);
-				return;
-			}
-			// Server truth, never the request body (fix wave, owner repro):
-			// the models section clamps pinned thinking levels on write
-			// (bd68486) — a swap that rides an unsupported level lands
-			// CLAMPED in the record, and the writing surface must show the
-			// stored value in this same interaction, not the optimistic one.
-			const reply = (await res.json().catch(() => null)) as { settings?: UserSettings; fileAccessError?: string } | null;
-			const stored = reply?.settings;
-			setFileAccessError(reply?.fileAccessError ?? null);
-			setRecord(
-				(prev) =>
-					stored ?? ({ ...(prev ?? {}), [section]: body }) as UserSettings,
-			);
-			notifySettingsSaved(section);
-			if (section === "appearance")
-				onAppearanceChange(body as AppearanceSettings);
+			writeQueue.current = task.catch(() => undefined);
+			return task;
 		},
 		[onAppearanceChange],
 	);
 
 	return (
 		<div
+			ref={dialogRef}
 			role="dialog"
 			aria-modal="true"
 			aria-label="Settings"
@@ -352,9 +421,12 @@ export function SettingsDialogBody({
 							Loading settings…
 						</p>
 					) : record === null ? (
-						<p className="px-6 py-5 text-xs text-muted-foreground/70">
-							Settings could not be loaded — refresh to retry.
-						</p>
+						<div role="alert" className="flex items-center gap-3 px-6 py-5 text-xs text-muted-foreground/70">
+							<span className="min-w-0 flex-1">Settings could not be loaded.</span>
+							<button type="button" onClick={loadSettings} className="rounded-sm px-2 py-1 text-foreground hover:bg-accent">
+								Retry
+							</button>
+						</div>
 					) : (
 						<div>
 							{active === "general" && (

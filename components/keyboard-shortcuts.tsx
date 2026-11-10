@@ -67,11 +67,17 @@ export function KeyboardShortcuts() {
 
 	useEffect(() => {
 		const onKeyDown = (e: KeyboardEvent) => {
+			// A surfaced layer (settings/modal/popover/dialog) that claimed the
+			// key at capture owns it; the global chain must not also act.
+			if (e.defaultPrevented) return;
 			// ── Tab is dead (owner, 2026-09-17): preventDefault even when
 			// nothing is bound to it — browser tab-focus is abandoned, and
 			// the default action runs after dispatch, so suppressing it here
 			// works from any focus.
 			if (e.key === "Tab") {
+				// Dialogs own their focus walk (Settings and ConnectionDialog
+				// trap it). The app-wide "Tab is dead" rule is for the page.
+				if (e.target instanceof Element && e.target.closest('[role="dialog"], [role="alertdialog"]')) return;
 				sequenceRef.current = null;
 				e.preventDefault();
 				if (e.shiftKey) window.dispatchEvent(new CustomEvent("lh:kbd-cycle-thinking"));
@@ -198,7 +204,7 @@ function CheatSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
 	return (
 		<div
 			data-testid="cheat-sheet"
-			className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+			className="fixed inset-0 z-50 flex items-center justify-center bg-background/80"
 			{...backdropDismiss}
 		>
 			<div

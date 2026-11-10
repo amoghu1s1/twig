@@ -297,15 +297,19 @@ export function AppearanceSection({
 		};
 		const onKeyDown = (e: KeyboardEvent) => {
 			if (e.key === "Escape") {
-				e.stopPropagation();
+				// CAPTURE + immediate: the settings dialog's Escape listener is
+				// a bubble listener on the same document and would otherwise
+				// close the whole dialog with this menu.
+				e.preventDefault();
+				e.stopImmediatePropagation();
 				setFontMenuOpen(false);
 			}
 		};
 		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
+		document.addEventListener("keydown", onKeyDown, true);
 		return () => {
 			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
+			document.removeEventListener("keydown", onKeyDown, true);
 		};
 	}, [fontMenuOpen]);
 

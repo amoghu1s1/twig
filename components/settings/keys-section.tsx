@@ -192,10 +192,15 @@ function KeyTableRow({
 		if (!value.trim() || busy) return;
 		setBusy(true);
 		setError(null);
-		const err = await onSave(value);
-		if (err) setError(err);
-		else setValue("");
-		setBusy(false);
+		try {
+			const err = await onSave(value);
+			if (err) setError(err);
+			else setValue("");
+		} catch {
+			setError("Couldn't reach the app server. Try again.");
+		} finally {
+			setBusy(false);
+		}
 	}
 
 	// INLINE editing (owner, fix wave: "type the keys in line — more
@@ -320,15 +325,19 @@ function AddProviderRow({
 		};
 		const onKeyDown = (e: KeyboardEvent) => {
 			if (e.key === "Escape") {
-				e.stopPropagation();
+				// CAPTURE + immediate: the settings dialog's Escape listener is
+				// a bubble listener on the same document and would otherwise
+				// close the whole dialog with this menu.
+				e.preventDefault();
+				e.stopImmediatePropagation();
 				setOpen(false);
 			}
 		};
 		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
+		document.addEventListener("keydown", onKeyDown, true);
 		return () => {
 			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
+			document.removeEventListener("keydown", onKeyDown, true);
 		};
 	}, [open]);
 
@@ -378,6 +387,7 @@ export function KeysSection({
 	const [statuses, setStatuses] = useState<AuthKeyStatus[] | null>(null);
 	const [providers, setProviders] = useState<ProviderKeyInfo[] | undefined>(undefined);
 	const [loading, setLoading] = useState(true);
+	const [loadError, setLoadError] = useState<string | null>(null);
 	/** The unfolded row (its id), null = all folded. Seeded by the
 	 *  deep-link (initialRow) and re-followed when it retargets. */
 	const [openRow, setOpenRow] = useState<string | null>(initialRow ?? null);
@@ -411,11 +421,17 @@ export function KeysSection({
 
 	const reload = async () => {
 		try {
-			const body = (await fetch("/api/keys").then((r) => r.json())) as KeysResponse;
-			setStatuses(body.keys ?? []);
+			const res = await fetch("/api/keys");
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			const body = (await res.json()) as KeysResponse;
+			if (!Array.isArray(body.keys)) throw new Error("Malformed response");
+			setStatuses(body.keys);
 			if (body.providers) setProviders(body.providers);
+			setLoadError(null);
 		} catch {
-			setStatuses([]);
+			// Keep the last good list; a failed read must never look like
+			// "every provider key was deleted".
+			setLoadError("Couldn't load keys. Check the app server and try again.");
 		} finally {
 			setLoading(false);
 		}
@@ -474,8 +490,18 @@ export function KeysSection({
 		return null;
 	}
 
-	if (loading || statuses === null) {
+	if (loading) {
 		return <p className="px-6 py-5 text-xs text-muted-foreground/70">Loading keys…</p>;
+	}
+	if (statuses === null) {
+		return (
+			<div role="alert" className="flex items-center gap-3 px-6 py-5 text-xs text-destructive" data-testid="keys-load-error">
+				<span className="min-w-0 flex-1">{loadError ?? "Couldn't load keys."}</span>
+				<button type="button" onClick={() => { setLoading(true); void reload(); }} className="rounded-sm px-2 py-1 text-foreground hover:bg-accent">
+					Retry
+				</button>
+			</div>
+		);
 	}
 
 	const { providerRows, toolRows, unknownRows, addable } = classifyKeys(statuses, providers);
@@ -491,6 +517,14 @@ export function KeysSection({
 
 	return (
 		<>
+			{loadError && (
+				<div role="alert" className="mb-3 flex items-center gap-3 rounded-sm border border-error/40 px-3 py-2 text-xs text-error" data-testid="keys-load-error">
+					<span className="min-w-0 flex-1">{loadError}</span>
+					<button type="button" onClick={() => void reload()} className="rounded-sm px-2 py-1 text-foreground hover:bg-accent">
+						Retry
+					</button>
+				</div>
+			)}
 			<SettingsGroup label="Model API keys" testid="group-provider-keys">
 				{providerRows.map((status) => (
 					<KeyTableRow
