@@ -2,7 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ChevronDownIcon, ChevronRightIcon, TrashIcon } from "lucide-react";
+import {
+	BookOpenIcon,
+	ChevronDownIcon,
+	ChevronRightIcon,
+	CircleAlertIcon,
+	RotateCcwIcon,
+	SearchIcon,
+	TrashIcon,
+} from "lucide-react";
 import {
 	ERROR_TYPES,
 	ERROR_TYPE_LABELS,
@@ -15,7 +23,8 @@ import {
 	type MistakeRecord,
 } from "@/src/core";
 import { ToolContentResponse } from "@/components/ai-elements/message";
-import { SidebarToggle } from "@/components/sidebar";
+import { BrailleSpinner } from "@/components/braille-spinner";
+import { TopBar } from "@/components/top-bar";
 import { useServerEvent } from "@/components/server-events";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +33,11 @@ import { cn } from "@/lib/utils";
  * vvcdev/learnharness): every miss from every session, with its short error
  * analysis, for fast review before an exam. Group by error type,
  * session/source, or topic; filter; expand everything at once.
+ *
+ * Questions and analysis are MODEL-AUTHORED prose, not plain labels: they
+ * render through ToolContentResponse so `$...$`/`$$...$$` become KaTeX, code
+ * fences become code, and lists keep their structure. The old plain-text
+ * spans showed raw TeX (the "$25\,^\circ\text{C}$" wall).
  */
 
 interface Progress {
@@ -33,9 +47,14 @@ interface Progress {
 }
 
 const KIND_LABEL: Record<MistakeKind, string> = { missed: "Missed", unanswered: "Unanswered", problem: "Problem" };
+const KIND_ACCENT: Record<MistakeKind, string> = {
+	missed: "border-l-destructive/60",
+	unanswered: "border-l-warning/60",
+	problem: "border-l-primary/60",
+};
 const GROUPS: { by: MistakeGroupBy; label: string }[] = [
 	{ by: "type", label: "Error type" },
-	{ by: "session", label: "Session / source" },
+	{ by: "session", label: "Session" },
 	{ by: "topic", label: "Topic" },
 ];
 
@@ -142,239 +161,285 @@ export function MistakesPage() {
 	};
 
 	const analyzing = progress.active > 0;
+	const allVisibleOpen = filtered.length > 0 && filtered.every((r) => open.has(r.id));
 
 	return (
-		<div className="relative flex h-dvh flex-col" data-testid="mistakes-page">
-			<div className="lh-drag absolute inset-x-0 top-0 h-13" aria-hidden="true" />
-			<header className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center gap-2 px-3 py-2">
-				<div className="pointer-events-auto">
-					<SidebarToggle />
-				</div>
-			</header>
+		<div className="flex h-dvh flex-col" data-testid="mistakes-page">
+			<TopBar>
+				<span className="flex items-center gap-1.5 font-ui text-sm font-medium">
+					<CircleAlertIcon className="size-4 text-primary" /> Mistakes
+				</span>
+			</TopBar>
 
-			<div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col gap-4 px-4 pb-8 pt-14 sm:px-6">
-				<div className="flex flex-wrap items-end justify-between gap-3">
-					<div>
-						<h1 className="font-title text-2xl tracking-tight text-foreground">Mistakes</h1>
-						<p className="mt-1 text-sm text-muted-foreground">Everything you missed, with why — review it before the exam.</p>
-					</div>
-					<div className="flex items-center gap-2">
-						{analyzing && (
-							<>
-								<span data-testid="mistakes-progress" className="text-xs text-muted-foreground">
-									Analyzing {Math.min(progress.done + 1, progress.total)} of {progress.total}…
-								</span>
-								<button
-									type="button"
-									onClick={() => void fetch("/api/mistakes/cancel", { method: "POST" })}
-									className="rounded-lg px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-								>
-									Cancel
-								</button>
-							</>
-						)}
-						<button
-							type="button"
-							data-testid="mistakes-scan"
-							disabled={busy}
-							onClick={() => void scan(false)}
-							className="rounded-lg border bg-card px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-accent disabled:opacity-40"
-						>
-							Scan past sessions
-						</button>
-					</div>
-				</div>
-
-				{scanNote && (
-					<div data-testid="mistakes-scan-note" className="flex flex-wrap items-center gap-3 rounded-xl border bg-card px-4 py-3 text-sm">
-						{scanNote.found === 0 && scanNote.retry === 0 ? (
-							<>
-								<span className="text-foreground">Nothing new — every miss in your sessions is already here.</span>
-								<button type="button" onClick={() => setScanNote(null)} className="ml-auto text-xs text-muted-foreground hover:text-foreground">
-									Close
-								</button>
-							</>
-						) : (
-							<>
-								<span className="text-foreground">
-									Found {scanNote.found} new miss{scanNote.found === 1 ? "" : "es"}
-									{scanNote.retry > 0 ? ` and ${scanNote.retry} to retry` : ""}. Each gets a short analysis from your cheap model — one call per item,
-									within your daily analysis limit.
-								</span>
-								<span className="ml-auto flex gap-2">
-									<button type="button" onClick={() => setScanNote(null)} className="rounded-lg px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground">
-										Not now
-									</button>
+			<div className="min-h-0 flex-1 overflow-y-auto">
+				<div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-4 py-6 sm:px-6">
+					<div className="flex flex-wrap items-start justify-between gap-3">
+						<p className="max-w-xl text-sm text-muted-foreground">
+							Every miss, with why. Read the pattern, then the rule that prevents it next time.
+						</p>
+						<div className="flex items-center gap-2">
+							{analyzing && (
+								<>
+									<span data-testid="mistakes-progress" className="font-ui text-xs text-muted-foreground">
+										Analyzing {Math.min(progress.done + 1, progress.total)} of {progress.total}…
+									</span>
 									<button
 										type="button"
-										data-testid="mistakes-scan-confirm"
-										disabled={busy}
-										onClick={() => void scan(true)}
-										className="rounded-lg bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:opacity-90 disabled:opacity-40"
+										onClick={() => void fetch("/api/mistakes/cancel", { method: "POST" })}
+										className="rounded-md px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 									>
-										Analyze them
+										Cancel
 									</button>
-								</span>
-							</>
+								</>
+							)}
+							<button
+								type="button"
+								data-testid="mistakes-scan"
+								disabled={busy}
+								onClick={() => void scan(false)}
+								className="flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-accent disabled:opacity-40"
+							>
+								<SearchIcon className="size-3.5 text-muted-foreground" />
+								Scan past sessions
+							</button>
+						</div>
+					</div>
+
+					<div className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-testid="mistakes-summary">
+						<StatTile label="Total" value={summary.total} />
+						<StatTile label="Missed" value={summary.missed} />
+						<StatTile label="Unanswered" value={summary.unanswered} />
+						<StatTile label="Problems" value={summary.problems} />
+					</div>
+
+					{scanNote && (
+						<div data-testid="mistakes-scan-note" className="flex flex-wrap items-center gap-3 rounded-xl border bg-card px-4 py-3 text-sm">
+							{scanNote.found === 0 && scanNote.retry === 0 ? (
+								<>
+									<span className="text-foreground">Nothing new — every miss in your sessions is already here.</span>
+									<button type="button" onClick={() => setScanNote(null)} className="ml-auto text-xs text-muted-foreground hover:text-foreground">
+										Close
+									</button>
+								</>
+							) : (
+								<>
+									<span className="min-w-0 flex-1 text-foreground">
+										Found {scanNote.found} new miss{scanNote.found === 1 ? "" : "es"}
+										{scanNote.retry > 0 ? ` and ${scanNote.retry} to retry` : ""}. Each gets a short analysis from your cheap model — one call per item,
+										within your daily analysis limit.
+									</span>
+									<span className="ml-auto flex gap-2">
+										<button type="button" onClick={() => setScanNote(null)} className="rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground">
+											Not now
+										</button>
+										<button
+											type="button"
+											data-testid="mistakes-scan-confirm"
+											disabled={busy}
+											onClick={() => void scan(true)}
+											className="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:opacity-90 disabled:opacity-40"
+										>
+											Analyze them
+										</button>
+									</span>
+								</>
+							)}
+						</div>
+					)}
+
+					<div className="flex flex-col gap-2 rounded-xl border bg-card p-2.5">
+						<div className="flex flex-wrap items-center gap-2">
+							<span className="relative min-w-44 flex-1">
+								<SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/70" />
+								<input
+									data-testid="mistakes-search"
+									value={query}
+									onChange={(e) => setQuery(e.target.value)}
+									placeholder="Search questions, topics, rules…"
+									aria-label="Search mistakes"
+									className="lh-input h-8 w-full rounded-md border bg-background pl-8 pr-2 text-xs outline-none placeholder:text-muted-foreground/60 focus:border-ring"
+								/>
+							</span>
+							<div
+								role="group"
+								aria-label="Group mistakes by"
+								className="flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5"
+								data-testid="mistakes-groupby"
+							>
+								{GROUPS.map((g) => (
+									<button
+										key={g.by}
+										type="button"
+										aria-pressed={by === g.by}
+										onClick={() => setBy(g.by)}
+										className={cn(
+											"rounded-sm px-2 py-1 font-ui text-[11px] uppercase tracking-wider transition-colors",
+											by === g.by ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground",
+										)}
+									>
+										{g.label}
+									</button>
+								))}
+							</div>
+							<select
+								aria-label="Filter by kind"
+								value={kind}
+								onChange={(e) => setKind(e.target.value as MistakeKind | "")}
+								className="h-8 rounded-md border bg-background px-2 text-xs"
+							>
+								<option value="">All kinds</option>
+								{(Object.keys(KIND_LABEL) as MistakeKind[]).map((k) => (
+									<option key={k} value={k}>
+										{KIND_LABEL[k]}
+									</option>
+								))}
+							</select>
+							<select
+								aria-label="Filter by error type"
+								value={errorType}
+								onChange={(e) => setErrorType(e.target.value as ErrorType | "")}
+								className="h-8 rounded-md border bg-background px-2 text-xs"
+							>
+								<option value="">All error types</option>
+								{ERROR_TYPES.map((t) => (
+									<option key={t} value={t}>
+										{ERROR_TYPE_LABELS[t]}
+									</option>
+								))}
+							</select>
+							<select
+								aria-label="Filter by session"
+								value={chatId}
+								onChange={(e) => setChatId(e.target.value)}
+								className="h-8 max-w-44 rounded-md border bg-background px-2 text-xs"
+							>
+								<option value="">All sessions</option>
+								{sessions.map(([id, title]) => (
+									<option key={id} value={id}>
+										{title}
+									</option>
+								))}
+							</select>
+							<button
+								type="button"
+								data-testid="mistakes-expand-all"
+								onClick={() => setOpen(allVisibleOpen ? new Set() : new Set(filtered.map((r) => r.id)))}
+								className="ml-auto rounded-md px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+							>
+								{allVisibleOpen ? "Collapse all" : "Expand all"}
+							</button>
+						</div>
+						{summary.byType.length > 0 && (
+							<div className="flex flex-wrap items-center gap-1.5 border-t border-border/60 pt-2">
+								<span className="mr-1 font-ui text-[11px] uppercase tracking-wider text-muted-foreground">Error type</span>
+								{summary.byType.map(({ type, count }) => (
+									<button
+										key={type}
+										type="button"
+										aria-pressed={errorType === type}
+										onClick={() => setErrorType((cur) => (cur === type ? "" : type))}
+										className={cn(
+											"rounded-full border px-2 py-0.5 text-[11px] transition-colors hover:bg-accent",
+											errorType === type ? "border-primary bg-accent text-foreground" : "border-border/70 text-muted-foreground",
+										)}
+									>
+										{ERROR_TYPE_LABELS[type]} <span className="tabular-nums opacity-70">{count}</span>
+									</button>
+								))}
+							</div>
 						)}
 					</div>
-				)}
 
-				{/* Summary: totals + the error types (click to filter). */}
-				<div className="flex flex-wrap items-center gap-2 text-xs" data-testid="mistakes-summary">
-					<span className="text-foreground">{summary.total} total</span>
-					<span className="text-muted-foreground">
-						{summary.missed} missed · {summary.unanswered} unanswered · {summary.problems} problems
-						{summary.pending > 0 ? ` · ${summary.pending} being analyzed` : ""}
-					</span>
-					<span className="mx-1 h-3 border-l" aria-hidden="true" />
-					{summary.byType.map(({ type, count }) => (
-						<button
-							key={type}
-							type="button"
-							onClick={() => setErrorType((cur) => (cur === type ? "" : type))}
-							className={cn(
-								"rounded-full border px-2 py-0.5 transition-colors hover:bg-accent",
-								errorType === type ? "border-primary bg-accent text-foreground" : "text-muted-foreground",
-							)}
-						>
-							{ERROR_TYPE_LABELS[type]} {count}
-						</button>
-					))}
-				</div>
-
-				<div className="flex flex-wrap items-center gap-2">
-					<input
-						data-testid="mistakes-search"
-						value={query}
-						onChange={(e) => setQuery(e.target.value)}
-						placeholder="Search mistakes…"
-						aria-label="Search mistakes"
-						className="lh-input min-w-40 flex-1 rounded-lg border bg-background px-3 py-1.5 text-sm outline-none focus:border-ring"
-					/>
-					<div className="flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="mistakes-groupby">
-						{GROUPS.map((g) => (
-							<button
-								key={g.by}
-								type="button"
-								onClick={() => setBy(g.by)}
-								className={cn(
-									"rounded-sm px-2 py-1 text-[11px] uppercase tracking-wider transition-colors",
-									by === g.by ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground",
-								)}
-							>
-								{g.label}
-							</button>
-						))}
-					</div>
-					<select
-						aria-label="Filter by type"
-						value={kind}
-						onChange={(e) => setKind(e.target.value as MistakeKind | "")}
-						className="rounded-lg border bg-background px-2 py-1.5 text-xs"
-					>
-						<option value="">All kinds</option>
-						{(Object.keys(KIND_LABEL) as MistakeKind[]).map((k) => (
-							<option key={k} value={k}>
-								{KIND_LABEL[k]}
-							</option>
-						))}
-					</select>
-					<select
-						aria-label="Filter by error type"
-						value={errorType}
-						onChange={(e) => setErrorType(e.target.value as ErrorType | "")}
-						className="rounded-lg border bg-background px-2 py-1.5 text-xs"
-					>
-						<option value="">All error types</option>
-						{ERROR_TYPES.map((t) => (
-							<option key={t} value={t}>
-								{ERROR_TYPE_LABELS[t]}
-							</option>
-						))}
-					</select>
-					<select
-						aria-label="Filter by session"
-						value={chatId}
-						onChange={(e) => setChatId(e.target.value)}
-						className="max-w-44 rounded-lg border bg-background px-2 py-1.5 text-xs"
-					>
-						<option value="">All sessions</option>
-						{sessions.map(([id, title]) => (
-							<option key={id} value={id}>
-								{title}
-							</option>
-						))}
-					</select>
-					<button
-						type="button"
-						data-testid="mistakes-expand-all"
-						onClick={() => {
-							const allVisibleOpen = filtered.length > 0 && filtered.every((r) => open.has(r.id));
-							setOpen(allVisibleOpen ? new Set() : new Set(filtered.map((r) => r.id)));
-						}}
-						className="rounded-lg px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-					>
-						{filtered.length > 0 && filtered.every((r) => open.has(r.id)) ? "Collapse all" : "Expand all"}
-					</button>
-				</div>
-
-				<div className="min-h-0 flex-1 overflow-y-auto" data-testid="mistakes-list">
 					{loadError && (
-						<div role="alert" className="mb-3 flex items-center gap-3 rounded-lg border border-error/40 px-3 py-2 text-xs text-error" data-testid="mistakes-error">
+						<div role="alert" className="flex items-center gap-3 rounded-lg border border-error/40 px-3 py-2 text-xs text-error" data-testid="mistakes-error">
 							<span className="min-w-0 flex-1">{loadError}</span>
 							<button type="button" onClick={() => void load()} className="rounded-md px-2 py-1 text-foreground hover:bg-accent">
 								Retry
 							</button>
 						</div>
 					)}
-					{records === null && loadError ? (
-						<p className="text-sm text-muted-foreground">Couldn&rsquo;t load mistakes.</p>
-					) : records === null ? (
-						<p className="text-sm text-muted-foreground">Loading…</p>
-					) : records.length === 0 ? (
-						<div className="rounded-2xl border bg-card p-6 text-sm text-muted-foreground">
-							No mistakes yet. Quiz misses, “I don’t know”, and practice problems you don’t solve cleanly land here with a short
-							analysis. Use <span className="text-foreground">Scan past sessions</span> to pull in ones from before.
-						</div>
-					) : filtered.length === 0 ? (
-						<p className="text-sm text-muted-foreground">No mistakes match.</p>
-					) : (
-						<div className="flex flex-col gap-5">
-							{groups.map((g) => {
-								const collapsed = closedGroups.has(g.key);
-								return (
-									<section key={g.key} data-testid="mistakes-group">
-										<button
-											type="button"
-											aria-expanded={!collapsed}
-											onClick={() => toggleGroup(g.key)}
-											className="mb-2 flex w-full items-center gap-2 text-left"
-										>
-											{collapsed ? <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" /> : <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground" />}
-											<span className="font-title text-lg tracking-tight text-foreground">{g.label}</span>
-											<span className="text-xs text-muted-foreground">{g.records.length}</span>
-											{g.pattern && <span className="ml-2 truncate text-xs text-muted-foreground/80" data-testid="mistakes-pattern">Pattern: {g.pattern}</span>}
-										</button>
-										{!collapsed && (
-											<div className="flex flex-col gap-2">
-												{g.records.map((r) => (
-													<MistakeCard key={r.id} record={r} open={open.has(r.id)} onToggle={() => toggle(r.id)} onDelete={() => void remove(r.id)} onRetry={() => void retry(r.id)} />
-												))}
+
+					<div className="min-h-0 pb-4" data-testid="mistakes-list">
+						{records === null && loadError ? (
+							<p className="text-sm text-muted-foreground">Couldn&rsquo;t load mistakes.</p>
+						) : records === null ? (
+							<div className="flex items-center gap-2 py-8 font-ui text-xs text-muted-foreground">
+								<BrailleSpinner label="Loading" /> Loading mistakes…
+							</div>
+						) : records.length === 0 ? (
+							<div className="rounded-xl border border-dashed bg-card/50 px-6 py-10 text-center">
+								<CircleAlertIcon className="mx-auto size-6 text-muted-foreground/60" />
+								<p className="mt-3 font-title text-lg tracking-tight text-foreground">No mistakes yet</p>
+								<p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+									Quiz misses, “I don’t know”, and practice problems you don’t solve cleanly land here with a short analysis.
+									Use <span className="text-foreground">Scan past sessions</span> to pull in ones from before.
+								</p>
+							</div>
+						) : filtered.length === 0 ? (
+							<div className="rounded-xl border border-dashed bg-card/50 px-6 py-8 text-center text-sm text-muted-foreground">
+								No mistakes match these filters.
+								<button
+									type="button"
+									onClick={() => {
+										setQuery("");
+										setErrorType("");
+										setKind("");
+										setChatId("");
+									}}
+									className="ml-2 text-foreground underline-offset-2 hover:underline"
+								>
+									Clear filters
+								</button>
+							</div>
+						) : (
+							<div className="flex flex-col gap-5">
+								{groups.map((g) => {
+									const collapsed = closedGroups.has(g.key);
+									return (
+										<section key={g.key} data-testid="mistakes-group" className="flex flex-col gap-2">
+											<div className="sticky top-0 z-10 -mx-1 flex items-center gap-2 bg-background/95 px-1 py-2 backdrop-blur">
+												<button
+													type="button"
+													aria-expanded={!collapsed}
+													onClick={() => toggleGroup(g.key)}
+													className="flex min-w-0 flex-1 items-center gap-2 text-left"
+												>
+													{collapsed ? <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" /> : <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground" />}
+													<span className="font-title text-lg tracking-tight text-foreground">{g.label}</span>
+													<span className="rounded-full border border-border/60 px-1.5 py-0.5 font-ui text-[10px] tabular-nums text-muted-foreground">{g.records.length}</span>
+													{g.pattern && <span className="ml-1 hidden min-w-0 truncate font-ui text-[11px] text-muted-foreground/80 sm:block" data-testid="mistakes-pattern">{g.pattern}</span>}
+												</button>
 											</div>
-										)}
-									</section>
-								);
-							})}
-						</div>
-					)}
+											{!collapsed && (
+												<div className="flex flex-col gap-2">
+													{g.records.map((r) => (
+														<MistakeCard key={r.id} record={r} open={open.has(r.id)} onToggle={() => toggle(r.id)} onDelete={() => void remove(r.id)} onRetry={() => void retry(r.id)} />
+													))}
+												</div>
+											)}
+										</section>
+									);
+								})}
+							</div>
+						)}
+					</div>
 				</div>
 			</div>
 		</div>
 	);
 }
 
-function MistakeCard({
+function StatTile({ label, value }: { label: string; value: number }) {
+	return (
+		<div className="rounded-xl border bg-card px-4 py-3">
+			<div className="font-title text-2xl leading-none tracking-tight text-foreground">{value}</div>
+			<div className="mt-1.5 font-ui text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+		</div>
+	);
+}
+
+/** One mistake. Exported for the render test that pins Markdown/KaTeX. */
+export function MistakeCard({
 	record: r,
 	open,
 	onToggle,
@@ -389,55 +454,76 @@ function MistakeCard({
 }) {
 	const a = r.analysis;
 	return (
-		<div className="rounded-xl border bg-card" data-testid="mistake-card">
-			<button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-start gap-2 px-4 py-3 text-left">
-				{open ? <ChevronDownIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" /> : <ChevronRightIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />}
-				<span className="min-w-0 flex-1">
-					<span className={cn("block font-prose text-(length:--lh-prose-size)", !open && "line-clamp-2")}>{r.question}</span>
-					<span className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
-						<span className="rounded-sm border px-1.5 py-0.5 text-muted-foreground">{KIND_LABEL[r.kind]}</span>
+		<article
+			className={cn(
+				"overflow-hidden rounded-xl border border-l-2 bg-card transition-colors hover:border-border/80",
+				KIND_ACCENT[r.kind],
+			)}
+			data-testid="mistake-card"
+		>
+			<div
+				className="flex cursor-pointer items-start gap-2 px-4 py-3.5"
+				onClick={(event) => {
+					// The question is Markdown (block HTML), so the header cannot
+					// be a <button>. Keep a real toggle button for the keyboard;
+					// the body click just makes the whole row a convenient target.
+					if ((event.target as Element).closest("button, a")) return;
+					onToggle();
+				}}
+			>
+				<button
+					type="button"
+					onClick={onToggle}
+					aria-expanded={open}
+					aria-label={open ? "Collapse mistake" : "Expand mistake"}
+					className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+				>
+					{open ? <ChevronDownIcon className="size-3.5" /> : <ChevronRightIcon className="size-3.5" />}
+				</button>
+				<div className="min-w-0 flex-1">
+					<div className={cn("relative", !open && "max-h-28 overflow-hidden [&_pre]:hidden [&_[data-testid=md-code]]:hidden")}>
+						<ToolContentResponse className="text-(length:--lh-prose-size)">{r.question}</ToolContentResponse>
+						{!open && <div className="pointer-events-none absolute inset-x-0 bottom-0 h-7 bg-gradient-to-t from-card to-transparent" />}
+					</div>
+					<div className="mt-2 flex flex-wrap items-center gap-1.5 font-ui text-[11px]">
+						<span className="rounded-full border border-border/70 px-2 py-0.5 text-muted-foreground">{KIND_LABEL[r.kind]}</span>
 						{a ? (
-							<span className="rounded-sm bg-accent px-1.5 py-0.5 text-foreground">{ERROR_TYPE_LABELS[a.errorType]}</span>
+							<span className="rounded-full bg-accent px-2 py-0.5 text-foreground">{ERROR_TYPE_LABELS[a.errorType]}</span>
 						) : r.status === "pending" ? (
 							<span className="text-muted-foreground">Analyzing…</span>
 						) : (
 							<span className="text-muted-foreground" title={r.error}>Analysis unavailable</span>
 						)}
-						{a && <span className="text-muted-foreground">{a.topic}</span>}
-					</span>
-					{!open && a && <span className="mt-1.5 block truncate text-xs text-muted-foreground">Next time: {a.rule}</span>}
-				</span>
-			</button>
+						{a && <span className="min-w-0 truncate text-muted-foreground">{a.topic}</span>}
+					</div>
+				</div>
+			</div>
+
 			{open && (
-				<div className="flex flex-col gap-3 border-t px-4 py-3 text-sm" data-testid="mistake-card-body">
+				<div className="flex flex-col gap-3 border-t px-4 py-3.5 text-sm" data-testid="mistake-card-body">
 					<div className="grid gap-2 sm:grid-cols-2">
-						<div className="rounded-lg bg-muted px-3 py-2">
-							<div className="text-[11px] uppercase tracking-wider text-muted-foreground">You</div>
-							<ToolContentResponse>{r.yourAnswer}</ToolContentResponse>
-						</div>
-						<div className="rounded-lg bg-muted px-3 py-2">
-							<div className="text-[11px] uppercase tracking-wider text-muted-foreground">Correct</div>
-							<ToolContentResponse>{r.correctAnswer}</ToolContentResponse>
-						</div>
+						<AnswerPanel label="Your answer" text={r.yourAnswer} />
+						<AnswerPanel label="Correct answer" text={r.correctAnswer} />
 					</div>
 					{a ? (
-						<div className="flex flex-col gap-1.5">
-							<ToolContentResponse>{a.whatYouDid}</ToolContentResponse>
-							<ToolContentResponse>{a.correct}</ToolContentResponse>
-							<div className="rounded-lg border border-border/60 px-3 py-2">
-								<span className="font-medium text-muted-foreground">Next time: </span>
-								<ToolContentResponse className="inline [&>p:first-child]:inline [&>p:first-child]:m-0">{a.rule}</ToolContentResponse>
+						<>
+							<div className="grid gap-3 sm:grid-cols-2">
+								<AnalysisBlock label="What happened" text={a.whatYouDid} />
+								<AnalysisBlock label="What’s correct" text={a.correct} />
 							</div>
-						</div>
+							<div className="rounded-lg border-l-2 border-l-primary/60 bg-muted/40 px-3 py-2">
+								<div className="font-ui text-[11px] uppercase tracking-wider text-muted-foreground">Remember this</div>
+								<ToolContentResponse className="mt-1 text-sm">{a.rule}</ToolContentResponse>
+							</div>
+						</>
 					) : r.explanation ? (
-						<div>
-							<span className="font-medium text-muted-foreground">Why: </span>
-							<ToolContentResponse className="inline [&>p:first-child]:inline [&>p:first-child]:m-0">{r.explanation}</ToolContentResponse>
-						</div>
+						<AnalysisBlock label="Why" text={r.explanation} />
 					) : null}
+					{r.thinking && <AnalysisBlock label="Your reasoning" text={r.thinking} />}
 					{r.status === "failed" && r.error && <p className="text-xs text-muted-foreground" data-testid="mistake-error">{r.error}</p>}
-					<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-						<Link href={`/chat/${r.chatId}`} className="hover:text-foreground" data-testid="mistake-session-link">
+					<div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/60 pt-2.5 font-ui text-[11px] text-muted-foreground">
+						<Link href={`/chat/${r.chatId}`} className="inline-flex items-center gap-1 hover:text-foreground" data-testid="mistake-session-link">
+							<BookOpenIcon className="size-3.5" />
 							{r.sessionTitle || "Untitled session"}
 						</Link>
 						{r.sources.length > 0 && <span className="truncate">{r.sources.join(", ")}</span>}
@@ -445,8 +531,12 @@ function MistakeCard({
 						<span>{new Date(r.answeredAt).toLocaleDateString()}</span>
 						<span className="ml-auto flex items-center gap-1">
 							{r.status === "failed" && (
-								<button type="button" onClick={onRetry} className="rounded-md px-2 py-1 hover:bg-accent hover:text-foreground">
-									Retry analysis
+								<button
+									type="button"
+									onClick={onRetry}
+									className="inline-flex items-center gap-1 rounded-md px-2 py-1 hover:bg-accent hover:text-foreground"
+								>
+									<RotateCcwIcon className="size-3" /> Retry analysis
 								</button>
 							)}
 							<button type="button" aria-label="Delete mistake" onClick={onDelete} className="rounded-md p-1.5 hover:bg-accent hover:text-foreground">
@@ -456,6 +546,24 @@ function MistakeCard({
 					</div>
 				</div>
 			)}
+		</article>
+	);
+}
+
+function AnswerPanel({ label, text }: { label: string; text: string }) {
+	return (
+		<div className="min-w-0 rounded-lg border border-border/60 bg-background/50 px-3 py-2">
+			<div className="font-ui text-[11px] uppercase tracking-wider text-muted-foreground">{label}</div>
+			<ToolContentResponse className="mt-1 text-sm">{text}</ToolContentResponse>
+		</div>
+	);
+}
+
+function AnalysisBlock({ label, text }: { label: string; text: string }) {
+	return (
+		<div className="min-w-0">
+			<div className="mb-1 font-ui text-[11px] uppercase tracking-wider text-muted-foreground">{label}</div>
+			<ToolContentResponse className="text-sm">{text}</ToolContentResponse>
 		</div>
 	);
 }
