@@ -1,6 +1,6 @@
 # Getting started
 
-Download Twig from [learnharness.ai](https://github.com/amoghu1s1/twig/releases) or [GitHub Releases](https://github.com/amoghu1s1/twig/releases). For running from source, see [Development](development.md).
+Download Twig for Apple Silicon macOS, Windows x64, or Linux x64 from [GitHub Releases](https://github.com/amoghu1s1/twig/releases). See the [README install section](../README.md#install) for platform-specific steps. For running from source, see [Development](development.md).
 
 ## Connect models
 

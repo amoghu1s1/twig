@@ -26,24 +26,34 @@ Instead of just giving you an explanation, it uses your answers and thinking to 
 
 ## What is different in Twig
 
-Twig keeps LearnHarness's teaching model and adds the parts that matter for daily personal use:
+Twig keeps LearnHarness's teaching model and adds the parts that matter for daily personal use.
 
-- **FSRS-6 review** — completed practice becomes a derived spaced-repetition queue. Review sessions are ordinary practice sessions; nothing is written back to the graph. See [review-plan.md](docs/review-plan.md).
-- **Code exercises in four languages** — the teacher can pose runnable exercises in **Python, JavaScript, TypeScript and C++**. Python runs in bundled Pyodide, JS/TS in an opaque-origin worker, and C++ through a locally detected `clang++`/`g++` with bounded compile/run limits.
-- **Read by sentence** — a full-screen reading mode for finished teacher prose. Reveal one sentence at a time with blur/hide/dim, adjustable type, optional **ElevenLabs** read-aloud, browser-voice fallback, `Mod+R` on the latest passage, and `gg`/`G` session navigation. See [keyboard.md](docs/keyboard.md#read-by-sentence).
-- **Readings** — generated primer/overview/deep-dive/recap/node readings with a frozen lesson snapshot and a citation law: only sources actually fetched in that run may be cited; Discuss lets you talk through a passage. See [readings.md](docs/readings.md).
-- **Themes** — eleven presets plus **Dark / Light / System** mode, server first paint, Electron chrome sync, and WCAG-checked muted/status colors. See [themes.md](docs/themes.md).
-- **Graph exports** — send the knowledge graph to **Anki** with stable ids and reviewable note types, or export it to an **Obsidian** vault as linked Markdown; a tidy-graph review proposes merges, splits and connections. See [anki.md](docs/anki.md), [obsidian.md](docs/obsidian.md), [tidy-graph.md](docs/tidy-graph.md).
-- **Side questions and notes** — ask about a passage without derailing the lesson; each thread stays attached to the block it came from. Per-lesson notes live beside the transcript, support quote-to-notes, and survive reloads.
-- **Session attachments** — attach PDFs, EPUBs, images and other files from the composer; contents are stored once by content hash under `data/attachments/`, previewed from the session, and read through scoped PDF/EPUB tools. Removing an attachment is reversible, and unreferenced blobs are swept.
-- **Mistakes review** — every miss is classified, analyzed, and collected on a Mistakes page with a short "why" for each one. The analyst is opt-out and cost-capped.
-- **Quote into the composer** — select tutor prose and quote it directly into your reply, so follow-ups keep the exact wording.
-- **Capstone projects** — a project session where you pitch a real build from graph propositions, the agent sharpens it into a locked brief with file-verifiable criteria, then reviews your directory read-only and reports the gaps. See [capstone.md](docs/capstone.md).
-- **Scratchpad and calculator** — a pressure-sensitive drawing sidebar with undo/eraser/straight lines, a draggable scientific calculator, and inert `svg` figures rendered directly in lessons.
-- **Edit the last message** — rewrite a sent prompt or a parked steer with a durable rewind of the transcript, plan, graph traces, jobs and queued steers.
-- **Upstream 0.5.0** — the fork carries upstream's attachments/paperclip, learner-image snapshots, folder imports, PDF import, Exa/Firecrawl/Ollama search, file-access restrictions, atomic store writes, Claude CLI guards, and projection/recovery fixes.
-- **Defensive tooling** — SSRF-safe web fetch redirects, bounded regex/pre-read limits, and a sandboxed demo/SVG surface.
-- **Twig identity** — the transparent Twig mark, app title, package/desktop identity, app icon and release metadata are Twig-branded; attribution to LearnHarness remains.
+### Learn
+
+- **FSRS-6 review** — completed practice becomes a spaced-repetition queue. Review sessions are ordinary practice; nothing is written back to the graph. [Review plan](docs/review-plan.md)
+- **Code exercises in four languages** — runnable Python, JavaScript, TypeScript and C++ inside lessons. Python uses bundled Pyodide, JS/TS an opaque-origin worker, and C++ a locally detected `clang++`/`g++` with bounded compile and run limits.
+- **Read by sentence** — full-screen reading one sentence at a time, with blur/hide/dim, adjustable type, optional ElevenLabs or browser voice, `Mod+R`, and `gg`/`G` navigation. [Keyboard](docs/keyboard.md#read-by-sentence)
+- **Readings** — primer, overview, deep-dive, recap and node readings from a frozen lesson snapshot. Citations are limited to sources actually fetched in that run; Discuss lets you talk through a passage. [Readings](docs/readings.md)
+- **Mistakes review** — every miss is classified and analyzed on a Mistakes page with a short why. The analyst is opt-out and cost-capped.
+
+### Discuss and keep track
+
+- **Side questions and notes** — ask about a passage without derailing the lesson; each thread stays attached to its block. Per-lesson notes support quote-to-notes and survive reloads.
+- **Quote and edit** — quote tutor prose directly into your reply, or rewrite the last sent prompt or parked steer with a durable rewind of the transcript, plan, graph traces, jobs and queued steers.
+- **Capstone projects** — pitch a real build from graph propositions, lock a file-verifiable brief, then get a read-only directory review and gap report. [Capstone](docs/capstone.md)
+
+### Context and tools
+
+- **Session attachments** — attach PDFs, EPUBs, images and other files from the composer. Content is stored once by hash, previewed from the session, and read through scoped PDF/EPUB tools; removal is reversible. [Add context](docs/getting-started.md#use-local-files-in-a-session)
+- **Themes** — eleven presets plus Dark / Light / System mode, server first paint, Electron chrome sync, and WCAG-checked muted and status colors. [Themes](docs/themes.md)
+- **Graph exports** — Anki notes with stable ids, Obsidian Markdown, and a tidy-graph review that proposes merges, splits and connections. [Anki](docs/anki.md) · [Obsidian](docs/obsidian.md) · [Tidy graph](docs/tidy-graph.md)
+- **Scratchpad and calculator** — a pressure-sensitive drawing sidebar with undo, eraser and straight lines; a draggable scientific calculator; and inert `svg` figures rendered directly in lessons.
+
+### Under the hood
+
+- **Upstream 0.5.0** — carries LearnHarness's attachments, learner-image snapshots, folder and PDF imports, Exa/Firecrawl/Ollama search, file-access restrictions, atomic store writes, Claude CLI guards, and projection/recovery fixes.
+- **Defensive tooling** — SSRF-safe web fetch redirects, bounded regex and pre-read limits, and a sandboxed demo/SVG surface.
+- **Twig identity** — the transparent Twig mark, app title, package and desktop identity, app icon and release metadata are Twig-branded; attribution to LearnHarness remains.
 
 ## How it works
 
@@ -68,19 +78,29 @@ Future teaching sessions can read the graph instead of starting from scratch. Pr
 
 ![Twig knowledge graph](docs/assets/knowledge-graph.png)
 
-## Download and get started
+## Install
 
-**[Download the latest Twig release](https://github.com/amoghu1s1/twig/releases)**
+**[Download the latest Twig release](https://github.com/amoghu1s1/twig/releases)**. Builds are currently available for **Apple Silicon macOS**, **Windows x64**, and **Linux x64**.
 
-- **macOS (Apple Silicon):** signed and notarized DMG. Drag the app to Applications.
-- **Windows (x64):** run the installer. It is currently unsigned; Windows may show an “unknown publisher” or SmartScreen warning.
-- **Linux (x64):** make the AppImage executable and open it, or install the Debian/Ubuntu `.deb`.
+| Platform | Package | Install |
+| --- | --- | --- |
+| macOS (Apple Silicon) | `Twig-<version>-arm64.dmg` | Open the DMG and drag **Twig** into **Applications**. Builds are signed and notarized when release signing credentials are configured; otherwise macOS may show a security warning. Intel Macs are not supported. |
+| Windows (x64) | `Twig-<version>-x64-setup.exe` | Run the per-user installer. It is currently unsigned, so Windows may show an “unknown publisher” or SmartScreen warning. |
+| Linux (x64) | `Twig-<version>-x86_64.AppImage` | `chmod +x Twig-*.AppImage` then run it. AppImage is the primary Linux download. |
+| Debian / Ubuntu (x64) | `Twig-<version>-amd64.deb` | `sudo apt install ./Twig-*.deb`. Updates through the package manager may ask for your password. |
 
-Choose your models, then start a session with what you want to understand. You can use provider API keys, supported subscription connections in the desktop app, an installed [Claude Code CLI](docs/claude-code.md), or a [custom OpenAI-compatible endpoint](docs/custom-providers.md), including a local model server. Optional dictation and web search use separate service keys. Web research can use a Tavily, Brave, Exa, Firecrawl, or Ollama key in Settings → Providers → Search. Ollama search uses its hosted service, not a local model server.
+Twig is distributed through GitHub Releases; the project does not publish a Homebrew, Flatpak, AUR, or distro package feed. The AppImage runs on most x64 distributions, including Arch-based systems.
 
-See [Getting started](docs/getting-started.md) for model setup, dictation, files, and notes imports, and [context, caching, and costs](docs/compaction-accounting.md) for advanced cache preferences.
+### First launch
 
-All three platforms support in-app updates.
+1. Open Twig.
+2. Go to **Settings → Providers** and connect a provider API key, a supported subscription (ChatGPT, GitHub Copilot or Grok), an installed [Claude Code CLI](docs/claude-code.md), or a [custom OpenAI-compatible endpoint](docs/custom-providers.md), including a local model server.
+3. Choose **Strong**, **Cheap** and **Vision** models under **Settings → Agent**. There are no factory model selections.
+4. Start a session with what you want to understand.
+
+Optional dictation and web search use separate service keys. Web research can use Tavily, Brave, Exa, Firecrawl, or Ollama search in **Settings → Providers → Search**; Ollama search uses its hosted service, not a local model server.
+
+Packaged apps update in-app through GitHub Releases. Check status or run a manual check under **Settings → General**. See [Getting started](docs/getting-started.md) for model setup, dictation, files and notes imports, and [context, caching, and costs](docs/compaction-accounting.md) for cache and cost details.
 
 ## Your keys, your data
 
