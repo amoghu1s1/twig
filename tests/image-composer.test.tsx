@@ -8,7 +8,6 @@ import { Composer, ChatSessionComposer } from "../components/composer.tsx";
 import {
 	handleImagePaste,
 	imagePasteAllowed,
-	handlePickedFiles,
 	ImageDraftController,
 	imageDropHandlers,
 	normalizeImageFile,
@@ -283,14 +282,6 @@ describe("DOM handlers", () => {
 		assert.deepEqual(got, [[pdf]]);
 	});
 
-	it("picker: hands files over and resets the input so the same file refires", () => {
-		const got: File[][] = [];
-		const input = { files: [f(1)] as unknown as FileList, value: "C:\\a.png" };
-		handlePickedFiles(input, (files) => got.push(files));
-		assert.equal(input.value, "");
-		assert.equal(got[0]!.length, 1);
-	});
-
 	it("paste: an image-only clipboard is claimed, a text+image clipboard keeps its text", () => {
 		const img = f(1);
 		let prevented = 0;
@@ -305,7 +296,7 @@ describe("DOM handlers", () => {
 });
 
 describe("Composer image surface", () => {
-	it("renders the picker (multi, image types only), the strip and the error", () => {
+	it("renders the draft strip and its error", () => {
 		const html = renderToStaticMarkup(
 			<Composer
 				busy={false}
@@ -323,16 +314,19 @@ describe("Composer image surface", () => {
 				}}
 			/>,
 		);
-		assert.match(html, /data-testid="composer-image-input"/);
-		assert.match(html, /accept="image\/png,image\/jpeg,image\/gif,image\/webp"/);
-		assert.match(html, /multiple/);
+		assert.doesNotMatch(html, /composer-image-input/, "the single Add context control owns the picker");
 		assert.match(html, /aria-label="Remove image"/);
 		assert.match(html, /Images must be PNG, JPEG, WebP, or GIF\./);
 	});
 
-	it("without a draft there is no picker", () => {
-		const html = renderToStaticMarkup(<Composer busy={false} value="" onChange={() => {}} onSend={() => {}} onStop={() => {}} canSend />);
-		assert.ok(!html.includes("composer-image-input"));
+	it("the one Add context control accepts images through its upload input", async () => {
+		const { ContextAttachControl } = await import("../components/attachments.tsx");
+		const html = renderToStaticMarkup(<ContextAttachControl imageDraft={{ onPaste: () => {} }} />);
+		assert.match(html, /data-testid="attachment-input"/);
+		assert.match(html, /multiple/);
+		assert.match(html, /\.png/);
+		assert.match(html, /\.pdf/);
+		assert.doesNotMatch(html, /composer-image-input/);
 	});
 
 	it("an image alone makes the sendable state true", () => {

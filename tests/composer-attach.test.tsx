@@ -1,8 +1,7 @@
 /**
- * The composer's attach button (issue #285): the picker's twin of a file
- * drop. Picked files become quoted path chips at the caret through the
- * desktop bridge; the browser build explains instead. Same linkedom
- * shims as file-path-drop-zone.test.tsx (no native Selection there).
+ * The composer's ONE context control: local path references (the old
+ * paperclip's job), attachment uploads (the old Add context's job), image
+ * routing, and the session-files list. One button, one popover.
  */
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
@@ -11,15 +10,33 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { parseHTML } from "linkedom";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Composer } from "../components/composer.tsx";
-import { attachmentPopupPlacement, pathsForFiles } from "../components/attach-files-button.tsx";
+import { ContextAttachControl, pathsForFiles, type AttachmentDraft } from "../components/attachments.tsx";
+import { PathInput } from "../components/path-input.tsx";
 import { restorePathSelection } from "../components/path-input-dom.ts";
 import { quoteFilePath } from "../src/core/file-paths.ts";
 
 let cleanup: (() => Promise<void>) | undefined;
 afterEach(async () => { await cleanup?.(); cleanup = undefined; });
 
-async function fixture({ desktop = true } = {}) {
+function draft(files: File[] = []): AttachmentDraft & { added: File[] } {
+	const state: AttachmentDraft & { added: File[] } = {
+		files: files.map((file, i) => ({ key: `k${i}`, file })),
+		added: [],
+		error: null,
+		add(list) {
+			const next = Array.from(list ?? []);
+			state.added.push(...next);
+			state.files = [...state.files, ...next.map((file, i) => ({ key: `add${i}`, file }))];
+		},
+		remove() {},
+		clear() {},
+		upload: async () => [],
+		identity: () => state.files.map((f) => f.key).join("|"),
+	};
+	return state;
+}
+
+async function fixture({ desktop = true, withImageDraft = false } = {}) {
 	const { window: win, document: doc } = parseHTML("<html><body><div id='root'></div></body></html>");
 	let active: Element = doc.body;
 	Object.defineProperty(doc, "activeElement", { get: () => active });
@@ -33,16 +50,16 @@ async function fixture({ desktop = true } = {}) {
 	win.HTMLElement.prototype.focus = function () { active = this; };
 	win.HTMLElement.prototype.getBoundingClientRect = () => ({ x: 200, y: 600, left: 200, right: 240, top: 600, bottom: 640, width: 40, height: 40, toJSON() {} });
 	const backingPaths = new Map<File, string>();
-	let pickerClicks = 0;
 	let folderCalls = 0;
 	let folderResult: string | null | Error = null;
-	let byteReads = 0;
-	let sends = 0;
+	let pickerClicks = 0;
+	let imagePastes = 0;
 	let value = "readthis";
 	const previous = new Map<string, PropertyDescriptor | undefined>();
 	for (const [name, next] of Object.entries({
 		React, window: win, document: doc, Node: win.Node, HTMLElement: win.HTMLElement, Element: win.Element,
-		Event: win.Event, CustomEvent: win.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true, innerWidth: 1000, innerHeight: 800,
+		Event: win.Event, CustomEvent: win.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true,
+		requestAnimationFrame: (): number => 0, cancelAnimationFrame: (): void => {},
 	})) {
 		previous.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
 		Object.defineProperty(globalThis, name, { configurable: true, writable: true, value: next });
@@ -56,12 +73,24 @@ async function fixture({ desktop = true } = {}) {
 	});
 	const { createRoot } = await import("react-dom/client");
 	const root = createRoot(doc.getElementById("root")!);
+	const editorRef = { current: null as HTMLDivElement | null };
+	const attachmentDraft = draft();
 	function draw() {
-		root.render(<div data-testid="clipping-dock" data-attachment-composer="" style={{ overflow: "hidden" }}><Composer busy={false} value={value} onChange={(next) => { value = next; draw(); }} onSend={() => { sends++; }} onStop={() => {}} canSend /></div>);
+		root.render(
+			<div data-attachment-composer="">
+				<ContextAttachControl
+					draft={attachmentDraft}
+					editorRef={editorRef}
+					imageDraft={withImageDraft ? { onPaste: () => { imagePastes++; } } : undefined}
+				/>
+				<PathInput ref={editorRef} value={value} onValueChange={(next) => { value = next; draw(); }} />
+			</div>,
+		);
 	}
 	await act(async () => { draw(); });
-	const picker = doc.querySelector<HTMLInputElement>('[data-testid="attach-files-input"]')!;
-	picker.click = () => { pickerClicks++; };
+	const uploadPicker = doc.querySelector<HTMLInputElement>('[data-testid="attachment-input"]')!;
+	uploadPicker.click = () => { pickerClicks++; };
+	const referencePicker = doc.querySelector<HTMLInputElement>('[data-testid="reference-files-input"]')!;
 	cleanup = async () => {
 		await act(async () => { root.unmount(); });
 		for (const [name, descriptor] of previous) {
@@ -71,28 +100,27 @@ async function fixture({ desktop = true } = {}) {
 	};
 	const editor = doc.querySelector<HTMLElement>("[data-file-path-input]")!;
 	return {
-		button: doc.querySelector<HTMLButtonElement>('[data-testid="attach-files"]')!,
+		button: doc.querySelector<HTMLButtonElement>('[data-testid="attach-context"]')!,
+		draft: attachmentDraft,
 		get value() { return value; },
 		doc,
 		get pickerClicks() { return pickerClicks; },
-		get folderCalls() { return folderCalls; },
-		get sends() { return sends; },
+		get imagePastes() { return imagePastes; },
 		setFolderResult(result: typeof folderResult) { folderResult = result; },
-		async choice(label: string) {
-			await act(async () => { Array.from(doc.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((button) => button.textContent === label)!.click(); });
+		get folderCalls() { return folderCalls; },
+		async open() { await act(async () => { this.button.click(); }); },
+		async clickTestId(id: string) {
+			await act(async () => { doc.querySelector<HTMLButtonElement>(`[data-testid="${id}"]`)!.click(); });
 		},
 		async resize() { await act(async () => { win.dispatchEvent(new win.Event("resize")); }); },
 		async key(key: string) {
 			const event = Object.assign(new win.Event("keydown", { bubbles: true, cancelable: true }), { key });
-			await act(async () => { doc.activeElement!.dispatchEvent(event); });
+			const target = doc.querySelector<HTMLElement>('[data-testid="attachment-popover"]') ?? this.button;
+			await act(async () => { target.dispatchEvent(event); });
 			return event;
 		},
-		get byteReads() { return byteReads; },
-		file(name: string, path?: string) {
-			const result = new File(["synthetic bytes must never be read"], name, { type: "application/pdf" });
-			for (const method of ["text", "arrayBuffer", "stream"] as const) {
-				Object.defineProperty(result, method, { value: () => { byteReads++; throw new Error("No file content reads"); } });
-			}
+		file(name: string, path?: string, type = "application/pdf") {
+			const result = new File(["synthetic bytes"], name, { type });
 			if (path !== undefined) backingPaths.set(result, path);
 			return result;
 		},
@@ -102,37 +130,17 @@ async function fixture({ desktop = true } = {}) {
 			doc.dispatchEvent(new win.Event("selectionchange"));
 		},
 		async pick(files: File[]) {
-			Object.defineProperty(picker, "files", { configurable: true, value: files });
-			await act(async () => { picker.dispatchEvent(new win.Event("change", { bubbles: true })); });
+			Object.defineProperty(referencePicker, "files", { configurable: true, value: files });
+			await act(async () => { referencePicker.dispatchEvent(new win.Event("change", { bubbles: true })); });
+		},
+		async upload(files: File[]) {
+			Object.defineProperty(uploadPicker, "files", { configurable: true, value: files });
+			await act(async () => { uploadPicker.dispatchEvent(new win.Event("change", { bubbles: true })); });
 		},
 	};
 }
 
-describe("attachment popup placement", () => {
-	it("centers content-sized choices over the paperclip and leaves 4px above the entire short/multiline composer", () => {
-		for (const top of [540, 420]) {
-			const placed = attachmentPopupPlacement({ left: 680, right: 720 }, { top }, 58, { width: 1000, height: 800 });
-			assert.equal(placed.left + 58 / 2, 700);
-			assert.equal(800 - placed.bottom, top - 4);
-		}
-	});
-	it("contains choices and wider error notices at both viewport edges", () => {
-		for (const width of [58, 256]) {
-			for (const left of [0, 980]) {
-				const placed = attachmentPopupPlacement({ left, right: left + 40 }, { top: 540 }, width, { width: 1000, height: 800 });
-				assert.ok(placed.left >= 8 && placed.left + width <= 992);
-			}
-		}
-	});
-	it("caps to the room above the composer instead of flipping across it", () => {
-		const placed = attachmentPopupPlacement({ left: 120, right: 160 }, { top: 70 }, 58, { width: 300, height: 800 });
-		assert.equal(placed.maxHeight, 58);
-		assert.equal(placed.bottom, 734);
-		assert.equal(placed.maxWidth, 284);
-	});
-});
-
-describe("composer attach button", () => {
+describe("one add-context entry point", () => {
 	it("pathsForFiles keeps rooted paths and skips files the bridge can't place", () => {
 		const a = new File([""], "a.pdf");
 		const b = new File([""], "b.png");
@@ -146,125 +154,76 @@ describe("composer attach button", () => {
 		assert.deepEqual(result, { paths: ["/notes/a.pdf"], skipped: 2 });
 	});
 
-	it("server render is the browser case: a disabled-looking paperclip between the input and Send", () => {
-		const html = renderToStaticMarkup(<Composer busy={false} value="" onChange={() => {}} onSend={() => {}} onStop={() => {}} canSend={false} />);
-		assert.match(html, /aria-label="Attach files"[^>]*aria-disabled="true"|aria-disabled="true"[^>]*aria-label="Attach files"/);
-		const editor = html.indexOf("data-file-path-input");
-		const attach = html.indexOf('data-testid="attach-files"');
-		const send = html.indexOf('aria-label="Send"');
-		assert.ok(editor >= 0 && editor < attach && attach < send, "the paperclip follows the input and precedes Send");
-		assert.ok(html.includes('type="file"') && !html.includes("accept="), "any file type");
+	it("server render is one paperclip with one hidden upload input", () => {
+		const html = renderToStaticMarkup(<ContextAttachControl draft={draft()} />);
+		assert.match(html, /data-testid="attach-context"/);
+		assert.match(html, /Add context/);
+		assert.match(html, /data-testid="attachment-input"/);
+		assert.match(html, /accept="[^"]*\.epub[^"]*"/);
+		assert.doesNotMatch(html, /attach-files|Attach images|composer-image-input|session-files-chip/);
 	});
 
-	it("desktop: the button offers Files/Folder, and Files keeps multi-file any-type chips at the caret", async () => {
+	it("the popover offers upload and both local-reference choices", async () => {
 		const f = await fixture();
-		assert.equal(f.button.getAttribute("aria-disabled"), "false");
+		await f.open();
+		assert.ok(f.doc.querySelector('[data-testid="attachment-popover"]'));
+		assert.deepEqual(
+			Array.from(f.doc.querySelectorAll('[data-testid^="context-"]')).map((el) => el.getAttribute("data-testid")),
+			["context-upload", "context-reference-files", "context-reference-folder"],
+		);
+	});
+
+	it("desktop: Reference files keeps multi-file any-type chips at the caret, without reading bytes", async () => {
+		const f = await fixture();
 		f.caret(4);
-		await act(async () => { f.button.click(); });
-		assert.equal(f.pickerClicks, 0);
-		assert.deepEqual(Array.from(f.doc.querySelectorAll('[role="menuitem"]')).map((item) => item.textContent), ["Files", "Folder"]);
-		await f.choice("Files");
-		assert.equal(f.pickerClicks, 1);
+		await f.open();
+		await f.clickTestId("context-reference-files");
 		const paths = ["/course/week 3.pdf", "/photos/board.jpg"];
 		await f.pick([f.file("week 3.pdf", paths[0]), f.file("board.jpg", paths[1]), f.file("virtual.pdf")]);
 		assert.equal(f.value, `read ${paths.map(quoteFilePath).join(" ")} this`);
-		assert.equal(f.byteReads, 0, "paths only — file contents are never read");
 	});
 
-	it("Folder inserts exactly one directory path (including empty folders) at the saved caret, without file selection or submits", async () => {
+	it("desktop: Reference folder inserts exactly one directory path", async () => {
 		const f = await fixture();
 		f.caret(4);
 		f.setFolderResult("/course/empty folder");
-		await act(async () => { f.button.click(); });
-		await f.choice("Folder");
+		await f.open();
+		await f.clickTestId("context-reference-folder");
 		assert.equal(f.value, "read `/course/empty folder/` this");
-		assert.ok(f.doc.querySelector(".lucide-folder"));
 		assert.equal(f.folderCalls, 1);
-		assert.equal(f.pickerClicks, 0);
-		assert.equal(f.byteReads, 0);
-		assert.equal(f.sends, 0);
-		assert.equal(f.doc.querySelector('[role="menu"]'), null);
-		assert.equal(f.doc.querySelector("[webkitdirectory]"), null);
 	});
 
 	for (const result of [null, "relative/folder", new Error("cancel/failure")]) it(`folder cancellation or error preserves the draft (${String(result)})`, async () => {
 		const f = await fixture();
 		f.caret(4);
 		f.setFolderResult(result);
-		await act(async () => { f.button.click(); });
-		await f.choice("Folder");
-		assert.equal(f.value, "readthis");
-		assert.equal(f.sends, 0);
-		assert.equal(f.pickerClicks, 0);
-		assert.equal(f.doc.querySelector('[role="status"]') !== null, result !== null);
-	});
-
-	it("choices and errors portal outside the dock's clipping boundary, without removing dock clipping", async () => {
-		const f = await fixture();
-		const dock = f.doc.querySelector('[data-testid="clipping-dock"]')!;
-		await act(async () => { f.button.click(); });
-		const menu = f.doc.querySelector<HTMLElement>('[role="menu"]')!;
-		assert.equal(menu.parentElement, f.doc.body);
-		assert.equal(dock.contains(menu), false);
-		assert.equal(menu.style.position, "fixed");
-		assert.equal(menu.style.bottom, "204px");
-		assert.notEqual(menu.style.visibility, "hidden");
-		f.setFolderResult(new Error("fixture failure"));
-		await f.choice("Folder");
-		const notice = f.doc.querySelector<HTMLElement>('[role="status"]')!;
-		assert.equal(notice.parentElement, f.doc.body);
-		assert.equal(dock.contains(notice), false);
-		assert.equal(notice.style.position, "fixed");
-		assert.equal((dock as HTMLElement).style.overflow, "hidden");
+		await f.open();
+		await f.clickTestId("context-reference-folder");
 		assert.equal(f.value, "readthis");
 	});
 
-	it("reanchors above the marked composer when its multiline boundary moves, not above the button", async () => {
-		const f = await fixture();
-		await act(async () => { f.button.click(); });
-		const dock = f.doc.querySelector<HTMLElement>('[data-testid="clipping-dock"]')!;
-		dock.getBoundingClientRect = () => ({ x: 100, y: 450, left: 100, right: 800, top: 450, bottom: 650, width: 700, height: 200, toJSON() {} });
-		await f.resize();
-		assert.equal(f.doc.querySelector<HTMLElement>('[role="menu"]')!.style.bottom, "354px");
-	});
-
-	it("paperclip menu focuses choices, supports arrows/Escape, and never submits a draft", async () => {
-		const f = await fixture();
-		f.caret(4);
-		await act(async () => { f.button.click(); });
-		assert.equal(f.doc.activeElement!.textContent, "Files");
-		assert.equal((await f.key("ArrowDown")).defaultPrevented, true);
-		assert.equal(f.doc.activeElement!.textContent, "Folder");
-		await f.key("ArrowDown");
-		assert.equal(f.doc.activeElement!.textContent, "Files");
-		await f.key("End");
-		assert.equal(f.doc.activeElement!.textContent, "Folder");
-		await f.key("Home");
-		assert.equal(f.doc.activeElement!.textContent, "Files");
-		assert.equal((await f.key("Escape")).defaultPrevented, true);
-		assert.equal(f.doc.activeElement, f.button);
-		assert.equal(f.doc.querySelector('[role="menu"]'), null);
-		assert.equal(f.button.getAttribute("aria-expanded"), "false");
-		assert.equal(f.value, "readthis");
-		assert.equal(f.sends, 0);
-	});
-
-	it("cancelled Files selection preserves draft and opens no folder chooser", async () => {
-		const f = await fixture();
-		await act(async () => { f.button.click(); });
-		await f.choice("Files");
-		await f.pick([]);
-		assert.equal(f.value, "readthis");
-		assert.equal(f.folderCalls, 0);
-		assert.equal(f.sends, 0);
-	});
-
-	it("browser: the button stays inert and the picker never opens", async () => {
+	it("browser: the reference choices explain instead of opening a picker", async () => {
 		const f = await fixture({ desktop: false });
-		assert.equal(f.button.getAttribute("aria-disabled"), "true");
-		await act(async () => { f.button.click(); });
-		assert.equal(f.pickerClicks, 0);
-		await f.pick([f.file("a.pdf", "/a.pdf")]);
-		assert.equal(f.value, "readthis");
+		await f.open();
+		await f.clickTestId("context-reference-files");
+		assert.match(f.doc.body.textContent ?? "", /Local file paths can only be attached in the desktop app/);
+	});
+
+	it("Upload files adds documents to the pending draft and routes images to the image draft", async () => {
+		const f = await fixture({ withImageDraft: true });
+		await f.open();
+		await f.clickTestId("context-upload");
+		assert.equal(f.pickerClicks, 1);
+		await f.upload([f.file("notes.pdf", "/notes.pdf"), f.file("board.png", "/board.png", "image/png")]);
+		assert.equal(f.imagePastes, 1, "the image went to the image draft");
+		assert.deepEqual(f.draft.added.map((file) => file.name), ["notes.pdf"]);
+	});
+
+	it("Escape closes the popover without reaching the page's escape chain", async () => {
+		const f = await fixture();
+		await f.open();
+		const event = await f.key("Escape");
+		assert.equal(event.defaultPrevented, true);
+		assert.equal(f.doc.querySelector('[data-testid="attachment-popover"]'), null);
 	});
 });

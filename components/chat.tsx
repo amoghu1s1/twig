@@ -79,7 +79,7 @@ import { NotesChip, NotesPanel } from "@/components/notes-panel";
 import { MistakesContext, useChatMistakes } from "@/components/mistakes-context";
 import type { AnswerData, ArtifactPartProps, AttachmentRecord, CodeExerciseAnswerData, DraftImage, JobRecord, Phase3, QuestionAnswerData, QuestionFormDraft, ReadingDiscussionMarkerDetails, TurnUsage, SessionPricing } from "@/src/core";
 import type { LhViewMessage } from "@/src/core";
-import { AttachmentChips, attachmentContentUrl, ContextAttachControl, mergeAttachments, SessionFilesControl, useAttachmentDraft } from "@/components/attachments";
+import { AttachmentChips, attachmentContentUrl, ContextAttachControl, mergeAttachments } from "@/components/attachments";
 import { ComposerActions } from "@/components/composer-actions";
 import { useImageDraft } from "@/components/draft-images";
 import { useImageLightbox } from "@/components/image-lightbox";
@@ -175,6 +175,22 @@ export function parseModelsRefusal(message: string | undefined): ModelSlotName[]
 	} catch {
 		return null;
 	}
+}
+
+/** Human text for the transcript error banner. Refusal envelopes are JSON
+ *  (`{error}` / `{message}`) thrown verbatim by the transport; render that
+ *  text instead of the serialized envelope. Exported pure for tests. */
+export function friendlyErrorMessage(message: string | undefined): string {
+	const raw = message?.trim();
+	if (!raw) return "Something went wrong. Try again.";
+	try {
+		const body = JSON.parse(raw) as { error?: unknown; message?: unknown };
+		if (typeof body.error === "string" && body.error.trim()) return body.error;
+		if (typeof body.message === "string" && body.message.trim()) return body.message;
+	} catch {
+		/* plain text is already learner-readable */
+	}
+	return `Something went wrong: ${raw}`;
 }
 
 /** The provider-key refusal's transport seam (zero-keys wave, Platform's
@@ -531,7 +547,10 @@ export function Chat({
 		// mount-only by design (turnInFlight read at initial value)
 	}, []);
 
-	const pending = findPendingToolCall(messages, pendingQuestionOf(nativeMessages));
+	const pending = useMemo(
+		() => findPendingToolCall(messages, pendingQuestionOf(nativeMessages)),
+		[messages, nativeMessages],
+	);
 	const malformedQuestions = malformedQuestionsOf(nativeMessages);
 	// The abort handler reads the pending question from a ref (the window
 	// listener is mount-scoped; the value it needs is render-scoped).
@@ -542,7 +561,7 @@ export function Chat({
 	// same dock-ownership rule as a pending question — an active problem
 	// replaces the composer. Computed from the NATIVE record (the fold is
 	// the gate the tools themselves read), not the projected view.
-	const activeProblem = activeProblemOf(nativeMessages);
+	const activeProblem = useMemo(() => activeProblemOf(nativeMessages), [nativeMessages]);
 	const activeProblemRef = useRef(activeProblem);
 	activeProblemRef.current = activeProblem;
 
@@ -659,9 +678,15 @@ export function Chat({
 	catalogRef.current = catalog;
 	const [selectedModel, setSelectedModel] = useState<string | undefined>();
 	const [setupOpen, setSetupOpen] = useState(false);
-	// Session context attachments: the record's list + the composer's draft.
+	// Session context attachments: the record's list (the one Add context
+	// control uploads straight into it) + the composer's image draft.
 	const [sessionAttachments, setSessionAttachments] = useState(initialAttachments);
-	const attachmentDraft = useAttachmentDraft((records) => setSessionAttachments((prev) => mergeAttachments(prev, records)));
+	// Documents uploaded through Add context ride the NEXT message's ids, so
+	// the transcript records what came with it (images already do).
+	const pendingAttachmentIdsRef = useRef<string[]>([]);
+	const addUploadedAttachments = useCallback((records: readonly AttachmentRecord[]) => {
+		pendingAttachmentIdsRef.current = [...new Set([...pendingAttachmentIdsRef.current, ...records.map((r) => r.id)])];
+	}, []);
 	const imageDraft = useImageDraft();
 	const lightbox = useImageLightbox();
 	const removeImages = imageDraft.removeImages;
@@ -674,7 +699,8 @@ export function Chat({
 			.map((id) => sessionAttachments.find((r) => r.id === id))
 			.filter((a): a is AttachmentRecord => !!a && a.kind === "image" && !a.detachedAt)
 			.map((a) => ({ url: attachmentContentUrl(chatId, a.id), alt: a.name, caption: a.name }));
-	// The top bar's session-files panel; a transcript chip opens it on its file.
+	// The Add context popover's session-files section; a transcript chip
+	// opens it on its file.
 	const [filesOpen, setFilesOpen] = useState(false);
 	const [filesHighlight, setFilesHighlight] = useState<string | null>(null);
 	const onFilesOpenChange = (open: boolean) => {
@@ -888,19 +914,22 @@ export function Chat({
 	 * kind, nothing active, nothing in flight, and at least one problem
 	 * has ever been posed (the fresh session's opening turn is owed, not
 	 * the move-on). Enter-on-empty and the Next chip both key on it. */
-	const nextReady =
-		kind === "practice" &&
-		!pending &&
-		!activeProblem &&
-		!compacting &&
-		!busy &&
-		nativeMessages.some(
-			(m) => (m as { role?: string }).role === "assistant" &&
-				Array.isArray((m as { content?: unknown[] }).content) &&
-				(m as { content: Array<{ type?: string; name?: string }> }).content.some(
-					(b) => b.type === "toolCall" && b.name === "problem",
-				),
-		);
+	const nextReady = useMemo(
+		() =>
+			kind === "practice" &&
+			!pending &&
+			!activeProblem &&
+			!compacting &&
+			!busy &&
+			nativeMessages.some(
+				(m) => (m as { role?: string }).role === "assistant" &&
+					Array.isArray((m as { content?: unknown[] }).content) &&
+					(m as { content: Array<{ type?: string; name?: string }> }).content.some(
+						(b) => b.type === "toolCall" && b.name === "problem",
+					),
+			),
+		[kind, pending, activeProblem, compacting, busy, nativeMessages],
+	);
 	const sendNext = useCallback(() => {
 		if (!nextReady) return;
 		void send({ type: "next" });
@@ -916,22 +945,31 @@ export function Chat({
 	 * when nothing is active; the two never overlap). */
 	useEnterSubmits(sendNext);
 
+	const syncSeq = useRef(0);
 	const syncFromServer = useCallback(async () => {
-		const res = await fetch(`/api/chats/${chatId}`);
-		if (!res.ok) return;
-		const record = (await res.json()) as { messages?: LhMessage[]; turns?: TurnUsage[]; pricing?: SessionPricing; turnError?: string };
-		if (Array.isArray(record.turns)) setTurns(record.turns);
-		setPricing(record.pricing);
-		if (!Array.isArray(record.messages)) return;
-		setMessages(record.messages, record.turnError);
-		// The continuation seam (contracts.ts protocol §4): a job result
-		// landing in the record leaves the agent owing a continuation — the
-		// record ENDS on un-consumed results, the dock owns no question, and
-		// nothing runs. The native fold (needsContinuation) is the old SDK
-		// lastAssistantMessageIsCompleteWithToolCalls check.
-		// Current model truth also guards retained/live failures: canonical
-		// sync must never automatically replace a reply that failed to save.
-		continueIfOwed(record.messages);
+		const mine = ++syncSeq.current;
+		try {
+			const res = await fetch(`/api/chats/${chatId}`);
+			if (!res.ok) return;
+			const record = (await res.json()) as { messages?: LhMessage[]; turns?: TurnUsage[]; pricing?: SessionPricing; turnError?: string; attachments?: AttachmentRecord[] };
+			// A slow older read must never overwrite a newer one.
+			if (mine !== syncSeq.current) return;
+			if (Array.isArray(record.turns)) setTurns(record.turns);
+			if (Array.isArray(record.attachments)) setSessionAttachments(record.attachments);
+			setPricing(record.pricing);
+			if (!Array.isArray(record.messages)) return;
+			setMessages(record.messages, record.turnError);
+			// The continuation seam (contracts.ts protocol §4): a job result
+			// landing in the record leaves the agent owing a continuation — the
+			// record ENDS on un-consumed results, the dock owns no question, and
+			// nothing runs. The native fold (needsContinuation) is the old SDK
+			// lastAssistantMessageIsCompleteWithToolCalls check.
+			// Current model truth also guards retained/live failures: canonical
+			// sync must never automatically replace a reply that failed to save.
+			continueIfOwed(record.messages);
+		} catch {
+			/* offline: the event that asked for the sync will retry */
+		}
 	}, [chatId, setMessages, continueIfOwed]);
 
 	// EDIT THE LAST SENT MESSAGE (issue #321): the server stops the turn and
@@ -1439,37 +1477,36 @@ export function Chat({
 			openModelPicker();
 			return; // No optimistic send and no change to the learner's draft.
 		}
-		// Context attachments and pasted images upload first (one request per
-		// file); the text stays in the composer until they're on the server.
-		if (attachmentDraft.files.length > 0 || images.length > 0) {
+		// Pasted images upload first (one request per file); documents were
+		// already uploaded by the Add context control, so only image ids need
+		// to ride this message. The text stays in the composer until they're
+		// on the server.
+		if (images.length > 0) {
 			setUploading(true);
 			void (async () => {
-				const ids: string[] = [];
-				if (attachmentDraft.files.length > 0) ids.push(...(await attachmentDraft.upload(chatId)));
-				if (images.length > 0) {
-					const uploaded = await imageDraft.upload(chatId);
-					setSessionAttachments((prev) => mergeAttachments(prev, uploaded.map((u) => u.record)));
-					ids.push(...uploaded.map((u) => u.record.id));
-				}
+				const uploaded = await imageDraft.upload(chatId);
+				setSessionAttachments((prev) => mergeAttachments(prev, uploaded.map((u) => u.record)));
 				setUploading(false);
-				if (attachmentDraft.files.length > 0) attachmentDraft.clear();
-				sendText(t, ids, images);
+				sendText(t, uploaded.map((u) => u.record.id), images);
 			})().catch(() => setUploading(false)); // the controls show the reason; nothing sent
 			return;
 		}
 		sendText(t, [], images);
 	};
 	const sendText = (t: string, attachmentIds: string[], images: readonly DraftImage[] = []) => {
+		const pendingIds = pendingAttachmentIdsRef.current;
+		pendingAttachmentIdsRef.current = [];
+		const ids = [...new Set([...pendingIds, ...attachmentIds])];
 		if (openingDraftRef.current !== null) {
-			deliverOpeningPrompt(t, [...openingAttachmentIdsRef.current, ...attachmentIds]);
+			deliverOpeningPrompt(t, [...openingAttachmentIdsRef.current, ...ids]);
 			return;
 		}
 		const draft = { text: t, images: [...images] };
 		draftRef.current = draft; // the refusal flow's preserve-and-replay seam
 		applyText("");
-		void send({ type: "text", text: t, ...(attachmentIds.length ? { attachmentIds } : {}) }, () => {
-			// Images stay in the strip until the write-ahead ACK; files are
-			// already gone from the composer draft (they uploaded before send).
+		void send({ type: "text", text: t, ...(ids.length ? { attachmentIds: ids } : {}) }, () => {
+			// Images stay in the strip until the write-ahead ACK; documents
+			// already live in the session files list.
 			if (draft.images.length) removeImages(draft.images.map((i) => i.id));
 			if (draftRef.current === draft) draftRef.current = null;
 		});
@@ -1498,8 +1535,6 @@ export function Chat({
 				imageDraft.setError("Images can be sent once the current response finishes. Your draft is kept.");
 				return;
 			}
-			// A steer carries text only: picked files wait for the turn to end.
-			if (attachmentDraft.files.length > 0) return;
 			applyText("");
 			void steer(t);
 			return;
@@ -1612,16 +1647,6 @@ export function Chat({
 							<div className="min-w-4 flex-1" aria-hidden="true" />
 					</>
 					)}
-					{/* Session files: every kind — the add path while a question or
-					    probe card blocks the composer. */}
-					<SessionFilesControl
-						chatId={chatId}
-						attachments={sessionAttachments}
-						setAttachments={setSessionAttachments}
-						open={filesOpen}
-						onOpenChange={onFilesOpenChange}
-						highlightId={filesHighlight}
-					/>
 					{/* The plan chip (owner, plan-placement round): session-level
 					    structure beside the phase chip — access to the full-DAG popup
 					    at every width; the marginalia is the wide-screen glance view. */}
@@ -2029,12 +2054,17 @@ export function Chat({
 							{openingError && <p role="alert" className="text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
 							{error && (
 								<div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm">
-									<span>Something went wrong: {error.message}</span>
-									{retryable && (
-										<Button variant="outline" size="xs" data-testid="retry-failed-turn" onClick={retryFailedTurn}>
-											Retry
+									<span className="min-w-0 flex-1">{friendlyErrorMessage(error.message)}</span>
+									<div className="flex shrink-0 items-center gap-1.5">
+										{retryable && (
+											<Button variant="outline" size="xs" data-testid="retry-failed-turn" onClick={retryFailedTurn}>
+												Retry
+											</Button>
+										)}
+										<Button variant="ghost" size="xs" data-testid="dismiss-error" aria-label="Dismiss error" onClick={clearError}>
+											Dismiss
 										</Button>
-									)}
+									</div>
 								</div>
 							)}
 						</div>
@@ -2096,7 +2126,23 @@ export function Chat({
 						)
 					}
 					composerActions={
-						<ComposerActions picker={<ContextAttachControl draft={attachmentDraft} disabled={busy || uploading} lockRemoval={uploading} />} />
+						<ComposerActions
+							picker={
+								<ContextAttachControl
+									chatId={chatId}
+									attachments={sessionAttachments}
+									setAttachments={setSessionAttachments}
+									imageDraft={imageDraft.props}
+									editorRef={composerInputRef}
+									disabled={uploading}
+									onUploadingChange={setUploading}
+									onUploaded={addUploadedAttachments}
+									open={filesOpen}
+									onOpenChange={onFilesOpenChange}
+									highlightId={filesHighlight}
+								/>
+							}
+						/>
 					}
 					composer={
 						<ChatSessionComposer
@@ -2419,8 +2465,9 @@ function DockOverlay({
 	/** The persistent setup CTA (BYOK, owner 2026-09-22): the same pill
 	 *  home and /chat/new carry, above the composer while slots are unset. */
 	setupCta?: React.ReactNode;
-	/** The composer's action row (session context attachments): shown only
-	 *  while the composer itself is (no question, no problem). */
+	/** The composer's action row (the one Add context control): shown in
+	 *  every dock state — file context stays manageable while a question or
+	 *  problem owns the composer. */
 	composerActions?: React.ReactNode;
 }) {
 	const { isAtBottom, scrollToBottom, scrollRef } = useStickToBottomContext();
@@ -2775,7 +2822,9 @@ function DockOverlay({
 					<div ref={viewportRef} data-dock-viewport="" className="pointer-events-auto">
 					<div ref={bodyRef}>
 					{setupCta}
-					{!pending && !practice && composerActions}
+					{/* Add context stays reachable while a question/problem owns the
+					    composer: session files must remain addable and manageable. */}
+					{composerActions}
 					{/* The queued-steer indicator (owner spec 2026-10-03): quiet
 					    one-liners above the shell - right-aligned to where its corner
 					    rounding starts, truncated, no background, no container. A

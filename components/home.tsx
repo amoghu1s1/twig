@@ -14,9 +14,8 @@ import { SidebarToggle } from "@/components/sidebar";
 import { StatsBar } from "@/components/stats-bar";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { PathInput } from "@/components/path-input";
-import { AttachFilesButton } from "@/components/attach-files-button";
 import { ContextAttachControl, useAttachmentDraft } from "@/components/attachments";
-import { DraftImageStrip, ImagePickButton } from "@/components/draft-image-strip";
+import { DraftImageStrip } from "@/components/draft-image-strip";
 import { imageDropHandlers, useImageDraft } from "@/components/draft-images";
 import { useImageLightbox } from "@/components/image-lightbox";
 import { IMAGE_ONLY_TITLE } from "@/src/core";
@@ -107,6 +106,9 @@ export function Home({
 	const [mode, setMode] = useState<"teach" | "practice" | "capstone">("teach");
 	const [practiceProps, setPracticeProps] = useState<{ id: string; name: string; statement: string }[]>([]);
 	const [chainSelectOpen, setChainSelectOpen] = useState(false);
+	// Stable identity keeps the memoized graph view out of the composer's
+	// per-keystroke render path.
+	const closeChainSelect = useCallback(() => setChainSelectOpen(false), []);
 	// The chain table is CONTROLLED off this id set (the lifted pick).
 	const pickedIds = useMemo(() => new Set(practiceProps.map((p) => p.id)), [practiceProps]);
 	const capstoneNeedsPicks = mode === "capstone" && practiceProps.length === 0;
@@ -127,7 +129,9 @@ export function Home({
 		await imageDraft.awaitReads(); // a paste followed by Enter must not race its read
 		const t = topicRef.current.trim();
 		const images = imageDraft.imagesRef.current;
-		if ((!t && images.length === 0) || startingRef.current) return;
+		// Context files alone are a valid opening: the session exists to read
+		// them. Without any text, the first file names the session.
+		if ((!t && images.length === 0 && attachments.files.length === 0) || startingRef.current) return;
 		// CAPSTONE (2026-11-01): picks are required — nothing is created
 		// without them (the pill says why; the send button is disabled).
 		if (capstoneNeedsPicks) return;
@@ -163,7 +167,7 @@ export function Home({
 			// before the learner's first user message, propositions + the
 			// chains among them); the prompt stays the learner's own words.
 			const target = await starterRef.current.start({
-				title: t || IMAGE_ONLY_TITLE,
+				title: t || attachments.files[0]?.file.name || IMAGE_ONLY_TITLE,
 				...(mode !== "teach" ? { kind: mode } : {}),
 				...(practiceProps.length > 0 ? { graphContext: { propositions: practiceProps } } : {}),
 			}, fetch, JSON.stringify(catalog?.slots.strong),
@@ -211,14 +215,14 @@ export function Home({
 						chainSelectOpen={chainSelectOpen}
 						practiceSelection={pickedIds}
 						onPracticeSelectionChange={setPracticeProps}
-						onChainSelectClose={() => setChainSelectOpen(false)}
+						onChainSelectClose={closeChainSelect}
 					/>
 				) : (
 					<MinimalHome
 						chainSelectOpen={chainSelectOpen}
 						practiceSelection={pickedIds}
 						onPracticeSelectionChange={setPracticeProps}
-						onChainSelectClose={() => setChainSelectOpen(false)}
+						onChainSelectClose={closeChainSelect}
 					/>
 				)}
 			</main>
@@ -261,7 +265,7 @@ export function Home({
 										onClear={() => setPracticeProps([])}
 									/>
 								)}
-								<ContextAttachControl draft={attachments} disabled={busy} />
+								<ContextAttachControl draft={attachments} imageDraft={imageDraft.props} editorRef={topicInputRef} disabled={busy} />
 							</>
 						}
 						setup={zeroKeys ? (
@@ -292,7 +296,6 @@ export function Home({
 					{...imageDropHandlers(imageDraft.props.onPaste, { imagesOnly: true })}
 				>
 					<DraftImageStrip draft={{ ...imageDraft.props, onOpen: lightbox.open }} />
-					<ImagePickButton draft={imageDraft.props} />
 					<PathInput
 						ref={topicInputRef}
 						value={topic}
@@ -321,13 +324,12 @@ export function Home({
 						autoFocus
 						className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
 					/>
-					<AttachFilesButton editorRef={topicInputRef} />
 					{/* No tooltip on the start square — the ↵ glyph is the
 					    affordance (owner, subtlety round 2026-09-25). */}
 					<button
 						type="submit"
 						aria-label="Start session"
-						disabled={(!topic.trim() && !dictation.active && !imageDraft.hasImages) || busy || capstoneNeedsPicks}
+						disabled={(!topic.trim() && !dictation.active && !imageDraft.hasImages && attachments.files.length === 0) || busy || capstoneNeedsPicks}
 						className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-40"
 					>
 						<CornerDownLeftIcon className="size-5" />

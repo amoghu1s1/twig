@@ -4,13 +4,13 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { AttachmentChips, SessionFilesControl } from "../components/attachments.tsx";
+import { AttachmentChips, ContextAttachControl } from "../components/attachments.tsx";
 import type { AttachmentRecord } from "../src/core/contracts.ts";
 
 /**
- * The session-files panel: active files removable, removed ones restorable,
- * the opening chip's file highlighted; transcript chips read-only and marked
- * when their file was removed.
+ * The Add context popover's Session files section: active files removable,
+ * removed ones restorable, the opening chip's file highlighted; transcript
+ * chips read-only and marked when their file was removed.
  */
 
 const book: AttachmentRecord = {
@@ -34,10 +34,10 @@ const figure: AttachmentRecord = {
 	detachedAt: "2026-10-29T10:02:00.000Z",
 };
 
-describe("session files panel", () => {
+describe("session files in the one context control", () => {
 	it("lists active files with Remove, removed files with Undo, and highlights the chip's file", () => {
 		const html = renderToStaticMarkup(
-			<SessionFilesControl
+			<ContextAttachControl
 				chatId="chat_1"
 				attachments={[book, figure]}
 				setAttachments={() => {}}
@@ -46,7 +46,7 @@ describe("session files panel", () => {
 				highlightId={book.id}
 			/>,
 		);
-		assert.match(html, /Files · 1/);
+		assert.match(html, /data-testid="attach-context"/);
 		assert.match(html, /aria-label="Remove mechanics\.epub"/);
 		assert.match(html, /aria-label="Undo removing figure\.png"/);
 		assert.match(html, /Removed from context/);

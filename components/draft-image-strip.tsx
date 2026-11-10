@@ -1,9 +1,8 @@
 "use client";
 
-import { useRef } from "react";
-import { PaperclipIcon, XIcon } from "lucide-react";
+import { XIcon } from "lucide-react";
 import { imageUrl } from "@/src/core";
-import { handlePickedFiles, type ImageDraftProps } from "@/components/draft-images";
+import type { ImageDraftProps } from "@/components/draft-images";
 
 /**
  * THE DRAFT STRIP (composer paste): what the send will carry. Thumbnails
@@ -45,33 +44,5 @@ export function DraftImageStrip({ draft }: { draft: ImageDraftProps }) {
 			))}
 			{error && <p className="font-ui text-xs text-destructive">{error}</p>}
 		</div>
-	);
-}
-
-/** The file picker: a paperclip that opens the native chooser (PNG, JPEG,
- *  WebP, GIF). The input resets after each pick so the same file can be
- *  chosen again once it was removed. */
-export function ImagePickButton({ draft }: { draft: Pick<ImageDraftProps, "onPaste"> }) {
-	const input = useRef<HTMLInputElement>(null);
-	return (
-		<>
-			<input
-				ref={input}
-				type="file"
-				multiple
-				hidden
-				data-testid="composer-image-input"
-				accept="image/png,image/jpeg,image/gif,image/webp"
-				onChange={(e) => handlePickedFiles(e.currentTarget, draft.onPaste)}
-			/>
-			<button
-				type="button"
-				aria-label="Attach images"
-				onClick={() => input.current?.click()}
-				className="flex size-10 shrink-0 items-center justify-center rounded-[10px] text-muted-foreground transition-colors hover:text-foreground"
-			>
-				<PaperclipIcon className="size-4" />
-			</button>
-		</>
 	);
 }

@@ -55,6 +55,8 @@ export async function startDraftSession(
 	settingsIdentity?: string,
 	attach?: Parameters<SessionStarter["start"]>[3],
 	openingText?: string,
+	/** A file-only opening: the first attachment names the session. */
+	fallbackTitle?: string,
 ): Promise<string | null> {
 	const t = text.trim();
 	if (!t && !attach) return null;
@@ -64,8 +66,8 @@ export async function startDraftSession(
 	// [id] name: statement lines, target validation's truth set).
 	return starter.start(
 		mode
-			? { title: t || IMAGE_ONLY_TITLE, kind: mode, ...(picks && picks.length > 0 ? { graphContext: { propositions: picks } } : {}) }
-			: { title: t || IMAGE_ONLY_TITLE },
+			? { title: t || fallbackTitle || IMAGE_ONLY_TITLE, kind: mode, ...(picks && picks.length > 0 ? { graphContext: { propositions: picks } } : {}) }
+			: { title: t || fallbackTitle || IMAGE_ONLY_TITLE },
 		fetchLike,
 		settingsIdentity,
 		attach,
@@ -145,7 +147,7 @@ export function DraftShell({
 	// round, owner 2026-10-01): the spoken text is deferred in the run's
 	// buffer — Enter must reach the finish-first send, not be gated out by
 	// an empty textarea. Nothing said → the send no-ops.
-	const canSend = (text.trim().length > 0 || dictation.active || Boolean(imageDraft?.hasImages)) && !(mode === "capstone" && picks.length === 0);
+	const canSend = (text.trim().length > 0 || dictation.active || Boolean(imageDraft?.hasImages) || Boolean(attachments?.files.length)) && !(mode === "capstone" && picks.length === 0);
 	/* FINISH DICTATION FIRST (owner, 2026-10-01): stop the run, let the
 	 * last finals land through onChange, THEN call the parent's send —
 	 * which reads its REF mirror, so the post-await timing of React's
@@ -221,7 +223,7 @@ export function DraftShell({
 													{primerAction}
 												</>
 											)}
-											{attachments && <ContextAttachControl draft={attachments} disabled={busy} />}
+											{attachments && <ContextAttachControl draft={attachments} imageDraft={imageDraft} editorRef={composerInputRef} disabled={busy} />}
 										</>
 									}
 									setup={setupCta}
@@ -367,7 +369,7 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 					}
 				: undefined;
 			void startDraftSession(draft, fetch, mode === "teach" ? undefined : mode, mode === "teach" ? undefined : picksRef.current,
-				starterRef.current, JSON.stringify(catalog?.slots.strong), attach, draft)
+				starterRef.current, JSON.stringify(catalog?.slots.strong), attach, draft, attachments.files[0]?.file.name)
 				.then((target) => {
 					if (target) router.push(target);
 					else { startingRef.current = false; setBusy(false); }

@@ -430,12 +430,4 @@ export function imageDropHandlers(
 	};
 }
 
-/** The picker's change handler: hand the files over, then reset the input so
- *  choosing the SAME file again (after removing it) fires change. */
-export function handlePickedFiles(input: { files: FileList | null; value: string }, onFiles: ((files: File[]) => void) | undefined): void {
-	const files = Array.from(input.files ?? []);
-	input.value = "";
-	if (files.length > 0) onFiles?.(files);
-}
-
 export type { AttachmentRecord };

@@ -291,6 +291,23 @@ describe("context attachments on a new session", () => {
 		assert.deepEqual(readOpeningPromptEntry("c_retry")?.attachmentIds, ["att_9"]);
 	});
 
+	it("a files-only draft is sendable: the session can open on the attached document", () => {
+		const file = new File(["x"], "mechanics.epub");
+		const draft: AttachmentDraft = {
+			files: [{ key: "k1", file }],
+			error: null,
+			add() {},
+			remove() {},
+			clear() {},
+			upload: async () => [],
+			identity: () => "k1",
+		};
+		const html = renderToStaticMarkup(<DraftShell busy={false} text="" onChange={() => {}} onSend={() => {}} attachments={draft} />);
+		const send = html.match(/aria-label="Send"[^>]*/)?.[0] ?? "";
+		assert.ok(send, "the send button renders");
+		assert.doesNotMatch(send, /\sdisabled(?:=|>|\s)/, "a file-only draft can start the session");
+	});
+
 	it("shows the Add context control and the picked files as removable chips", () => {
 		const file = new File(["x"], "mechanics.epub");
 		const draft: AttachmentDraft = {

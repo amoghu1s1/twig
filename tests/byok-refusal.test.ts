@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { parseModelsRefusal, parseProviderKeyRefusal, retryFailedResponse } from "../components/chat.tsx";
+import { friendlyErrorMessage, parseModelsRefusal, parseProviderKeyRefusal, retryFailedResponse } from "../components/chat.tsx";
 import { SessionModel } from "../components/session-core.ts";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { newUserMessage, type LhMessage } from "../src/core/native-messages.ts";
@@ -39,6 +39,15 @@ describe("parseModelsRefusal — the send refusal detector", () => {
 		assert.equal(parseModelsRefusal('{"error":"A turn is already running"}'), null); // JSON, wrong code
 		assert.equal(parseModelsRefusal('{"code":"models_not_configured","missing":"strong"}'), null); // missing not an array
 		assert.equal(parseModelsRefusal('{"code":"models_not_configured","missing":[42]}'), null); // tiers are strings
+	});
+});
+
+describe("friendlyErrorMessage — the transcript banner never prints raw JSON", () => {
+	it("unwraps error/message envelopes and keeps plain text honest", () => {
+		assert.equal(friendlyErrorMessage('{"error":"A turn is already running"}'), "A turn is already running");
+		assert.equal(friendlyErrorMessage('{"message":"rate limited"}'), "rate limited");
+		assert.equal(friendlyErrorMessage("socket closed"), "Something went wrong: socket closed");
+		assert.equal(friendlyErrorMessage(undefined), "Something went wrong. Try again.");
 	});
 });
 
