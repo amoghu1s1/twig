@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { DEFAULT_READER_PREFS, latestReadablePassage, parseReaderPrefs, speechText, splitReaderUnits } from "../src/core/sentence-reader.ts";
+import { readerFontStyle } from "../components/sentence-reader.tsx";
 import type { LhViewMessage, LhViewPart } from "../src/core/view.ts";
+
+describe("readerFontStyle", () => {
+	it("writes the prose-size token, not a parent font-size the prose class overrides", () => {
+		const style = readerFontStyle(28) as Record<string, string>;
+		assert.equal(style["--lh-prose-size"], "28px");
+		assert.equal(style["--lh-prose-leading"], "1.9");
+	});
+});
 
 describe("splitReaderUnits", () => {
 	it("splits a paragraph into inline sentence steps", () => {

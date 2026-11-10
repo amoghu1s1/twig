@@ -45,6 +45,13 @@ function hiddenClass(style: RevealStyle): string {
 	return "opacity-40 blur-[5px]";
 }
 
+/** The reading surface's type tokens. `.lh-prose` reads these variables, so
+ *  the size slider must change the TOKEN — a plain parent font-size loses to
+ *  the class. Exported pure for the render test. */
+export function readerFontStyle(fontSize: number): React.CSSProperties {
+	return { "--lh-prose-size": `${fontSize}px`, "--lh-prose-leading": "1.9" } as React.CSSProperties;
+}
+
 /** The button beside a teacher passage that opens the reader. */
 export function SentenceReaderButton({ onOpen }: { onOpen: () => void }) {
 	return (
@@ -207,11 +214,15 @@ export function SentenceReader({ text, onClose }: { text: string; onClose: () =>
 					Size
 					<input
 						type="range"
+						data-testid="sentence-reader-size"
+						aria-label="Text size"
 						min={FONT_SIZE_MIN}
 						max={FONT_SIZE_MAX}
 						value={prefs.fontSize}
 						onChange={(e) => updatePrefs({ fontSize: Number(e.target.value) })}
+						className="accent-foreground"
 					/>
+					<span className="tabular-nums text-[11px] text-muted-foreground/80">{prefs.fontSize}px</span>
 				</label>
 				<button
 					type="button"
@@ -266,7 +277,12 @@ export function SentenceReader({ text, onClose }: { text: string; onClose: () =>
 				</button>
 			</div>
 			<div className="min-h-0 flex-1 overflow-y-auto" onClick={() => goTo(revealed + 1)}>
-				<div className="mx-auto max-w-3xl px-6 py-[30vh] leading-[1.9]" style={{ fontSize: prefs.fontSize }}>
+				{/* .lh-prose reads these variables, so the slider must set the
+				    TOKEN — a plain parent font-size is overridden by the class. */}
+				<div
+					className="mx-auto max-w-3xl px-6 py-[30vh]"
+					style={readerFontStyle(prefs.fontSize)}
+				>
 					{groups.map((group) => (
 						<div key={group[0]} className="my-5">
 							{group.map((i) => {
