@@ -16,6 +16,7 @@ import {
 	ERROR_TYPE_LABELS,
 	filterMistakes,
 	groupMistakes,
+	presentMistakeAnalysis,
 	summarizeMistakes,
 	type ErrorType,
 	type MistakeGroupBy,
@@ -513,11 +514,11 @@ export function MistakeCard({
 							</div>
 							<div className="rounded-lg border-l-2 border-l-primary/60 bg-muted/40 px-3 py-2">
 								<div className="font-ui text-[11px] uppercase tracking-wider text-muted-foreground">Remember this</div>
-								<ToolContentResponse className="mt-1 text-sm">{a.rule}</ToolContentResponse>
+								<ToolContentResponse className="mt-1 text-sm">{presentMistakeAnalysis(a.rule)}</ToolContentResponse>
 							</div>
 						</>
 					) : r.explanation ? (
-						<AnalysisBlock label="Why" text={r.explanation} />
+						<AnalysisBlock label="Why" text={presentMistakeAnalysis(r.explanation)} />
 					) : null}
 					{r.thinking && <AnalysisBlock label="Your reasoning" text={r.thinking} />}
 					{r.status === "failed" && r.error && <p className="text-xs text-muted-foreground" data-testid="mistake-error">{r.error}</p>}
@@ -563,7 +564,7 @@ function AnalysisBlock({ label, text }: { label: string; text: string }) {
 	return (
 		<div className="min-w-0">
 			<div className="mb-1 font-ui text-[11px] uppercase tracking-wider text-muted-foreground">{label}</div>
-			<ToolContentResponse className="text-sm">{text}</ToolContentResponse>
+			<ToolContentResponse className="text-sm">{presentMistakeAnalysis(text)}</ToolContentResponse>
 		</div>
 	);
 }

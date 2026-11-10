@@ -294,6 +294,40 @@ export function filterMistakes(records: readonly MistakeRecord[], f: MistakeFilt
 	});
 }
 
+/**
+ * Analysis prose is model-authored Markdown. Models sometimes write code or
+ * regex tokens as MATH to avoid escaping backslashes (`$\backslash$d`,
+ * `$r"\backslash d\{3\}"$`). Those render as math glyphs that read like raw
+ * TeX. Convert only code-shaped math segments to inline code; genuine math
+ * (`$[1,4,9,16]$`, `$\alpha_0$`) passes through untouched.
+ */
+export function presentMistakeAnalysis(text: string): string {
+	return (
+		text
+			// $\backslash$d -> `\d`
+			.replace(/\$\\backslash\$([A-Za-z])/g, "`\\$1`")
+			// $\backslash d$ -> `\d`
+			.replace(/\$\\backslash\s+([A-Za-z])\$/g, "`\\$1`")
+			// $\{3\}$ -> `{3}`
+			.replace(/\$\\\{([^{}$]+)\\\}\$/g, "`{$1}`")
+			// $[.-]$ / $[a-z]$ -> regex character class, not an interval list
+			.replace(/\$\[([^\],$]*[.-][^\],$]*)\]\$/g, "`[$1]`")
+			// $-$ / $.$
+			.replace(/\$([.-])\$/g, "`$1`")
+			// Phone-number samples are data, not a subtraction: 123-456-7890.
+			.replace(/\$(\d{3}[-.]\d{3}[-.]\d{4})\$/g, "`$1`")
+			// A whole math segment holding \backslash is regex/code, not math.
+			.replace(/\$([^$]*\\backslash[^$]*)\$/g, (_match, inner: string) => {
+				const code = inner
+					.replace(/\\backslash\s*/g, "\\")
+					.replace(/\\\{/g, "{")
+					.replace(/\\\}/g, "}")
+					.trim();
+				return code ? `\`${code}\`` : _match;
+			})
+	);
+}
+
 export interface MistakeSummary {
 	total: number;
 	missed: number;

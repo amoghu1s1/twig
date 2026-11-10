@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MistakeCard } from "../components/mistakes-page.tsx";
-import type { MistakeRecord } from "../src/core/mistakes.ts";
+import { presentMistakeAnalysis, type MistakeRecord } from "../src/core/mistakes.ts";
 
 const record: MistakeRecord = {
 	id: "chat_1:call_1",
@@ -41,6 +41,20 @@ function render(open: boolean) {
 		<MistakeCard record={record} open={open} onToggle={() => {}} onDelete={() => {}} onRetry={() => {}} />,
 	);
 }
+
+describe("Mistakes analysis code tokens", () => {
+	it("turns regex-as-math into inline code without touching real math", () => {
+		const input = String.raw`It is not knowing that $\backslash$d means a digit, $[.-]$ is a class, and $\{3\}$ is three. Real math $[1,4,9,16]$ and $\alpha_0$ stay. Code $r"\backslash d\{3\}[.-]\backslash d\{4\}"$ too.`;
+		const out = presentMistakeAnalysis(input);
+		assert.match(out, /`\\d` means a digit/);
+		assert.match(out, /`\[\.-\]` is a class/);
+		assert.match(out, /`\{3\}` is three/);
+		assert.match(out, /\$\[1,4,9,16\]\$/);
+		assert.match(out, /\$\\alpha_0\$/);
+		assert.match(out, /`r"\\d\{3\}\[\.-\]\\d\{4\}"`/);
+		assert.match(presentMistakeAnalysis("covers $123-456-7890$ and $987.654.3210$"), /`123-456-7890` and `987\.654\.3210`/);
+	});
+});
 
 describe("Mistakes card Markdown and math", () => {
 	it("renders the question as KaTeX, never as raw dollar-TeX", () => {
