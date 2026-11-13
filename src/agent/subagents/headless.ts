@@ -325,6 +325,34 @@ async function connectBrowserService(): Promise<ConnectedBrowserService | null> 
 	}
 }
 
+/** Acquire with a hard bound: /json/version or the CDP connect can accept a
+ *  socket and never answer. A wedged acquisition must not hold
+ *  helperPageChain (and every later job) forever, so discard the unresponsive
+ *  helper and let the next queued job start clean. */
+async function acquireBrowserService(): Promise<ConnectedBrowserService | null> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	let timedOut = false;
+	const connecting = connectBrowserService();
+	const timeout = new Promise<null>((resolve) => {
+		timer = setTimeout(() => {
+			timedOut = true;
+			resolve(null);
+		}, BROWSER_SERVICE_TIMEOUT_MS);
+	});
+	try {
+		const helper = await Promise.race([connecting, timeout]);
+		if (!helper && timedOut) {
+			const stuck = browserServiceProc;
+			stuck?.kill();
+			if (browserServiceProc === stuck) browserServiceProc = null;
+			void connecting.then((late) => late?.browser.disconnect().catch(() => {})).catch(() => {});
+		}
+		return helper;
+	} finally {
+		if (timer) clearTimeout(timer);
+	}
+}
+
 /** Serialize acquisition, page use and invalidation together: the helper owns
  *  ONE page target. Queued jobs must acquire after the previous job retires or
  *  discards its helper, never capture a Browser while a handshake is pending. */
@@ -336,7 +364,7 @@ async function withBrowserPage<T>(fn: (page: import("puppeteer-core").Page) => P
 	helperJobStarted();
 	try {
 		const run = async (): Promise<{ value: T } | null> => {
-			const helper = await connectBrowserService();
+			const helper = await acquireBrowserService();
 			if (!helper) return null;
 			const pages = await helper.browser.pages();
 			const page = pages.find((p) => p.target().type() === "page");
