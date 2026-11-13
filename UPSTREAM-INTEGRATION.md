@@ -23,7 +23,8 @@ Latest code/test head: `44285fe4` (later commits are docs only)
 - Batch 8h (files 316–320): **51 pass, 0 fail**.
 - Batch 8i (files 321–325): **93 pass, 0 fail**.
 - Batch 8j (files 326–330): 97 pass + 3 fail in `provider-tracing`; `099ad5d8` removed the duplicate side-chat include and the broad `data/**/*` globs → **100 pass, 0 fail**.
-- Next sweep position: file **331**. No test/build processes remain.
+- Batch 8k (files 331–335): 89 pass + 2 fail; `37ee241b` parked the two upstream `QuestionDockBar` preview cases (Twig teaser retained) → **89 pass, 2 skipped, 0 fail**.
+- Next sweep position: file **336**. No test/build processes remain.
 
 This file is the source of truth for the in-progress upstream integration. Read it
 before touching the branch. The session/harness has a habit of cutting long shell
@@ -162,6 +163,7 @@ Twig while keeping the Twig implementations we chose to retain.
 | Batch 8h (files 316–320) | 51 pass, 0 fail |
 | Batch 8i (files 321–325) | 93 pass, 0 fail |
 | Batch 8j (files 326–330) | 97 pass + 3 fail; `099ad5d8` → 100 pass, 0 fail |
+| Batch 8k (files 331–335) | 89 pass + 2 fail; `37ee241b` parked bar cases → 89 pass, 2 skipped |
 
 A full monolithic `npm test` was never completed. The cut-off shell calls were **not** a
 harness limit. The morning retries (09:25, 09:27, 09:35, 09:43) each died at the
@@ -181,8 +183,8 @@ A future failing node comparison reproduces the same machine-wide OOM.
 
 ## Remaining work
 
-1. **Finish the test sweep** from file 331 onward (see command below), then re-run the
-   earlier failing files. Files 241–330 are green. Most plugin tests have already
+1. **Finish the test sweep** from file 336 onward (see command below), then re-run the
+   earlier failing files. Files 241–335 are green (2 upstream bar cases parked). Most plugin tests have already
    passed individually; the recent failures were fixed in `f6dcc4e2`. Fix real
    failures; park only upstream-only behavior that conflicts with a Twig decision.
    Every batch must run capped (`NODE_OPTIONS=--max-old-space-size=2048`, `timeout 45`).
