@@ -1,9 +1,9 @@
 # Upstream 0.6.1 plugin integration — handoff
 
-Last updated: 2026-11-13 11:30
+Last updated: 2026-11-13 12:00
 Branch: `integrate/upstream-0.6`
 Base merge commit: `6cc02786`
-Latest code/test head: `8ba0bf33` (later commits are docs only)
+Latest code/test head: `9aee5995` (later commits are docs only)
 
 ## Sweep resumed (2026-11-13 11:20)
 
@@ -60,6 +60,26 @@ Latest code/test head: `8ba0bf33` (later commits are docs only)
 - **Sweep complete:** files 1–475 covered. Earlier failing files re-ran green
   (212 pass + 5 skipped); `plugin-markdown` passed 9/9 in isolation. No test/build
   processes remain.
+
+### Reviewer security audit — headless isolation (2026-11-13)
+
+Reviewer found two upstream-only browser-service fixes dropped by `-X ours`;
+both are now ported, one commit each:
+
+- `d3e0b7bb` (upstream `d05b79e5`): `loadSandboxed` returns a cleanup that
+  navigates to `about:blank` while request interception is still enabled,
+  disables interception only after success, and throws
+  `IsolatedPageCleanupError` otherwise; `withBrowserPage` discards the helper.
+- `9aee5995` (upstream `7471930d`): `connectBrowserService` returns
+  `{ browser, proc }`, acquisition runs inside `helperPageChain`, and a failed
+  retirement kills exactly the owning process. Twig's `helperJobStarted` /
+  `HELPER_IDLE_MS` accounting is retained.
+
+`tests/headless-helper-lifecycle.test.ts` was adapted from upstream's
+`setContent` loader to Twig's `goto` sandbox loader; both retirement and
+cold-start cases pass. `tests/headless-isolation.test.ts` stays parked.
+No other audit area lost upstream protection (external links, desktop-access
+headers, subscription rejection, plugin-host paths/same-origin).
 
 ### Gate audit: `tests/desktop-payload.test.ts` (Ops static audit)
 
@@ -254,15 +274,11 @@ A future failing node comparison reproduces the same machine-wide OOM.
    themes, and live appearance refresh. Earlier failing files re-ran green
    (212 pass + 5 skipped; `plugin-markdown` 9/9 isolated). Keep every future
    batch capped (`NODE_OPTIONS=--max-old-space-size=2048`).
-2. **Audit `-X ours` losses** in non-feature files. The merge deliberately kept Twig on
-   conflicts, so check upstream-only security/bug fixes that may have been dropped:
-   - `electron/main.cjs` (external-link handling, browser-service isolation)
-   - `src/agent/subagents/headless.ts` (Twig version restored; upstream isolation work
-     was not adopted)
-   - `src/agent/subscription-request-cycle.ts` (we re-added `locallyRejected` /
-     `rejectLocalRequest`)
-   - `proxy.ts` / `src/server/desktop-access.ts` (Twig uses `x-twig-desktop`; upstream
-     used `x-learnharness-desktop`)
+2. **Audit `-X ours` losses — complete** via Reviewer (see above). Headless
+   isolation is fixed; external links, subscription rejection, desktop-access
+   headers, and plugin-host paths/same-origin were preserved. Ops' deferred
+   pipework (browser-smoke invocation, `--isolated` CI flags, authoring ZIP
+   check, release-doc `plugins:setup`, test heap cap) is not started.
    - plugin host security fixes (path traversal, linked authoring source, same-origin)
 3. **Re-run final gates** after the test sweep:
    `npx tsc --noEmit`, `npm run lint`, `npx next build`,
