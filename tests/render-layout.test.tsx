@@ -78,7 +78,13 @@ describe("status chrome speaks the theme tokens", () => {
 				}}
 			/>,
 		);
-		assert.match(out, /bg-success\/15[^"]*text-success|text-success[^"]*bg-success\/15/);
+		// The shared StatusBadge paints the success chip at 15% via color-mix;
+		// the bg-success/10 class elsewhere in the card belongs to the selected
+		// option row, not the verdict chip.
+		assert.match(out, /data-slot="status-badge"/);
+		assert.match(out, /color:var\(--lh-success\)/);
+		assert.match(out, /color-mix\(in oklab, var\(--lh-success\) 15%, transparent\)/);
+		assert.match(out, />correct</);
 		assert.doesNotMatch(out, /green-500/);
 	});
 });
