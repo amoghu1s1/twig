@@ -21,6 +21,7 @@ import { createObsidianSync } from "./obsidian-sync.ts";
 import { tidyStore } from "../store/tidy.ts";
 import { rehomeTidyConnections, TIDY_SOURCE_ID, TIDY_SOURCE_LABEL } from "../core/graph-tidy.ts";
 import { ankiStore } from "../store/anki.ts";
+import { readMistakes } from "../store/mistakes.ts";
 import * as path from "node:path";
 import type { ModelRole } from "../../config.ts";
 import {
@@ -925,6 +926,7 @@ export async function handleChatInput(
 								// The registry drop's signal (2026-09-20): no live engine
 								// = no research tool in the teacher's registry.
 								searchAvailable,
+								mistakeStore: { read: readMistakes },
 							},
 							agentOpts,
 						)
