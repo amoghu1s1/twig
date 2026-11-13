@@ -126,6 +126,8 @@ export function Composer({
 	nextProblem = false,
 	onNext,
 	imageDraft,
+	defaultDropTarget = true,
+	fileInsertion = true,
 }: {
 	busy: boolean;
 	value: string;
@@ -153,6 +155,10 @@ export function Composer({
 	onNext?: () => void;
 	/** The pasted-image draft (composer paste): parent-held. */
 	imageDraft?: ImageDraftProps;
+	/** Host file-drop routing; plugin composers turn it off. */
+	defaultDropTarget?: boolean;
+	/** Host file-path insertion; plugin composers turn it off. */
+	fileInsertion?: boolean;
 }) {
 	const controller = useOptionalInteractionLayers();
 	const act = () => {
@@ -179,7 +185,8 @@ export function Composer({
 				ref={editorRef}
 				value={value}
 				onValueChange={onChange}
-				defaultDropTarget
+				defaultDropTarget={defaultDropTarget}
+				fileInsertion={fileInsertion}
 				onImagePaste={imageDraft?.onPaste}
 				onKeyDown={(e) => {
 					if (!isInteractionScopeEligible(e.currentTarget, controller)) return;
