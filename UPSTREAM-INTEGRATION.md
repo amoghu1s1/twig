@@ -1,9 +1,9 @@
 # Upstream 0.6.1 plugin integration — handoff
 
-Last updated: 2026-11-13 12:10
+Last updated: 2026-11-13 12:20
 Branch: `integrate/upstream-0.6`
 Base merge commit: `6cc02786`
-Latest code/test head: `e05cad07` (later commits are docs only)
+Latest code/test head: `bbbe00a2` (later commits are docs only)
 
 ## Sweep resumed (2026-11-13 11:20)
 
@@ -83,7 +83,7 @@ headers, subscription rejection, plugin-host paths/same-origin).
 
 ### Gate audit: `tests/desktop-payload.test.ts` (Ops static audit)
 
-Fixed in `e05cad07`; capped run is **10 pass / 1 fail**.
+Fixed in `e05cad07`; after `bbbe00a2` removed the inert asset the capped run is **11 pass / 0 fail**.
 
 - `:131/:132` pin the Core catalog to `rich-code-blocks` and check that
   package's font.
@@ -94,10 +94,9 @@ Fixed in `e05cad07`; capped run is **10 pass / 1 fail**.
   `Refusing unsafe Core package content` (no longer passes via an extra dir).
 - `:218-222` remove `rich-code-blocks` for the missing-catalog case; the extra
   `ui-showcase` case is unchanged.
-- `:226-228` remains failing by design: the fixture does not create
-  `side-chat/90-style.md`, and Twig does not read it. The owner is deciding
-  between adopting upstream's brevity layer (read the file + restore the build
-  guard) and dropping the unused asset; that case is fixed either way.
+- `:226-228` now checks only the teacher prompt. The owner ruled to retain
+  Twig's side-chat prompts, so `bbbe00a2` deleted the unused upstream
+  `side-chat/90-style.md` rather than adding its read or build guard.
 
 **90-style guard provenance:** upstream `scripts/build-server.mjs:104-116` lists
 `side-chat/00-base.md` and `side-chat/90-style.md` (lines 109-110; added in
@@ -131,6 +130,8 @@ Twig while keeping the Twig implementations we chose to retain.
 | SVG | Keep Twig's `svg` fence renderer; take upstream native/security work where compatible. |
 | Code practice | Keep Twig's native `code-exercises` tool and sandboxed runtimes; do not ship the coding plugin. |
 | Code blocks | Keep Twig's ordinary code/table/mermaid renderer; layer upstream `PluginCodeBlock` dispatch over it so the Rich Code Blocks plugin can render `smiles`/`abc`/`tikz`. |
+| Side brevity | Delete upstream's inert `side-chat/90-style.md`; do not add its read to Twig's side-chat. |
+| Side-conversation fragment | Keep `shared/35-side-conversations.md` in `PRACTICE_SHARED_FRAGMENTS` (`prompt-segments.ts:43`): it guides the "Recorded learner–helper conversation" entries Twig emits at `src/core/side-chat.ts:457` and includes through `src/server/chat-handler.ts`. |
 
 ## What was done
 
