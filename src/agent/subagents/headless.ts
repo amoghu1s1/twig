@@ -339,12 +339,19 @@ async function withBrowserPage<T>(fn: (page: import("puppeteer-core").Page) => P
 			if (!page) throw new Error("browser service: no page target");
 			try {
 				return await fn(page);
+			} catch (error) {
+				if (error instanceof IsolatedPageCleanupError) {
+					// A failed retirement must never leave a live untrusted document
+					// on the shared target. The next job starts a fresh owned helper.
+					browserServiceProc?.kill();
+					browserServiceProc = null;
+				}
+				throw error;
 			} finally {
-				// Drop all page state (JS heap, interception) between jobs,
-				// then this job's CDP connection — its page listeners die with
-				// it, so the next job's fresh connection sees a clean page.
-				await page.setRequestInterception(false).catch(() => {});
-				await page.goto("about:blank").catch(() => {});
+				// Drop page state between jobs. Interception is already off after a
+				// successful retirement; on failure the helper is killed above and
+				// this best-effort navigation cannot re-enable the old document.
+				await page.goto("about:blank", { timeout: 5_000 }).catch(() => {});
 				await helper.disconnect().catch(() => {});
 			}
 		};
@@ -391,19 +398,28 @@ export function sandboxRequestKind(url: string): "document" | "inline" | "block"
 	return "block";
 }
 
+/** A failed retirement must discard the helper: the page may still hold the
+ *  untrusted document with request interception enabled. */
+class IsolatedPageCleanupError extends Error {}
+
 /**
  * Load a generated document in the sandbox: intercept every request, serve
  * `html` at DEMO_SANDBOX_URL with the no-network CSP, let data:/blob: pass,
  * abort everything else (the page's requestfailed listeners record it).
  * Popups are closed on sight (the helper also denies them natively).
+ *
+ * Returns a cleanup that retires the document WHILE interception is still
+ * enabled; interception comes off only after about:blank loads. A failed
+ * retirement throws IsolatedPageCleanupError and keeps the request guard
+ * installed until the caller discards the owning helper.
  */
 export async function loadSandboxed(
 	page: import("puppeteer-core").Page,
 	html: string,
 	opts: { timeout?: number; contentType?: string } = {},
-): Promise<void> {
+): Promise<() => Promise<void>> {
 	await page.setRequestInterception(true);
-	page.on("request", (req) => {
+	const onRequest = (req: import("puppeteer-core").HTTPRequest) => {
 		if (req.isInterceptResolutionHandled()) return;
 		const url = req.url();
 		const kind = sandboxRequestKind(url);
@@ -419,9 +435,28 @@ export async function loadSandboxed(
 		} else {
 			void req.abort("blockedbyclient");
 		}
-	});
-	page.on("popup", (popup) => void popup?.close().catch(() => {}));
-	await page.goto(DEMO_SANDBOX_URL, { waitUntil: "load", timeout: opts.timeout ?? 30_000 });
+	};
+	const onPopup = (popup: import("puppeteer-core").Page | null) => void popup?.close().catch(() => {});
+	let retirement: Promise<void> | undefined;
+	const cleanup = () => retirement ??= (async () => {
+		try {
+			await page.goto("about:blank", { timeout: 5_000 });
+			await page.setRequestInterception(false);
+			page.off("request", onRequest);
+			page.off("popup", onPopup);
+		} catch (error) {
+			throw new IsolatedPageCleanupError("Could not retire the untrusted browser document", { cause: error });
+		}
+	})();
+	page.on("request", onRequest);
+	page.on("popup", onPopup);
+	try {
+		await page.goto(DEMO_SANDBOX_URL, { waitUntil: "load", timeout: opts.timeout ?? 30_000 });
+	} catch (error) {
+		await cleanup();
+		throw error;
+	}
+	return cleanup;
 }
 
 async function runDemo(html: string, opts: RunDemoOptions = {}): Promise<DemoRunResult> {
@@ -441,17 +476,22 @@ async function runDemo(html: string, opts: RunDemoOptions = {}): Promise<DemoRun
 		page.on("requestfailed", (req) => failedRequests.push(`${req.url()} (${req.failure()?.errorText ?? "failed"})`));
 
 		try {
-			await loadSandboxed(page, html);
-			await new Promise((resolve) => setTimeout(resolve, settleMs));
-			if (opts.probe) {
-				try {
-					probeResult = await page.evaluate(opts.probe);
-				} catch (err) {
-					pageErrors.push(`probe failed: ${err instanceof Error ? err.message : String(err)}`);
+			const cleanup = await loadSandboxed(page, html);
+			try {
+				await new Promise((resolve) => setTimeout(resolve, settleMs));
+				if (opts.probe) {
+					try {
+						probeResult = await page.evaluate(opts.probe);
+					} catch (err) {
+						pageErrors.push(`probe failed: ${err instanceof Error ? err.message : String(err)}`);
+					}
+					probed = true;
 				}
-				probed = true;
+			} finally {
+				await cleanup();
 			}
 		} catch (err) {
+			if (err instanceof IsolatedPageCleanupError) throw err;
 			pageErrors.push(err instanceof Error ? err.message : String(err));
 		}
 	});
@@ -583,14 +623,18 @@ async function renderSvg(svg: string, opts: RenderSvgOptions = {}): Promise<Buff
 	return withBrowserPage(async (browserPage) => {
 		const { width, height } = svgViewport(svg, opts);
 		await browserPage.setViewport({ width, height });
-		await loadSandboxed(browserPage, sealed, { contentType: "image/svg+xml; charset=utf-8" });
-		// Viewport shot (sized to the figure above): fullPage measurement
-		// never settles on a bare SVG document.
-		const shot = (await browserPage.screenshot({ type: "png" })) as Buffer;
-		// Chrome's raw split-IDAT PNG is canonicalized before it reaches a
-		// provider (see providerSafePng) — the visual-maker feeds this exact
-		// buffer back to the vision model as its only way to "look".
-		return providerSafePng(Buffer.from(shot));
+		const cleanup = await loadSandboxed(browserPage, sealed, { contentType: "image/svg+xml; charset=utf-8" });
+		try {
+			// Viewport shot (sized to the figure above): fullPage measurement
+			// never settles on a bare SVG document.
+			const shot = (await browserPage.screenshot({ type: "png" })) as Buffer;
+			// Chrome's raw split-IDAT PNG is canonicalized before it reaches a
+			// provider (see providerSafePng) — the visual-maker feeds this exact
+			// buffer back to the vision model as its only way to "look".
+			return providerSafePng(Buffer.from(shot));
+		} finally {
+			await cleanup();
+		}
 	});
 }
 
