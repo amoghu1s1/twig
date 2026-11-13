@@ -3,19 +3,18 @@
 Last updated: 2026-11-13 11:10
 Branch: `integrate/upstream-0.6`
 Base merge commit: `6cc02786`
-Latest committed head: `6f47d693`
+Latest code/test head: `44285fe4` (later commits are docs only)
 
 ## STOP — test sweep paused (2026-11-13 11:05)
 
 - Batch 7a resumed: files 241–245 pass **71/71** (`/tmp/opencode/twig-tests/241-245.log`).
-- Batch 246–250 did **not** complete: the OpenBot app scope was OOM-killed while
-  `tests/plugin-markdown.test.tsx` ran. The partial log has 75 passing checks and no
-  summary (`/tmp/opencode/twig-tests/246-250.log`).
+- Batch 246–250 now passes **84/84** at a 489 MB peak after `02891b6e` fixed the
+  `plugin-markdown` linkedom assertion (`/tmp/opencode/verify-batch246.log`). The
+  earlier OOM was the test's DOM-node assert, not the app.
 - Per `AGENTS.md`, no test batch, memory probe or build may run until the CEO clears
   the sweep. No test child processes remain.
-- `tests/plugin-markdown.test.tsx` has an uncommitted memory-safe assertion fix
-  (compare tag names/primitives instead of linkedom DOM nodes). It was left
-  uncommitted and was not run after the stop order.
+- The `plugin-markdown` fix is committed (`02891b6e`); there are no uncommitted test
+  changes. The next sweep position is file **281**.
 
 This file is the source of truth for the in-progress upstream integration. Read it
 before touching the branch. The session/harness has a habit of cutting long shell
@@ -140,7 +139,7 @@ Twig while keeping the Twig implementations we chose to retain.
 | Batch 6b (files 211–220) | 145 pass, 0 fail |
 | Batch 6c (files 221–230) | plugin API reference stale; regenerated → 4/4 |
 | Batch 6d (files 231–240) | plugin contributions + document proxy fixed; plugin-renderers fixed |
-| Batch 7a (files 241–250) | first half 71/71; second half interrupted by server restarts |
+| Batch 7a (files 241–250) | 71/71 for 241–245; 84/84 for 246–250 after `02891b6e` (489 MB capped peak) |
 | Batch 7b (files 251–260) | 59 pass, 0 fail |
 | Batch 7c (files 261–270) | 196 pass, 0 fail |
 | Batch 7d (files 271–280) | 107 pass + 1 failure; `plugin-renderers` fixed → 14/14 |
@@ -161,10 +160,11 @@ A future failing node comparison reproduces the same machine-wide OOM.
 
 ## Remaining work
 
-1. **Finish the test sweep** from file 241 onward (see command below), then re-run the
-   earlier failing files. Most plugin tests have already passed individually; the
-   recent failures were fixed in `f6dcc4e2`. Fix real failures; park only upstream-only
-   behavior that conflicts with a Twig decision.
+1. **Finish the test sweep** from file 281 onward when the CEO clears it (see command
+   below), then re-run the earlier failing files. Files 241–280 are green. Most plugin
+   tests have already passed individually; the recent failures were fixed in
+   `f6dcc4e2`. Fix real failures; park only upstream-only behavior that conflicts with
+   a Twig decision. Every batch must run in a capped scope after the linkedom OOM.
 2. **Audit `-X ours` losses** in non-feature files. The merge deliberately kept Twig on
    conflicts, so check upstream-only security/bug fixes that may have been dropped:
    - `electron/main.cjs` (external-link handling, browser-service isolation)
@@ -196,7 +196,7 @@ A future failing node comparison reproduces the same machine-wide OOM.
 | File | Why |
 | --- | --- |
 | `commit-input.test.tsx` | Upstream expects Escape to commit; Twig's ruling is Escape discards. Twig settings/controls suites cover the retained behavior. |
-| `host-markdown.test.tsx` | Combined plugin-owner fixture hangs in linkedom; individual SSR/link/mermaid/highlighting cases pass, and plugin markdown is covered elsewhere. |
+| `host-markdown.test.tsx` | Its `noControls` helper compares matched DOM nodes to `null`; Twig's retained copy corner makes that assertion fail, and Node's assert diff then inspects the linkedom graph without bound (the real "linkedom hang"). Keep the individual SSR/link/mermaid/highlighting coverage elsewhere until the no-controls expectation is reconciled with Twig. |
 | `host-markdown-math.test.tsx` (second case) | The literal-overescaped-LaTeX-in-code case hangs the linkedom pipeline; the exact determinant recovery pin remains active. |
 | `passive-tooltip.test.tsx` (one case) | Assumes upstream CommitInput Escape-commits; Twig's Escape discards. The other 10 tooltip/layer cases run. |
 | `side-chat.test.ts`, `side-chat-*`, `side-conversation-*`, `side-plugin-*`, `side-thread-*`, `use-side-thread-*` | Upstream floating side companion; Twig keeps inline side questions. |
@@ -215,12 +215,15 @@ Run the remaining tests in small batches. The server restarted repeatedly during
 session; 5-file chunks are the most reliable. Example for the next window:
 
 ```sh
-bash -c 'mapfile -t files < <(ls tests/*.test.ts tests/*.test.tsx | sed "s|tests/||" | sort | sed -n "241,245p" | sed "s|^|tests/|"); NODE_ENV=test timeout 45 npx tsx --test "${files[@]}"'
+bash -c 'mapfile -t files < <(ls tests/*.test.ts tests/*.test.tsx | sed "s|tests/||" | sort | sed -n "241,245p" | sed "s|^|tests/|"); NODE_ENV=test NODE_OPTIONS=--max-old-space-size=2048 timeout 45 npx tsx --test "${files[@]}"'
 ```
 
-Then continue with `sed -n "246,250p"`, etc. Do not run one giant `npm test`; it gets
-cut by the harness. A detached batch runner exists at
-`/tmp/opencode/run-all-tests.sh` but it is also killed on session/provider restart.
+Then continue with `sed -n "246,250p"`, etc. Do not run one giant `npm test`; a
+runaway test assertion can exhaust RAM/zram and oomd kills the agent. Keep
+`NODE_OPTIONS=--max-old-space-size=2048` in every batch: it bounds a pathological
+assert at 2 GB and leaves the machine (and this session) alive. A detached batch
+runner exists at `/tmp/opencode/run-all-tests.sh` but it is also killed on
+session/provider restart.
 
 ## Current working-tree note
 
