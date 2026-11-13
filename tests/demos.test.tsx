@@ -51,7 +51,13 @@ import { ToolCallCard } from "../components/artifacts/tool-call-card.tsx";
 import { JobsContext } from "../components/jobs-context.ts";
 import { demoInputSchema, jobTools, pdfInputSchema, visualInputSchema } from "../src/agent/tools/jobs.ts";
 import { runDemoBuilder } from "../src/agent/subagents/demo-builder.ts";
-import { headlessOverride, realHeadless, type DemoRunResult, type HeadlessApi } from "../src/agent/subagents/headless.ts";
+import { headlessOverride, type DemoRunResult, type HeadlessApi } from "../src/agent/subagents/headless.ts";
+import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
+
+/** Artifact surfaces now use interaction-layer popovers; SSR fixtures need
+ *  the same provider AppShell supplies. */
+const renderCard = (node: React.ReactNode) =>
+	renderToStaticMarkup(<InteractionLayersProvider>{node}</InteractionLayersProvider>);
 import { createJobRunner, demoModelOverride, visualModelOverride } from "../src/agent/subagents/runner.ts";
 import { runVisualMaker } from "../src/agent/subagents/visual-maker.ts";
 import { buildAbortSteer, buildSubagentSteer, isSubagentFailure, setSteerUiInverted, type SteerMessage } from "../src/core/contracts.ts";
@@ -357,7 +363,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 			{ id: "jd", kind: "demo", toolCallId: "cd" },
 			{ title: "Damped oscillator", html: DEMO_HTML, tested: true },
 		);
-		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
+		const html = renderCard(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
 		assert.match(html, /sandbox="allow-scripts"/);
 		assert.ok(!html.includes("allow-same-origin"), "never allow-same-origin");
 		assert.match(html, /demo-resize/);
@@ -373,7 +379,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 			{ id: "jd", kind: "demo", toolCallId: "cd" },
 			{ title: "T", html: "", tested: true, notes: "FAILED: never passed verification" },
 		);
-		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
+		const html = renderCard(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
 		assert.match(html, /FAILED: never passed verification/);
 		assert.ok(!html.includes("<iframe"), "no iframe for a failed build");
 	});
@@ -384,7 +390,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 			{ id: "jv", kind: "visual", toolCallId: "cv" },
 			{ svg, notes: "Looking at the render, the diagram is clean and accurate." },
 		);
-		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
+		const html = renderCard(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
 		assert.ok(html.includes(encodeURIComponent(svg)), "the image URL contains the original SVG");
 		assert.match(html, /Figure/);
 		// Natural sizing (owner, 2026-10-07): a DECLARED width (200) means the
@@ -401,7 +407,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 		const view = projectNative([steer])[0]!;
 		assert.equal((steer.details as { aborted: boolean }).aborted, true);
 		assert.equal(view.parts.length, 2, "text (teacher-facing) + the data-subagent-aborted marker part");
-		const html = renderToStaticMarkup(<SubagentSteerCard message={view as never} />);
+		const html = renderCard(<SubagentSteerCard message={view as never} />);
 		assert.match(html, /job-aborted-badge/);
 		assert.match(html, /research/, "the job's kind, lower-cased like the complete-badge idiom");
 		assert.match(html, /aborted by the learner/);
@@ -409,7 +415,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 		assert.ok(!html.includes("no brief is coming"), "no protocol glue in the chip");
 		// the badge renders off the PART, not metadata (the custom-message scheme)
 		const noMeta = { ...view, metadata: {} };
-		const htmlNoMeta = renderToStaticMarkup(<SubagentSteerCard message={noMeta as never} />);
+		const htmlNoMeta = renderCard(<SubagentSteerCard message={noMeta as never} />);
 		assert.match(htmlNoMeta, /job-aborted-badge/, "metadata is pump mechanics, never the render seam");
 	});
 
@@ -424,7 +430,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 				],
 			},
 		);
-		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
+		const html = renderCard(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
 		assert.match(html, /Research/);
 		assert.match(html, /complete/);
 		assert.match(html, /2 sources/);
@@ -449,7 +455,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 				pagesConsulted: [1, 2],
 			},
 		);
-		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
+		const html = renderCard(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
 		assert.match(html, /PDF/);
 		assert.match(html, /reading complete/);
 		assert.match(html, /read 1 page/, "the badge counts READ pages, not search hits");
@@ -465,7 +471,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 			{ id: "jpf2", kind: "pdf", toolCallId: "cpf2" },
 			{ path: "/tmp/doc.pdf", question: "q", brief: "PDF failed: the file could not be opened", pagesRead: [], pagesConsulted: [] },
 		);
-		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
+		const html = renderCard(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
 		assert.match(html, /pdf-brief-card/);
 		assert.match(html, /failed/);
 		assert.match(html, /could not be opened/);
@@ -474,14 +480,14 @@ describe("steer card rendering (the delivered artifact)", () => {
 
 	it("renders the visual failure note with no svg when the build FAILED", () => {
 		const steer = buildSubagentSteer({ id: "jv", kind: "visual", toolCallId: "cv" }, { svg: "", notes: "FAILED: iteration limit" });
-		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
+		const html = renderCard(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
 		assert.match(html, /FAILED: iteration limit/);
 		assert.ok(!html.includes("circle") && !html.includes("<svg"), "no svg for a failed build");
 	});
 
 	it("renders a fallback note when the artifact part is missing", () => {
 		const msg = { id: "s", role: "user", parts: [{ type: "text", text: "x" }], metadata: { subagentResult: { jobId: "j", kind: "research", toolCallId: "c" } } };
-		const html = renderToStaticMarkup(<SubagentSteerCard message={msg as never} />);
+		const html = renderCard(<SubagentSteerCard message={msg as never} />);
 		assert.match(html, /could not be displayed/);
 	});
 });
@@ -493,7 +499,7 @@ describe("artifact chrome — scrollbar, invert toggles, downloads (release poli
 			{ id: "jd3", kind: "demo", toolCallId: "cd3" },
 			{ title: "Wave interference", html: DEMO_HTML, tested: true },
 		);
-		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
+		const html = renderCard(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
 		assert.match(html, /scrolling="no"/, "no internal scrollbar — the wheel chains to the session");
 		assert.match(html, /toggle-invert-demo-brightness/, "the invert switch (house Toggle)");
 		assert.match(html, /data-testid="demo-download"/);
@@ -504,7 +510,7 @@ describe("artifact chrome — scrollbar, invert toggles, downloads (release poli
 
 	it("figure card: invert + download buttons; NO fullscreen button without a chat page (the context is null there)", () => {
 		const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><circle cx="50" cy="50" r="20"/></svg>';
-		const html = renderToStaticMarkup(<VisualOutputCard output={{ svg }} />);
+		const html = renderCard(<VisualOutputCard output={{ svg }} />);
 		assert.match(html, /toggle-invert-figure-brightness/, "the invert switch (house Toggle)");
 		assert.match(html, /data-testid="visual-download"/);
 		assert.ok(!html.includes('data-testid="visual-open"'), "fullscreen needs the session overlay context");
@@ -513,7 +519,7 @@ describe("artifact chrome — scrollbar, invert toggles, downloads (release poli
 
 	it("figure card: NO card chrome, image first, caption row BELOW (owner round, 2026-10-07)", () => {
 		const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><circle cx="50" cy="50" r="20"/></svg>';
-		const html = renderToStaticMarkup(<VisualOutputCard output={{ svg }} />);
+		const html = renderCard(<VisualOutputCard output={{ svg }} />);
 		// Document material: the outer box carries no card styling.
 		const rootAt = html.indexOf('data-testid="visual-card"');
 		const root = html.slice(rootAt - 200, rootAt);
@@ -681,7 +687,9 @@ describe("visual maker (fake model + fake headless)", () => {
 			{ toolCalls: [{ toolCallId: "r1", toolName: "render_svg", input: {} }] },
 			{ text: "Looked at the native render." },
 		]);
-		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless: { ...fakeHeadless(), renderSvg: realHeadless.renderSvg } });
+		// The browser-backed real renderer needs Electron/Chrome; this test is
+		// about the saved source remaining untouched, so use the native fake.
+		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless: fakeHeadless() });
 		assert.equal(result.svg, svg, "saved/download source remains the original, not the render-only repaired source");
 		assert.equal(result.notes, "Looked at the native render.");
 	});
