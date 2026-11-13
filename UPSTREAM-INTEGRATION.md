@@ -145,14 +145,16 @@ Twig while keeping the Twig implementations we chose to retain.
 | Batch 7d (files 271–280) | 107 pass + 1 failure; `plugin-renderers` fixed → 14/14 |
 
 A full monolithic `npm test` was never completed. The cut-off shell calls were **not** a
-harness limit. `tests/plugin-markdown.test.tsx` compared a linkedom element to `null`;
-the selector matched Twig's retained code-block copy corner, so the assertion failed.
-Node's assert then inspected the linkedom element graph with `depth: 1000`, allocation
-grew without bound (a test child reached 13.4 GB RSS), RAM and zram swap hit 90%, and
-systemd-oomd killed the entire agent scope (`t3code-opencode-*`, `kitty-*`,
-`app-openbot-*`) — the "opencode crash". Fixed in `02891b6e`: the test now compares
-`tagName` primitives and expects the copy corner Twig keeps. The file passes 9/9 at a
-387 MB peak; batch 246–250 passes 84/84 at a 489 MB peak.
+harness limit. The morning retries (09:25, 09:27, 09:35, 09:43) each died at the
+systemd-oomd kill that followed (09:26:34, 09:29:04, 09:36:47, 09:45:22): the test suite
+was the trigger, not the harness. `tests/plugin-markdown.test.tsx` compared a linkedom
+element to `null`; the selector matched Twig's retained code-block copy corner, so the
+assertion failed. Node's assert then inspected the linkedom element graph with
+`depth: 1000`, allocation grew without bound (a test child reached 13.4 GB RSS), RAM and
+zram swap hit 90%, and systemd-oomd killed the entire agent scope
+(`t3code-opencode-*`, `kitty-*`, `app-openbot-*`) — the "opencode crash". Fixed in
+`02891b6e`: the test now compares `tagName` primitives and expects the copy corner Twig
+keeps. The file passes 9/9 at a 387 MB peak; batch 246–250 passes 84/84 at a 489 MB peak.
 
 Rule for the rest of the sweep: **never pass a DOM node to `assert.equal`/`deepEqual`
 when it can be non-null.** Compare `?.tagName ?? null`, `?.textContent`, or a count.
