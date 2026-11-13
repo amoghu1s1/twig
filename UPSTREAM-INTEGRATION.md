@@ -1,9 +1,9 @@
 # Upstream 0.6.1 plugin integration — handoff
 
-Last updated: 2026-11-13 12:20
+Last updated: 2026-11-13 11:55
 Branch: `integrate/upstream-0.6`
 Base merge commit: `6cc02786`
-Latest code/test head: `bbbe00a2` (later commits are docs only)
+Latest code/test head: `15c4e89b` (later commits are docs only)
 
 ## Sweep resumed (2026-11-13 11:20)
 
@@ -104,8 +104,28 @@ Fixed in `e05cad07`; after `bbbe00a2` removed the inert asset the capped run is 
 (readings/discuss/side-chat/capstone) and dropped the 90-style line. The prompt
 file itself did merge in (`src/agent/prompts/side-chat/90-style.md`), but Twig's
 `src/agent/side-chat.ts:25` reads only `00-base.md`; upstream's reads both
-(`side-chat.ts:29-30,50`). The guard therefore covers an unused asset in Twig, and
-the test fixture is stale.
+(`side-chat.ts:29-30,50`). The owner ruled to retain Twig's prompts, so `bbbe00a2`
+deleted the unused asset and its test case.
+
+### Release-path gate (Ops deferred items)
+
+- `8b88b594`: restored the `--browser` `verifyPluginBrowser` proof (upstream `33dded28`).
+- `5591a699`: CI and release smoke pass `--isolated`.
+- `6d0866ae`: smoke GETs the authoring ZIP (200, non-empty) and matches the
+  ZIP's `bundle.json` appVersion to `package.json`.
+- `4768121c`: release docs run `npm run plugins:setup` before the build.
+- `4ff3c255`: `scripts/run-tests.mjs` caps the suite at a 2 GB heap.
+- `d664902a`: helper acquisition is bounded at 15 s; a stuck `/json/version`
+  or CDP connect is discarded, so `helperPageChain` cannot wedge on connect.
+  `pages()` still relies on Puppeteer's protocol timeout once acquired.
+- `15c4e89b`: fixed Next's build-only TS2589 in `plugin-view-context.ts` by
+  typing the assembled context before `Object.freeze`.
+
+Final gates: `npx tsc --noEmit --incremental false` 0 errors; `npm run lint`
+0 errors (1 pre-existing warning); `npm run build` pass (plugins:build-core +
+plugins:build-authoring + next build); `node scripts/smoke-server.mjs
+--electron --isolated` pass, including ZIP 200 / 2,958,707 bytes / appVersion
+0.6.1.
 
 This file is the source of truth for the in-progress upstream integration. Read it
 before touching the branch. The session/harness has a habit of cutting long shell
@@ -282,13 +302,12 @@ A future failing node comparison reproduces the same machine-wide OOM.
    batch capped (`NODE_OPTIONS=--max-old-space-size=2048`).
 2. **Audit `-X ours` losses — complete** via Reviewer (see above). Headless
    isolation is fixed; external links, subscription rejection, desktop-access
-   headers, and plugin-host paths/same-origin were preserved. Ops' deferred
-   pipework (browser-smoke invocation, `--isolated` CI flags, authoring ZIP
-   check, release-doc `plugins:setup`, test heap cap) is not started.
-   - plugin host security fixes (path traversal, linked authoring source, same-origin)
-3. **Re-run final gates** after the test sweep:
-   `npx tsc --noEmit`, `npm run lint`, `npx next build`,
-   `node scripts/build-server.mjs`, `node scripts/smoke-server.mjs`.
+   headers, and plugin-host paths/same-origin were preserved. Ops' five
+   release-path items are complete (see above).
+3. **Final gates — complete for the four requested gates.** `npx tsc --noEmit
+   --incremental false`, `npm run lint`, `npm run build`, and
+   `node scripts/smoke-server.mjs --electron --isolated` all pass. Ops still
+   owns the full 10-step release gate and packaging.
 4. **Decide whether to reserve native feature IDs** (`flashcards`, `coding-questions`,
    `drawing-pad`) so community plugins cannot take those names. Currently only catalog
    IDs are reserved.
