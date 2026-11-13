@@ -3,6 +3,9 @@
 These `.parked` files test upstream features that Twig deliberately did not adopt
 during the plugin-system milestone:
 
+- `commit-input.test.tsx` — upstream's settings control contract where Escape
+  commits the draft. Twig's ruling is Escape discards the draft; the Twig
+  settings-dialog/controls tests cover that behavior.
 - `headless-isolation.test.ts` — upstream's isolated-page browser service. Twig
   keeps its own sandboxed browser-service profile and native SVG rasterizer.
 - `side-chat-*`, `side-conversation-*`, `side-plugin-*`, `side-thread-*`,
