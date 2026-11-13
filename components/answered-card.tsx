@@ -208,7 +208,7 @@ export function AnsweredCard({
 					<div className="mt-2 text-sm text-muted-foreground">Answered “I don't know”.</div>
 				)}
 
-				{(answer.thinking ?? answer.note) && (
+				{(answer.thinking || answer.note || answer.images?.thinking?.length) && (
 					/* The SAME unified row (owner round, 2026-10-05): the quiz answer's
 					    thinking is the identical collapsible ThinkingBlock — one
 					    geometry, but NO band on the card (owner round five, 2026-10-07:
@@ -217,6 +217,7 @@ export function AnsweredCard({
 						testId="your-thinking"
 						label="YOUR THINKING"
 						text={answer.thinking ?? answer.note ?? ""}
+						images={answer.images?.thinking}
 						inCard
 					/>
 				)}

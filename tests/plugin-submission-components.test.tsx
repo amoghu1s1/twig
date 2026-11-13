@@ -31,8 +31,11 @@ test("image-only practice thinking, question thinking, reading and answer contai
 	assert.match(renderToStaticMarkup(<ThinkingCard data={{ text: "", problemCallId: "problem", images: [image] }} />), /Submitted image/);
 	const html = renderToStaticMarkup(<AnsweredCard answer={{ ...answer, images: { answer: [image], thinking: [image], readingThinking: [image] } }} />);
 	assert.match(html, /reading-thinking-block/); assert.match(html, /your-thinking/);
-	// Answer and reading are open initially; question thinking retains its native collapse policy.
-	assert.equal((html.match(/alt="Submitted image"/g) ?? []).length, 2);
+	// Reading arrives open; the in-card answer thinking stays collapsed (Twig
+	// owner ruling, also upstream's behavior). The direct ThinkingBlock case
+	// above covers image rendering once the row is open.
+	assert.equal((html.match(/alt="Submitted image"/g) ?? []).length, 1);
+	assert.match(html, /data-testid="your-thinking-trigger"/);
 	assert.match(renderToStaticMarkup(<ThinkingBlock text="drawing.png" defaultOpen />), /drawing.png/);
 	assert.doesNotMatch(renderToStaticMarkup(<ThinkingBlock text="drawing.png" defaultOpen />), /<img/);
 });
