@@ -23,7 +23,7 @@ export function SubmittedImages({ images }: { images?: readonly Readonly<ImageCo
 				{viewer?.openImage ? <button type="button" className="block max-w-full cursor-zoom-in" aria-label="Open submitted image fullscreen"
 					onClick={event => {
 						const element = event.currentTarget.querySelector("img");
-						if (element?.naturalWidth && element.naturalHeight) viewer.openImage?.({ src, width: element.naturalWidth, height: element.naturalHeight });
+						if (element?.naturalWidth && element.naturalHeight) viewer.openImage?.(src);
 					}}>{preview}</button> : preview}
 			</figure>;
 		})}

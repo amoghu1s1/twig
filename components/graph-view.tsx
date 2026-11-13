@@ -907,6 +907,54 @@ export function GraphChromeRow({
 	);
 }
 
+/** The detail card's name and statement, as a pure seam for render pins. */
+const NODE_CARD_TYPE = "[--font-prose:var(--font-ui)] " +
+	"[&_[data-streamdown=inline-code]]:[font-size:inherit] [&_[data-streamdown=inline-code]]:[color:inherit]";
+export function NodeCardText({ name, statement }: Pick<GraphNode, "name" | "statement">) {
+	return (
+		<>
+			<ToolContentResponse
+				mode="static"
+				className={`${NODE_CARD_TYPE} font-medium [--lh-prose-size:var(--text-sm)] [--lh-prose-leading:1.375]`}
+			>
+				{name}
+			</ToolContentResponse>
+			<ToolContentResponse
+				mode="static"
+				className={`${NODE_CARD_TYPE} mt-1 text-muted-foreground [--lh-prose-size:var(--text-xs)] [--lh-prose-leading:1.625]`}
+			>
+				{statement}
+			</ToolContentResponse>
+		</>
+	);
+}
+
+/** Keep the existing placement policy as static Markdown finishes rendering. */
+export function observeNodeCardPosition(card: HTMLDivElement, container: HTMLDivElement, anchor: { x: number; y: number }): () => void {
+	const place = () => {
+		const width = card.offsetWidth;
+		const height = card.offsetHeight;
+		const margin = 8;
+		const gap = 12;
+		const left = Math.min(
+			Math.max(anchor.x - width / 2, margin),
+			Math.max(container.clientWidth - width - margin, margin),
+		);
+		let top = anchor.y + gap;
+		if (top + height > container.clientHeight - margin) {
+			top = Math.max(anchor.y - gap - height, margin);
+		}
+		card.style.left = `${left}px`;
+		card.style.top = `${top}px`;
+		card.style.visibility = "visible";
+	};
+	place();
+	const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(place);
+	observer?.observe(card);
+	observer?.observe(container);
+	return () => observer?.disconnect();
+}
+
 export const GraphView = memo(function GraphView({
 	chainSelectOpen = false,
 	practiceSelection,

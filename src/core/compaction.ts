@@ -325,14 +325,15 @@ export function keptIndexFor(messages: readonly LhMessage[], marker: LhMarkerMes
 
 // ─── the summarizer input (pi's mirror: labeled text, truncated results) ─────
 
-/** A learner message as summary text: words, with native images NAMED (a
+/** A learner message as summary text: words (citations expanded to readable
+ *  quotes, the upstream summarizer contract), with native images NAMED (a
  *  legacy inline payload is a block array; plain interpolation would have
  *  produced "[object Object]"). Base64 never enters the summary. */
 function userSummaryText(content: unknown): string {
-	if (typeof content === "string") return content;
+	if (typeof content === "string") return citationsToReadableText(content);
 	if (!Array.isArray(content)) return "";
 	return (content as Array<{ type?: string; text?: string; mimeType?: string }>)
-		.map((b) => (b.type === "image" ? imageMarker(b) : (b.text ?? "")))
+		.map((b) => (b.type === "image" ? imageMarker(b) : citationsToReadableText(b.text ?? "")))
 		.filter((t) => t.length > 0)
 		.join("\n");
 }

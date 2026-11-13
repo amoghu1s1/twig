@@ -44,6 +44,7 @@ import {
 	validateChatSettings,
 	validateModelsSettings,
 	writeSettingsRecord,
+	refreshWorkerRequestAdmission,
 	type SettingsBodyResult,
 } from "@/src/server";
 

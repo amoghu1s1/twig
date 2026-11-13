@@ -51,6 +51,7 @@ jobs:
           node-version: "26"
           cache: npm
       - run: npm ci
+      - run: npm run plugins:setup
       - run: npm run typecheck
       - run: npm test
       - run: npm run lint
@@ -80,6 +81,7 @@ jobs:
           node-version: "26"
           cache: npm
       - run: npm ci
+      - run: npm run plugins:setup
       - name: Install Electron binary from the GitHub API
         env:
           GH_TOKEN: ${{ github.token }}

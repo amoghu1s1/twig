@@ -9,7 +9,7 @@ export function proxy(request: NextRequest) {
 	const refusal = apiRequestRefusal(request);
 	if (refusal) {
 		return NextResponse.json(
-			{ error: "Desktop API access requires the trusted Twig window." },
+			{ error: refusal },
 			{ status: 403, headers: { "Cache-Control": "no-store" } },
 		);
 	}

@@ -28,6 +28,7 @@
  * turn rides one composition.
  */
 
+import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AnswerData } from "./answers.ts";
 import type { LhMessage } from "./native-messages.ts";
 import {
@@ -50,17 +51,32 @@ import {
 import { QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
 import { ChatInputError } from "./input-error.ts";
 import { parseComposerImages, type ComposerImage } from "./images.ts";
+import {
+	preparePluginProblemSubmissionImages,
+	validatePluginSubmissionImageArray,
+	validatePluginSubmissionImages,
+	type PluginProblemSubmissionImages,
+	type PluginSubmissionImages,
+	type PluginSubmissionOccurrence,
+} from "./plugin-submissions.ts";
+import { isPluginQuestionJson, type JsonValue, type PluginQuestionOccurrence } from "./plugin-questions.ts";
 export { ChatInputError };
+
+export type PluginQuestionAnswerInput = { type: "plugin-question-answer"; questionId: string; occurrence: PluginQuestionOccurrence; answer: JsonValue; thinking?: string; readingThinking?: string; images?: PluginSubmissionImages };
+export type PluginProblemSubmissionInput = { type: "plugin-problem-submission"; problemId: string; occurrence: PluginSubmissionOccurrence; submission: JsonValue; thinking?: string; images?: PluginProblemSubmissionImages };
+export type DismissPluginQuestionInput = { type: "dismiss-plugin-question"; questionId?: string; occurrence: PluginQuestionOccurrence };
 
 /** One client-originated input event (the POST body's `input`). */
 export type ChatInput =
+	| PluginQuestionAnswerInput
+	| PluginProblemSubmissionInput
 	/** attachmentIds: session attachments sent with this message (uploaded
 	 *  first via /api/chats/[id]/attachments; validated against the record).
 	 *  `images` is the composer's native image payload: the server stores the
 	 *  bytes in the session-attachment blob store and turns them into ids
 	 *  before the record append — ChatRecord never holds image base64. */
 	| { type: "text"; text: string; attachmentIds?: string[]; images?: ComposerImage[] }
-	| { type: "answer"; toolCallId: string; answer: AnswerData }
+	| { type: "answer"; toolCallId: string; answer: AnswerData & { images?: PluginSubmissionImages }; occurrence?: PluginSubmissionOccurrence }
 	| { type: "continue" }
 	/** The failed-turn retry (issue #110): the banner's Retry button. */
 	| { type: "retry" }
@@ -94,6 +110,7 @@ export type TurnInput = ChatInput | SteerInput;
  *  wake-free. Parallel question calls each get their own dismiss event;
  *  results reference their calls by id, so the appends stay independent. */
 export type DismissInput =
+	| DismissPluginQuestionInput
 	| { type: "dismiss"; toolCallId: string; answer: AnswerData }
 	/** The problem discard (practice, owner 2026-10-04): ask-style — the
 	 *  silent route appends the UI-only marker and wakes nothing; the
@@ -237,6 +254,22 @@ export function parseChatInput(input: unknown): ChatInput {
 	if (typeof input !== "object" || input === null) throw new ChatInputError("input must be an object");
 	const i = input as Record<string, unknown>;
 	switch (i.type) {
+		case "plugin-problem-submission": {
+			if (typeof i.problemId !== "string" || !i.problemId) throw new ChatInputError("plugin-problem-submission requires problemId");
+			if (!isPluginQuestionJson(i.submission)) throw new ChatInputError("plugin-problem-submission requires finite JSON submission");
+			if (i.thinking !== undefined && typeof i.thinking !== "string") throw new ChatInputError("Problem thinking must be text");
+			let images;
+			try { images = i.images === undefined ? undefined : preparePluginProblemSubmissionImages(i.images); }
+			catch { throw new ChatInputError("Invalid problem submission images"); }
+			return { type: "plugin-problem-submission", problemId: i.problemId, occurrence: parsePluginQuestionOccurrence(i.occurrence), submission: i.submission, ...(i.thinking !== undefined ? { thinking: i.thinking as string } : {}), ...(images ? { images } : {}) };
+		}
+		case "plugin-question-answer": {
+			if (typeof i.questionId !== "string" || !i.questionId) throw new ChatInputError("plugin-question-answer requires questionId");
+			if (!isPluginQuestionJson(i.answer)) throw new ChatInputError("plugin-question-answer requires finite JSON answer");
+			if ((i.thinking !== undefined && typeof i.thinking !== "string") || (i.readingThinking !== undefined && typeof i.readingThinking !== "string")) throw new ChatInputError("Plugin question thinking must be text");
+			const images = parseImageChannels(i.images);
+			return { type: "plugin-question-answer", questionId: i.questionId, occurrence: parsePluginQuestionOccurrence(i.occurrence), answer: i.answer, ...(i.thinking !== undefined ? { thinking: i.thinking as string } : {}), ...(i.readingThinking !== undefined ? { readingThinking: i.readingThinking as string } : {}), ...(images ? { images } : {}) };
+		}
 		case "text": {
 			if (typeof i.text !== "string") {
 				throw new ChatInputError("text input requires text");
@@ -255,14 +288,21 @@ export function parseChatInput(input: unknown): ChatInput {
 				...(images.length ? { images } : {}),
 			};
 		}
-		case "answer":
+		case "answer": {
 			if (typeof i.toolCallId !== "string" || i.toolCallId.length === 0) {
 				throw new ChatInputError("answer input requires toolCallId");
 			}
 			if (typeof i.answer !== "object" || i.answer === null) {
 				throw new ChatInputError("answer input requires the graded answer object");
 			}
-			return { type: "answer", toolCallId: i.toolCallId, answer: i.answer as AnswerData };
+			const answer = i.answer as AnswerData;
+			// Code exercises carry no image channels (their answer shape has none).
+			if (answer.kind === "code-exercise") return { type: "answer", toolCallId: i.toolCallId, answer };
+			const images = parseImageChannels(answer.images);
+			const occurrence = parseOptionalOccurrence(i.occurrence, images);
+			const { images: _images, ...fields } = answer;
+			return { type: "answer", toolCallId: i.toolCallId, answer: { ...fields, ...(images ? { images } : {}) }, ...(occurrence ? { occurrence } : {}) };
+		}
 		case "continue":
 			return { type: "continue" };
 		case "retry":
@@ -307,6 +347,10 @@ export function inputAppends(
 	assertPluginQuestionInputAllowed(record.messages, input);
 	assertNativeSubmissionTarget(record.messages, input);
 	switch (input.type) {
+		case "plugin-problem-submission":
+			throw new ChatInputError("Plugin problem submissions require canonical server validation");
+		case "plugin-question-answer":
+			throw new ChatInputError("Plugin question answers require canonical server validation");
 		case "text": {
 			const unknown = input.attachmentIds?.filter((id) => !record.attachments?.some((a) => a.id === id)) ?? [];
 			if (unknown.length > 0) throw new ChatInputError(`text input names unknown attachments: ${unknown.join(", ")}`);
@@ -355,8 +399,9 @@ export function inputAppends(
  * callers retain their existing ID-based contract; fresh images require binding. */
 export function assertNativeSubmissionTarget(messages: readonly LhMessage[], input: ChatInput): void {
 	if (input.type !== "answer" && input.type !== "thinking") return;
+	const answerImages = input.type === "answer" && input.answer.kind !== "code-exercise" ? input.answer.images : undefined;
 	const hasImages = input.type === "answer"
-		? Object.values(input.answer.images ?? {}).some(images => images?.length)
+		? Object.values(answerImages ?? {}).some(images => images?.length)
 		: !!input.images?.length;
 	if (!input.occurrence) {
 		if (hasImages) throw new ChatInputError("Image-bearing submissions require an exact occurrence");

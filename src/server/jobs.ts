@@ -66,8 +66,9 @@ import {
 	type JobRecord,
 	type SteerMessage,
 } from "../core/contracts.ts";
-import type { TurnInput } from "../core/input-events.ts";
+import type { TurnInput, UserSteerInput } from "../core/input-events.ts";
 import { hasUnresolvedQuestion, endsInDismissal, endsInQuestionRecovery, newUserSteer, type LhMessage } from "../core/native-messages.ts";
+import { prepareSubmissionImages, submissionImagePolicyKey } from "./submission-images.ts";
 import { fireJobAbort, isJobLive } from "../agent/subagents/aborts.ts";
 import { stores, effectiveSettings } from "./stores.ts";
 import { resolveConversationSpec } from "../core/settings-resolution.ts";

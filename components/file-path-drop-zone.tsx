@@ -16,16 +16,23 @@ export function FilePathDropZone({
 	children,
 	className,
 	mainRef,
+	onContentRoot,
 }: {
 	children: React.ReactNode;
 	className?: string;
 	mainRef?: RefObject<HTMLElement | null>;
+	/** The host content root (plugin surfaces mount inside it). */
+	onContentRoot?: (element: HTMLElement | null) => void;
 }) {
 	const root = useRef<HTMLElement>(null);
 	const setRoot = (node: HTMLElement | null) => {
 		root.current = node;
 		if (mainRef) mainRef.current = node;
 	};
+	useEffect(() => {
+		onContentRoot?.(root.current);
+		return () => { onContentRoot?.(null); };
+	}, [onContentRoot]);
 	const depth = useRef(0);
 	const [dragging, setDragging] = useState(false);
 	const [notice, setNotice] = useState("");

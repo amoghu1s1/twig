@@ -67,6 +67,22 @@ export interface FeedExtraction {
 	startedAt: number;
 }
 
+export interface FeedPluginWorker {
+	id: string;
+	taskId: string;
+	pluginId: string;
+	definitionId: string;
+	status: "queued" | "running";
+	title: string;
+	createdAt: string;
+	updatedAt: string;
+	activity?: string;
+	model: { provider: string; id: string };
+	usage?: FeedUsage;
+	costUsd: number | null;
+	contextLimit: number | null;
+}
+
 /** A reading being written (docs/readings.md) — the writer's run row. */
 export interface FeedReading {
 	id: string;
@@ -99,7 +115,7 @@ export interface ActivityFeed {
 	discussions?: FeedDiscussion[];
 }
 
-const EMPTY_FEED: ActivityFeed = { jobs: [], extractions: [], readings: [], discussions: [] };
+const EMPTY_FEED: ActivityFeed = { jobs: [], pluginWorkers: [], extractions: [], readings: [], discussions: [] };
 
 // ─── The activity feed (composition root: the root layout) ───────────────────
 
@@ -136,7 +152,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
 				if (res.ok) {
 					const data = (await res.json()) as Partial<ActivityFeed>;
 					if (alive)
-						setFeed({ jobs: data.jobs ?? [], extractions: data.extractions ?? [], readings: data.readings ?? [], discussions: data.discussions ?? [] });
+						setFeed({ jobs: data.jobs ?? [], pluginWorkers: data.pluginWorkers ?? [], extractions: data.extractions ?? [], readings: data.readings ?? [], discussions: data.discussions ?? [] });
 				}
 			} catch {
 				// transport blip: keep the last feed, announce again next event
@@ -197,7 +213,7 @@ export interface ActivityBlob {
 	/** job.id, or the extraction job's row id (source id, or "src#i" for
 	 *  chunk jobs — unique per row, per-chunk jobs owner 2026-09-28). */
 	id: string;
-	process: "job" | "extraction" | "reading" | "discussion";
+	process: "job" | "plugin-worker" | "extraction" | "reading" | "discussion";
 	/** Sub-agent kind for jobs (extraction blobs have none). */
 	jobKind?: JobKind;
 	/** Extraction phase (extracting/auditing/merging/embedding); jobs carry none. */
@@ -274,6 +290,9 @@ export function toBlobs(feed: ActivityFeed): ActivityBlob[] {
 		const last = task.usage?.lastStep;
 		blobs.push({
 			id: task.id, process: "plugin-worker", jobKind: "plugin", title: task.title,
+			// A plugin task is not bound to a session: "" is the blobs'
+			// session-less convention (the detail row links nothing).
+			chatId: "",
 			startedAt: Date.parse(task.createdAt) || 0,
 			cost: task.costUsd ?? null,
 			context: task.contextLimit !== null && last?.inputTokens !== undefined
@@ -576,11 +595,11 @@ function ActivityBlobRow({
 							<a href={`/readings/${blob.readingId ?? blob.id}`} className="text-primary hover:underline">
 								Open reading →
 							</a>
-						) : (
+						) : blob.chatId ? (
 							<a href={`/chat/${blob.chatId}`} className="text-primary hover:underline">
 								Open session →
 							</a>
-						)}
+						) : null}
 					</div>
 					<div className="mt-2 text-muted-foreground/80">
 					{abortState === "failed" && "Abort failed — try again"}

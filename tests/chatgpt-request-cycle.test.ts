@@ -79,7 +79,7 @@ after(() => {
  if (originalConnected) Object.defineProperty(process, "connected", originalConnected); else delete (process as { connected?: boolean }).connected;
 });
 const automatic = (id = "auto") => ({ id, role: "custom" as const, customType: "subagent-steer" as const, content: "Automatic result", details: { jobId: "dummy-job" }, display: true, timestamp: 2 });
-async function nativeRun(where: typeof cut, staged: boolean, withLearner = true, commitThrows = false, lateAutomatic = false, withTool = false) {
+async function nativeRun(where: typeof cut, staged: boolean, withLearner = true, commitThrows = false, lateAutomatic = false, withTool = false, localBudget?: "first" | "internal" | "combined-first" | "combined-internal") {
  epoch++; revision++; background = true; cut = where; leases = []; fetches = 0; toolFirst = withTool; requestBodies = [];
  await refreshChatGPTModels([model]);
  const combined = localBudget?.startsWith("combined-");

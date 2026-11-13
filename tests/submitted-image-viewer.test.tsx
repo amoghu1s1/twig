@@ -36,7 +36,7 @@ test("clicking a thumbnail opens the same accepted bytes in the shared viewer an
 	const root = createRoot(document.getElementById("root")!);
 	function Harness() {
 		const [focus, setFocus] = useState<SessionImage | null>(null);
-		return <SessionMermaidContext.Provider value={{ openMermaid() {}, openFigure() {}, openImage: setFocus }}>
+		return <SessionMermaidContext.Provider value={{ openMermaid() {}, openFigure() {}, openImage: (url) => setFocus({ src: url, width: 0, height: 0 }) }}>
 			<SubmittedImages images={[image]} />
 			{focus && <MermaidOverlay image={focus} onClose={() => setFocus(null)} />}
 		</SessionMermaidContext.Provider>;

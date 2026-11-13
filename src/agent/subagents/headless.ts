@@ -247,20 +247,14 @@ function helperJobFinished(): void {
 	helperIdleTimer.unref?.();
 }
 
-type ConnectedBrowserService = {
-	browser: import("puppeteer-core").Browser;
-	proc: import("node:child_process").ChildProcess;
-};
-
-async function connectBrowserService(): Promise<ConnectedBrowserService | null> {
+async function connectBrowserService(): Promise<import("puppeteer-core").Browser | null> {
 	const puppeteer = (await import("puppeteer-core")).default;
 	const { spawn } = await import("node:child_process");
 	let port: number | null = null;
-	let proc = browserServiceProc;
 
-	if (proc && proc.exitCode === null) {
+	if (browserServiceProc && browserServiceProc.exitCode === null) {
 		// Helper alive from a previous run — reuse its endpoint.
-		port = (proc as { __cdpPort?: number }).__cdpPort ?? null;
+		port = (browserServiceProc as { __cdpPort?: number }).__cdpPort ?? null;
 	}
 	if (port === null) {
 		const binary = browserServiceBinary();
@@ -273,18 +267,17 @@ async function connectBrowserService(): Promise<ConnectedBrowserService | null> 
 			path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", ".."),
 			"--browser-service",
 		];
-		proc = spawn(binary, appArgs, {
+		const proc = spawn(binary, appArgs, {
 			// Cast: the sanitizer is pure over a loose record; NODE_ENV is
 			// always present in a real process.env.
 			env: browserServiceSpawnEnv(process.env) as NodeJS.ProcessEnv,
 			stdio: ["ignore", "pipe", "pipe", "ipc"] as const,
 		});
 		browserServiceProc = proc;
-		const startingProc = proc;
 		port = await new Promise<number | null>((resolve) => {
 			let buf = "";
 			const timer = setTimeout(() => {
-				startingProc.kill();
+				proc.kill();
 				resolve(null);
 			}, BROWSER_SERVICE_TIMEOUT_MS);
 			const onData = (chunk: Buffer) => {
@@ -295,8 +288,8 @@ async function connectBrowserService(): Promise<ConnectedBrowserService | null> 
 					resolve(parseBrowserServiceLine(line));
 				}
 			};
-			startingProc.stdout!.on("data", onData);
-			startingProc.once("exit", () => {
+			proc.stdout!.on("data", onData);
+			proc.once("exit", () => {
 				clearTimeout(timer);
 				resolve(null);
 			});
@@ -308,26 +301,24 @@ async function connectBrowserService(): Promise<ConnectedBrowserService | null> 
 		(proc as { __cdpPort?: number }).__cdpPort = port;
 	}
 
-	if (!proc) return null;
 	try {
 		const version = await fetch(`http://127.0.0.1:${port}/json/version`);
 		const info = (await version.json()) as { webSocketDebuggerUrl?: string };
 		if (!info.webSocketDebuggerUrl) return null;
 		// connect ≠ launch: browser.close() below merely disconnects — the
 		// helper stays resident for the next job (IPC-owned lifetime).
-		const browser = await puppeteer.connect({
+		return await puppeteer.connect({
 			browserWSEndpoint: info.webSocketDebuggerUrl,
 			defaultViewport: null,
 		});
-		return { browser, proc };
 	} catch {
 		return null;
 	}
 }
 
-/** Serialize acquisition, page use and invalidation together: the helper owns
- * ONE page target. Queued jobs must acquire after the previous job retires or
- * discards its helper, never capture a Browser while a handshake is pending. */
+/** Serialized helper-page use: the helper owns ONE page target (Electron's
+ *  CDP has no Target.createTarget — pages must be windows the helper made),
+ *  so concurrent jobs queue here instead of fighting over one webContents. */
 let helperPageChain: Promise<unknown> = Promise.resolve();
 
 async function withBrowserPage<T>(fn: (page: import("puppeteer-core").Page) => Promise<T>): Promise<T> {
@@ -436,10 +427,6 @@ export async function loadSandboxed(
 async function runDemo(html: string, opts: RunDemoOptions = {}): Promise<DemoRunResult> {
 	const settleMs = opts.settleMs ?? 2000;
 
-/** Production execution on an owned page; the packaged gate uses this same
- * function with its explicitly scratch-profiled helper target. */
-export async function runDemoOnPage(page: import("puppeteer-core").Page, html: string, opts: RunDemoOptions = {}): Promise<DemoRunResult> {
-	const settleMs = opts.settleMs ?? 2000;
 	const consoleErrors: string[] = [];
 	const pageErrors: string[] = [];
 	const failedRequests: string[] = [];
@@ -465,10 +452,7 @@ export async function runDemoOnPage(page: import("puppeteer-core").Page, html: s
 				probed = true;
 			}
 		} catch (err) {
-			if (err instanceof IsolatedPageCleanupError) throw err;
 			pageErrors.push(err instanceof Error ? err.message : String(err));
-		} finally {
-			await cleanup?.();
 		}
 	});
 
@@ -608,7 +592,6 @@ async function renderSvg(svg: string, opts: RenderSvgOptions = {}): Promise<Buff
 		// buffer back to the vision model as its only way to "look".
 		return providerSafePng(Buffer.from(shot));
 	});
-	return providerSafePng(resvg.render().asPng());
 }
 
 // ─── PDF page rasterization (pdfjs paints, Skia hosts) ─────────────────

@@ -56,6 +56,14 @@ export class SubscriptionRequestCycle implements SubscriptionDispatchLifecycle {
  }
  get dispatched(): boolean { return this.anyDispatch; }
  get deniedBeforeDispatch(): boolean { return this.denied !== undefined; }
+ get locallyRejected(): boolean { return this.localRejection; }
+ /** A local context refusal is not provider admission or an authorization
+  * denial. Restore automatic cargo, retain the SDK error/progress, and end
+  * without the background-denial foreground retry. */
+ rejectLocalRequest(contextIds: ReadonlySet<string> = new Set()): void {
+  this.localRejection = true;
+  for (const id of contextIds) this.rejectedContextIds.add(id);
+ }
  /** A completed but empty learner response still owes its foreground
   * continuation if an automatic delivery is denied before dispatch. */
  oweForegroundContinuation(): void { this.foregroundOwed = true; }

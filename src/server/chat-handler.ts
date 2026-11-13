@@ -45,6 +45,7 @@ import { getPluginAgentContributions, getPluginHost } from "./plugins.ts";
 import { preparePluginQuestionSubmission, reconcilePluginQuestionCompatibility, type QuestionTypeResolver } from "./plugin-questions.ts";
 import { searchAvailable, searchProvider } from "./search.ts";
 import { prepareSubmissionImages, prepareSubmissionImageChannels, prepareProblemSubmissionImageChannels, submissionImagePolicyKey } from "./submission-images.ts";
+import type { PluginSubmissionImages } from "../core/plugin-submissions.ts";
 import { preparePluginProblemSubmission, requirePluginProblemTarget, type ProblemTypeResolver } from "./plugin-problems.ts";
 import { providerKeyPresent } from "./keys.ts";
 import { CLAUDE_CODE_PROVIDER } from "../core/contracts/claude-code.ts";
@@ -55,7 +56,8 @@ import {
 	resolveRoleSpec,
 } from "../core/settings-resolution.ts";
 import { ModelsNotConfiguredError, ProviderKeyMissingError, modelsNotConfigured, providerKeyMissing as providerKeyMissingEnvelope, ROLE_SLOT, type ModelSlotName, type ProviderKeyMissing } from "../core/settings.ts";
-import { beginTurn, endTurn } from "./turn-liveness.ts";
+import { beginTurn, endTurn, isTurnRunning } from "./turn-liveness.ts";
+import { claimPreparingTurn, type TurnPreparation } from "./turn-preparation.ts";
 import { applyParkedDismissal } from "./dismissal-park.ts";
 import { sideConversationEntries } from "../core/side-chat.ts";
 import { sideChats, type SideChatService } from "./side-chat.ts";
@@ -63,10 +65,12 @@ import { SIDE_CONTEXT_BUDGET_ERROR, sideBudgetRetryDrops, sideContextWindow } fr
 import { registerTurn, rememberTurnFailure, unregisterTurn } from "./turn-runs.ts";
 import { persistTurn, triggerExtraction, TurnPersistenceError } from "./turn-service.ts";
 import { mistakesAfterTurn } from "./mistakes.ts";
-import { hasProbeDone, hasUnresolvedQuestion } from "../core/native-messages.ts";
+import { hasProbeDone, hasUnresolvedQuestion, pendingPluginQuestionOf, pluginQuestionCallsOf, questionCallsOf } from "../core/native-messages.ts";
+import { samePluginQuestionOccurrence } from "../core/plugin-questions.ts";
 import { systemPromptFor } from "../agent/teacher-agent.ts";
 import { attachComposerImages, sessionAttachments } from "./attachments.ts";
-import { ensureCompacted, kickCompaction, effectiveThresholdTokens } from "./compaction.ts";
+import { ensureCompacted, kickCompaction, effectiveThresholdTokens, projectedContextTokens, compactionInFlight } from "./compaction.ts";
+import { COMPACTION_RESERVE_TOKENS } from "../core/compaction.ts";
 import { catalogContextLimits, refreshConnectionCatalog } from "./model-catalog.ts";
 import { emit } from "../core/events.ts";
 import { MODEL_CANNOT_READ_IMAGES_CODE } from "../core/images.ts";
@@ -85,6 +89,7 @@ import {
 } from "../core/input-events.ts";
 import { steerDelivered } from "../core/contracts.ts";
 import type { CallUsage, ChatRecord } from "../core/contracts.ts";
+import type { AnswerData } from "../core/answers.ts";
 
 /**
  * One chat turn over the server-owned native record. Framework-free (plain
@@ -454,10 +459,13 @@ export async function handleChatInput(
 	// THE IMAGE GATE: a NEW picture is refused, before any append, when the
 	// conversation model cannot read images. Pictures already in history
 	// need no gate: pi-ai downgrades them for a text-only model, so a later
-	// model change keeps the session usable.
-	if (input.type === "text" && input.attachmentIds?.length && !conversationEngine.model.input.includes("image")) {
+	// model change keeps the session usable. (The ids are read structurally:
+	// the attachment fields ride the text input event, owned by the core
+	// contract module.)
+	const textAttachmentIds = input.type === "text" ? (input as { attachmentIds?: string[] }).attachmentIds : undefined;
+	if (textAttachmentIds?.length && !conversationEngine.model.input.includes("image")) {
 		const imageNames = (record.attachments ?? [])
-			.filter((a) => input.attachmentIds!.includes(a.id) && a.kind === "image")
+			.filter((a) => textAttachmentIds.includes(a.id) && a.kind === "image")
 			.map((a) => a.name);
 		if (imageNames.length > 0) {
 			return Response.json(
@@ -469,10 +477,40 @@ export async function handleChatInput(
 			);
 		}
 	}
+	const capturedPolicy = submissionImagePolicyKey(conversationEngine);
+	const capturedConversation = JSON.stringify(conversation);
+	// SUBMISSION IMAGES (plugin host wave): question/problem answers may carry
+	// host-owned image channels. They are prepared against THIS request's
+	// engine before any append, exactly like the composer's (text images ride
+	// the attachment path above instead — ChatRecord never holds base64).
+	try {
+		switch (input.type) {
+			case "thinking":
+				input = { ...input, images: await prepareSubmissionImages(input.images, conversationEngine) };
+				break;
+			case "answer": {
+				// Code-exercise answers carry no image channels (Twig union); the
+				// host-owned channels apply to ordinary question answers only.
+				const channels = (input.answer as { images?: PluginSubmissionImages }).images;
+				const images = await prepareSubmissionImageChannels(channels, conversationEngine);
+				input = { ...input, answer: (images === undefined ? input.answer : { ...input.answer, images }) as AnswerData };
+				break;
+			}
+			case "plugin-problem-submission":
+				input = { ...input, images: await prepareProblemSubmissionImageChannels(input.images, conversationEngine) };
+				break;
+			case "plugin-question-answer":
+				input = { ...input, images: await prepareSubmissionImageChannels(input.images, conversationEngine) };
+				break;
+		}
+	} catch (err) {
+		if (err instanceof ChatInputError) return Response.json({ error: err.message }, { status: 400 });
+		throw err;
+	}
 	const modelIdForCompaction = `${conversationEngine.model.provider}:${conversationEngine.model.id}`;
 	const contextWindow = catalogContextLimits().get(modelIdForCompaction);
 	const thresholdTokens = effectiveThresholdTokens(effective.compaction?.thresholdTokens, contextWindow);
-	const systemPromptTokens = Math.ceil(composeInstructions(record.kind === "practice" ? "practice" : "teacher").length / 4);
+	const promptTokens = systemPromptTokens(record);
 	const estimateModel = effective.compaction.includeReasoning ? conversationEngine.model : undefined;
 	const fitsSideContext = (messages: readonly LhMessage[]) => {
 		const live = messages.filter((message) => (message as { role: string }).role !== "system");
@@ -487,7 +525,7 @@ export async function handleChatInput(
 		const reportHistory = saved.length ? [...saved, ...live.filter((message) => !savedIds.has(message.id))] : live;
 		const window = sideContextWindow(reportHistory, conversationEngine.model, contextWindow, input.type === "retry");
 		const budget = window === undefined ? thresholdTokens : Math.max(1, window - Math.min(COMPACTION_RESERVE_TOKENS, conversationEngine.model.maxTokens));
-		return projectedContextTokens(live, systemPromptTokens, estimateModel) <= budget;
+		return projectedContextTokens(live, promptTokens, estimateModel) <= budget;
 	};
 	const sideBudgetError = () => new Error(SIDE_CONTEXT_BUDGET_ERROR);
 	const beforeCompaction = record.messages;
@@ -503,7 +541,38 @@ export async function handleChatInput(
 				effective.compaction?.thresholdTokens,
 				catalogContextLimits().get(modelIdForCompaction),
 			),
-			systemPromptTokens: systemPromptTokens(record),
+			systemPromptTokens: promptTokens,
+			projectMessages: (current) => {
+				try {
+					if (input.type === "plugin-question-answer" || input.type === "plugin-problem-submission") {
+						// The processed result does not exist yet. Count only saved
+						// history + raw side cargo, never a guessed result or an early
+						// plugin callback. The exact assembled request is checked later.
+						if (input.type === "plugin-question-answer") {
+							const pending = pendingPluginQuestionOf(current.messages);
+							if (!pending || pending.questionId !== input.questionId || !samePluginQuestionOccurrence(pending.occurrence, input.occurrence)) return current.messages;
+							if (questionCallsOf(current.messages).length || pluginQuestionCallsOf(current.messages).some(call =>
+								(call.status === "answerable" || call.status === "unreadable") && !samePluginQuestionOccurrence(call.occurrence, pending.occurrence))) return current.messages;
+						} else {
+							requirePluginProblemTarget(current, input);
+							if (hasUnresolvedQuestion(current.messages)) return current.messages;
+						}
+						const updates = sideConversationEntries({ messages: current.messages, sideChats: sideContext.snapshot(chatId) });
+						return updates.length ? [...current.messages, ...updates] : current.messages;
+					}
+					const next = input.type === "steers" ? input.steers.filter((entry) => !steerDelivered(current.messages, entry.id)) : inputAppends(current, input);
+					const after = [...current.messages, ...next];
+					if (hasUnresolvedQuestion(after)) return current.messages;
+					const updates = sideConversationEntries({ messages: current.messages, sideChats: sideContext.snapshot(chatId) }, after);
+					if (!updates.length) return current.messages;
+					const projected = [...current.messages, ...(input.type === "answer" || input.type === "retry-question" ? [...next, ...updates] : [...updates, ...next])];
+					const omitted = input.type === "retry" ? retryDrops(current.messages) : new Set<string>();
+					return projected.filter((message) => !omitted.has(message.id));
+				} catch (error) {
+					if (error instanceof ChatInputError) return current.messages; // normal input validation follows the gate
+					throw error;
+				}
+			},
 		},
 		chatId,
 	);

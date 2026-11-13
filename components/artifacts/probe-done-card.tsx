@@ -1,6 +1,6 @@
 "use client";
 
-import { ClipboardCheckIcon } from "lucide-react";
+import { ChevronRightIcon, ClipboardCheckIcon } from "lucide-react";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { parseProbeDoneInput, type ProbeDoneResult } from "@/src/core";
 
@@ -55,27 +55,32 @@ export function ProbeDoneCard({ part }: { part: { input?: unknown; output?: unkn
 			<div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 				{heading}
 			</div>
-			{output && !output.ok ? (
-				<p className="text-sm text-muted-foreground">The prober retried: {output.error}</p>
-			) : state === "output-error" ? (
-				<p className="text-sm text-muted-foreground">
-					The assessment was malformed — the prober retried with a corrected one.
-				</p>
-			) : strands ? (
-				<div className="space-y-2">
-					{strands.map((s, i) => (
-						<div key={i} className="rounded-lg bg-background/60 px-3 py-2">
-							<ToolContentResponse className="text-sm font-medium">{s.strand}</ToolContentResponse>
-							<ToolContentResponse className="mt-0.5 text-sm text-muted-foreground">{s.assessment}</ToolContentResponse>
-						</div>
-					))}
-					{assessment?.summary && (
-						<ToolContentResponse className="px-1 text-sm text-muted-foreground">{assessment.summary}</ToolContentResponse>
-					)}
-				</div>
-			) : (
-				<p className="text-sm text-muted-foreground">Writing the assessment…</p>
-			)}
+			<p className="text-sm text-muted-foreground">{note}</p>
 		</div>
+	);
+
+	return (
+		<details data-testid="probe-done-card" className="group my-3 overflow-hidden rounded-xl border bg-card/60">
+			<summary className="flex cursor-pointer list-none items-center gap-2 rounded-xl p-3 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:bg-accent/40 group-open:rounded-b-none group-open:border-b [&::-webkit-details-marker]:hidden">
+				{heading}
+				<span className="ml-auto shrink-0 font-normal normal-case tracking-normal text-muted-foreground/70">
+					{strands.length} strand{strands.length === 1 ? "" : "s"}
+				</span>
+				<ChevronRightIcon className="size-3 shrink-0 opacity-50 transition-transform group-open:rotate-90" />
+			</summary>
+			<div className="divide-y">
+				{strands.map((s, i) => (
+					<div key={i} className="px-3 py-2">
+						<ToolContentResponse className="text-sm font-medium">{s.strand}</ToolContentResponse>
+						<ToolContentResponse className="mt-0.5 text-sm text-muted-foreground">{s.assessment}</ToolContentResponse>
+					</div>
+				))}
+				{assessment?.summary && (
+					<div className="px-3 py-2">
+						<ToolContentResponse className="text-sm text-muted-foreground">{assessment.summary}</ToolContentResponse>
+					</div>
+				)}
+			</div>
+		</details>
 	);
 }

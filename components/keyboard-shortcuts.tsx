@@ -26,8 +26,8 @@
  * event first and can claim it with stopPropagation.
  */
 
-import { useEffect, useId, useRef, useState } from "react";
-import { HostDialog } from "@/components/host-dialog";
+import { useEffect, useRef, useState } from "react";
+import { useBackdropDismiss } from "@/components/backdrop-dismiss";
 import { useOptionalInteractionLayers } from "@/components/interaction-layers";
 import { useRouter } from "next/navigation";
 import {
@@ -210,8 +210,9 @@ export function KeyboardShortcuts() {
  *  Until the settings milestone ships an editor, this is how shortcuts
  *  stay discoverable. */
 function CheatSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
-	const headingId = useId();
+	const backdropDismiss = useBackdropDismiss(onClose);
 	const { rows: pluginRows } = usePluginShortcutRows();
+	if (!open) return null;
 	const scopes = ["global", "chat", "graph"] as const;
 	const scopeLabels: Record<(typeof scopes)[number], string> = {
 		global: "Global",
@@ -227,10 +228,9 @@ function CheatSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
 			<div
 				className="max-h-[80vh] w-full max-w-[36rem] overflow-y-auto rounded-xl border bg-card p-5 shadow-2xl"
 				onClick={(e) => e.stopPropagation()}
-			/>}
-		>
+			>
 				<div className="mb-4 flex items-baseline justify-between">
-					<span id={headingId} role="heading" aria-level={2} className="text-sm font-medium text-card-foreground">Keyboard shortcuts</span>
+					<span className="text-sm font-medium text-card-foreground">Keyboard shortcuts</span>
 					<span className="text-xs text-muted-foreground">Esc to close</span>
 				</div>
 				{scopes.map((scope) => {
@@ -261,6 +261,7 @@ function CheatSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
 						<div className="text-xs text-muted-foreground/70">{pluginShortcutScopeLabel(row)}{row.reason ? ` · Inactive: ${row.reason}` : ""}</div>
 					</div>)}
 				</div>)}
-		</HostDialog>
+			</div>
+		</div>
 	);
 }

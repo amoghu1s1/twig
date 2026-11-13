@@ -502,7 +502,7 @@ export function AgentSection({
 			document.removeEventListener("pointerdown", onPointerDown);
 			document.removeEventListener("keydown", onKeyDown, true);
 		};
-	}, [openMenu]);
+	}, [openMenu, interactions]);
 
 	async function saveSegment(path: string, text: string) {
 		setSegmentStatus(null);
@@ -1070,13 +1070,10 @@ export function AgentSection({
 						ariaLabel="daily mistake analysis limit"
 						testid="input-mistake-analysis-cap"
 						onCommit={(v) => {
-							if (v === "") {
-								onSectionChange(composeMistakeDailyCap(agent, undefined));
-								return;
-							}
+							if (v === "") return onSectionChange(composeMistakeDailyCap(agent, undefined));
 							const n = Number(v);
-							if (!Number.isFinite(n)) return;
-							onSectionChange(
+							if (!Number.isFinite(n)) return false;
+							return onSectionChange(
 								composeMistakeDailyCap(
 									agent,
 									Math.min(MISTAKE_ANALYSIS_DAILY_CAP_MAX, Math.max(MISTAKE_ANALYSIS_DAILY_CAP_MIN, Math.round(n))),

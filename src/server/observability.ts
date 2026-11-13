@@ -27,6 +27,7 @@ import { listJobs } from "./jobs.ts";
 import { jobCost } from "./pricing.ts";
 import { readingActivity } from "./readings.ts";
 import { discussionActivity } from "./reading-discussions.ts";
+import { pluginWorkerActivities, type PluginWorkerActivity } from "./plugin-worker-activity.ts";
 import type { JobRecord } from "../core/contracts.ts";
 
 export { abortExtraction, extractionStatuses, type ExtractionPhase, type RunningExtraction } from "../agent/subagents/extraction.ts";

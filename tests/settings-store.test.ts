@@ -14,10 +14,6 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { after, afterEach, describe, it } from "node:test";
-import { SETTINGS_FILE } from "../config.ts";
-import { readSettings, writeSettings } from "../src/store/settings.ts";
-import { resolveSettings } from "../src/core/settings-resolution.ts";
-import { parseCompactionSettingsBody } from "../src/server/settings-body.ts";
 
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), "lh-settings-store-"));
 process.env.HOME = path.join(directory, "home");

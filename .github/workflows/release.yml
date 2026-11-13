@@ -128,6 +128,7 @@ jobs:
         with:
           xcode-version: latest-stable
       - run: npm ci
+      - run: npm run plugins:setup
       - name: Install Electron binary from the GitHub API
         env:
           GH_TOKEN: ${{ github.token }}

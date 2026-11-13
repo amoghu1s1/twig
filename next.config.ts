@@ -53,6 +53,8 @@ const nextConfig: NextConfig = {
 	outputFileTracingExcludes: {
 		"*": [
 			"**/data/**/*",
+			"data/**/*",
+			"/data/**/*",
 			"auth.json",
 			"chatgpt-credentials.json*",
 			"github-copilot-credentials.json*",

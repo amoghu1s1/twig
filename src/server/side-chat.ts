@@ -69,11 +69,18 @@ interface SideRun {
 	text: string;
 	listeners: Set<(event: SideStreamEvent) => void>;
 	settled: Promise<void>;
+	/** Stable id for the in-flight answer, shared with the settled message. */
+	answerId: string;
+	updatedAt: string;
+	model?: string;
 }
 
 export interface SideChatService {
 	/** The record's threads plus the ids currently answering. Null = unknown chat. */
 	list(chatId: string): { threads: SideChatThread[]; answering: Record<string, string> } | null;
+	/** Pure snapshot, including current streamed text, for the plugin host's
+	 *  main-request side-context boundary. */
+	snapshot(chatId: string): SideChatThread[];
 	/** Ask (or retry) — the NDJSON streaming response, or a JSON refusal. */
 	ask(chatId: string, input: SideAskInput): Promise<Response>;
 	/** Open/close a thread's window. */
@@ -106,6 +113,16 @@ export function createSideChatService(deps: SideChatDeps): SideChatService {
 			if (run) answering[thread.id] = run.text;
 		}
 		return { threads: record.sideChats ?? [], answering };
+	}
+
+	function snapshot(chatId: string): SideChatThread[] {
+		return (deps.chatStore.getChat(chatId)?.sideChats ?? []).map((thread) => {
+			const run = runs.get(runKey(chatId, thread.id));
+			const messages = run ? [...thread.messages, {
+				id: run.answerId, role: "assistant" as const, text: run.text, at: run.updatedAt, model: run.model, pending: true,
+			}] : [...thread.messages];
+			return { ...thread, messages };
+		});
 	}
 
 	async function ask(chatId: string, input: SideAskInput): Promise<Response> {
@@ -155,7 +172,7 @@ export function createSideChatService(deps: SideChatDeps): SideChatService {
 
 		const controller = new AbortController();
 		const listeners = new Set<(event: SideStreamEvent) => void>();
-		const run: SideRun = { controller, text: "", listeners, settled: Promise.resolve() };
+		const run: SideRun = { controller, text: "", listeners, settled: Promise.resolve(), answerId: newMessageId(), updatedAt: new Date().toISOString() };
 		runs.set(key, run);
 		const broadcast = (event: SideStreamEvent) => {
 			for (const listener of [...listeners]) {
@@ -169,6 +186,7 @@ export function createSideChatService(deps: SideChatDeps): SideChatService {
 		announce(chatId);
 
 		const modelId = `${engine.model.provider}:${engine.model.id}`;
+		run.model = modelId;
 		const turns = sideChatModelTurns(thread, sideChatLessonDocument(record.messages));
 		run.settled = (async () => {
 			let settledThread: SideChatThread | undefined;
@@ -184,12 +202,13 @@ export function createSideChatService(deps: SideChatDeps): SideChatService {
 					signal: controller.signal,
 					onText: (text) => {
 						run.text = text;
+						run.updatedAt = new Date().toISOString();
 						broadcast({ type: "text", text });
 					},
 				});
 				const at = new Date().toISOString();
 				const answer: SideChatMessage = {
-					id: newMessageId(),
+					id: run.answerId,
 					role: "assistant",
 					text: result.text,
 					at,
@@ -337,7 +356,7 @@ export function createSideChatService(deps: SideChatDeps): SideChatService {
 		return runs.get(runKey(chatId, threadId))?.settled ?? Promise.resolve();
 	}
 
-	return { list, ask, setOpen, remove, stop, stopAll, settled };
+	return { list, snapshot, ask, setOpen, remove, stop, stopAll, settled };
 }
 
 /** The teaching prober slot's retention policy, read fresh per call. */

@@ -14,7 +14,6 @@ import { ContextAttachControl, pathsForFiles, type AttachmentDraft } from "../co
 import { PathInput } from "../components/path-input.tsx";
 import { restorePathSelection } from "../components/path-input-dom.ts";
 import { quoteFilePath } from "../src/core/file-paths.ts";
-import { InteractionLayersProvider, useInteractionLayers, type InteractionLayersController } from "../components/interaction-layers.tsx";
 
 let cleanup: (() => Promise<void>) | undefined;
 afterEach(async () => { await cleanup?.(); cleanup = undefined; });
@@ -88,7 +87,6 @@ async function fixture({ desktop = true, withImageDraft = false } = {}) {
 			</div>,
 		);
 	}
-	function draw() { root.render(<InteractionLayersProvider><Harness /></InteractionLayersProvider>); }
 	await act(async () => { draw(); });
 	const uploadPicker = doc.querySelector<HTMLInputElement>('[data-testid="attachment-input"]')!;
 	uploadPicker.click = () => { pickerClicks++; };
@@ -106,7 +104,6 @@ async function fixture({ desktop = true, withImageDraft = false } = {}) {
 		draft: attachmentDraft,
 		get value() { return value; },
 		doc,
-		controller,
 		get pickerClicks() { return pickerClicks; },
 		get imagePastes() { return imagePastes; },
 		setFolderResult(result: typeof folderResult) { folderResult = result; },

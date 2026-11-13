@@ -324,7 +324,7 @@ export function slotsConfigured(models: ModelsSettings | undefined): boolean {
 /** Which slot a role draws from (model slots wave, 2026-09-20). Includes the
  *  conversation pair and pdfReader (not BackgroundModelRoles — the slot
  *  tier spans every role; only background roles surface per-role overrides). */
-export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
+export const ROLE_SLOT: Readonly<Record<ModelRole | BackgroundModelRole, ModelSlotName>> = {
 	prober: "strong",
 	teacher: "strong",
 	researcher: "cheap",
@@ -339,6 +339,10 @@ export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
 	// Readings (docs/readings.md): learner-facing prose — quality-critical,
 	// so the strong tier (the teacher's own model).
 	writer: "strong",
+	// Side questions (#16): the conversation chain's own override, listed
+	// for the schema-level slot only (resolveSideQuestionSpec is the
+	// foreground path).
+	sideQuestion: "strong",
 };
 
 /** General settings — app-level behavior. Version DISPLAY and plans login

@@ -6,6 +6,8 @@ import { formatTokens, formatUsd, planCostLabel, prettyModel } from "@/component
 import { ModelControl, catalogLimits, useModelCatalog } from "@/components/model-picker";
 import { CalculatorToggle } from "@/components/calculator/calculator-toggle";
 import { ScratchpadToggle } from "@/components/scratchpad/scratchpad-toggle";
+import { usePopoverDismiss } from "@/components/popover-dismiss";
+import { INTERACTION_LAYER_Z_BASE } from "@/components/host-dialog";
 
 export function formatContextMeasurement(tokens: number | null, limit: number | null): string {
 	const numerator = tokens === null ? "?" : formatTokens(tokens);

@@ -6,6 +6,8 @@ import { cn } from "@/lib/utils";
 import { PathInput } from "@/components/path-input";
 import { DraftImageStrip } from "@/components/draft-image-strip";
 import { imageDropHandlers, type ImageDraftProps } from "@/components/draft-images";
+import { useOptionalInteractionLayers } from "./interaction-layers";
+import { isInteractionScopeEligible } from "./plugin-input-focus";
 
 /**
  * The chat composer — content row ONLY (the persistent rounded shell lives in
@@ -60,6 +62,7 @@ export function ChatSessionComposer({
 	nextProblem,
 	onNext,
 	imageDraft,
+	pendingInput = false,
 }: {
 	busy: boolean;
 	value: string;
@@ -78,10 +81,13 @@ export function ChatSessionComposer({
 	/** The pasted-image draft: parent-held; the composer shows it above the
 	 *  input, takes pastes/drops, and removes. */
 	imageDraft?: ImageDraftProps;
+	/** A plugin submission interceptor holds input for the text target: the
+	 *  send is enabled without composer text (the pipeline delivers it). */
+	pendingInput?: boolean;
 }) {
 	const [draft, setDraft] = useState(value);
 	useLayoutEffect(() => { setDraft(value); }, [revision, value]);
-	const canSend = sendAllowed && (draft.trim().length > 0 || dictationActive || Boolean(imageDraft?.hasImages));
+	const canSend = sendAllowed && (draft.trim().length > 0 || dictationActive || Boolean(imageDraft?.hasImages) || pendingInput);
 	const applyDraft = useCallback((next: string) => {
 		setDraft(next);
 		onChange(next);

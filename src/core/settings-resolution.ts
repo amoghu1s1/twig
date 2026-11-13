@@ -170,7 +170,7 @@ export function resolveSlot(slot: ModelSlot | undefined): EffectiveSlot | null {
  *  from DEFAULT_THINKING_ORDER). undefined = no model resolved; the
  *  per-need refusal gates fire on exactly that. */
 export function resolveModelSpec(
-	role: ModelRole,
+	role: ModelRole | BackgroundModelRole,
 	override: RoleModelOverride | undefined,
 	slots?: Partial<Record<ModelSlotName, ModelSlot>>,
 ): EffectiveModelSpec | undefined {

@@ -47,7 +47,7 @@ function renderSection(): string {
 	const { appearance, theme } = readThemeBoot();
 	return renderToStaticMarkup(
 		<AppearanceProvider initialAppearance={appearance} initialTheme={theme}>
-			<AppearanceSection appearance={appearance} onSectionChange={() => {}} />
+			<AppearanceSection appearance={appearance} onSectionChange={() => true} />
 		</AppearanceProvider>,
 	);
 }

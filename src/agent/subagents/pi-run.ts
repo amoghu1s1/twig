@@ -47,8 +47,6 @@ export interface SubagentRunOptions {
 	bypassWorkerRequestAdmission?: boolean;
 	/** Per completed assistant message (extraction's step log). */
 	onAssistantMessage?: (message: AssistantMessage, step: number) => void;
-	/** Every agent event, raw (the reading companion's live token stream). */
-	onEvent?: (event: AgentEvent) => void;
 	/** Extra stop rule (extractor: stop after a clean submit). */
 	shouldStop?: (message: AssistantMessage, toolResults: ToolResultMessage[]) => boolean;
 	/** Debug: when set AND LH_PROVIDER_EVENTS=1, raw provider stream

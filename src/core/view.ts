@@ -34,7 +34,9 @@
 
 import type { AssistantMessage, ImageContent, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { LhMarkerMessage, LhMessage } from "./native-messages.ts";
-import { CAPSTONE_EVALUATE_TOOL, modelSolutionForConclude, PRACTICE_CONCLUDE_TOOL, problemInputForConclude, SEND_TO_USER_TOOL, sendToUserText } from "./native-messages.ts";
+import { CAPSTONE_EVALUATE_TOOL, modelSolutionForConclude, PRACTICE_CONCLUDE_TOOL, problemInputForConclude, SEND_TO_USER_TOOL, sendToUserText, pluginQuestionResultMatches } from "./native-messages.ts";
+import { readPluginQuestionMessageAnnotation, readPluginQuestionCancellation, type PluginQuestionAnnotationRead } from "./plugin-questions.ts";
+import { pluginProblemForCall, type PluginProblemSnapshot } from "./plugin-problems.ts";
 import { activeCompactionOf, type CompactionDetails } from "./compaction.ts";
 import { QUESTION_TOOLS } from "./pending.ts";
 import type { SubagentArtifactData, SubagentResultMeta } from "./contracts/jobs.ts";
@@ -113,6 +115,14 @@ function applyResult(part: LhViewPart, result: ToolResultMessage): void {
 	const images = nativeImageContent(result.content);
 	if (images.length) part.images = images;
 	else delete part.images;
+	if (part.pluginQuestion) {
+		// Authored payload/error prose must never escape through generic trace.
+		if (result.isError) { part.state = "output-error"; return; }
+		part.state = "output-available";
+		part.output = result.details;
+		return;
+	}
+	part.result = { content: result.content, details: result.details, isError: result.isError };
 	if (result.isError) {
 		part.state = "output-error";
 		part.rawInput = part.input;
@@ -537,6 +547,12 @@ function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[]): void {
 			});
 			return;
 		}
+		case "side-question":
+		case "side-question-told":
+			// Raw context entries do not split the teaching segment or render
+			// loud transcript pills. Its quiet speech-bubble reopens the saved
+			// conversation in the floating/docked companion.
+			return;
 		case "problem-dismissed":
 			// UI-only (the ask-style dismissal): the synthesized conclude
 			// pair — which rides the NEXT input — carries the record's face.

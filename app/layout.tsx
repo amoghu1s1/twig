@@ -7,6 +7,7 @@ import { AppShell, SidebarProvider } from "@/components/sidebar";
 import { ActivityProvider } from "@/components/activity-dock";
 import { ServerEventsProvider } from "@/components/server-events";
 import { AppearanceProvider } from "@/components/settings/appearance";
+import { PluginsProvider } from "@/components/plugins";
 import UpdateBanner from "@/components/update-banner";
 import { CalculatorHost } from "@/components/calculator/calculator-host";
 import CopyMathAsTex from "@/components/copy-math-as-tex";
@@ -51,13 +52,15 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 			{/* The notification channel rides OUTSIDE everything: sidebar, dock,
 				 and pages all subscribe as the polls retire (push S3, 2026-10-02). */}
 			<ServerEventsProvider>
-				<AppearanceProvider initialAppearance={appearance} initialTheme={theme}>
-					<SidebarProvider>
-						<ActivityProvider>
-							<AppShell>{children}</AppShell>
-						</ActivityProvider>
-					</SidebarProvider>
-				</AppearanceProvider>
+				<PluginsProvider>
+					<AppearanceProvider initialAppearance={appearance} initialTheme={theme}>
+						<SidebarProvider>
+							<ActivityProvider>
+								<AppShell>{children}</AppShell>
+							</ActivityProvider>
+						</SidebarProvider>
+					</AppearanceProvider>
+				</PluginsProvider>
 			</ServerEventsProvider>
 			{/* Auto-update banner (Wave C): fixed card, Electron-only pushes. */}
 			<UpdateBanner />

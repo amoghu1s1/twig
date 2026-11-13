@@ -20,6 +20,7 @@
  * learning evidence); custom markers are invisible, same as the view.
  */
 
+import { citationsToReadableText } from "./citations.ts";
 import { CODE_EXERCISE_TOOL } from "./code-exercise.ts";
 import type { LhMessage } from "./native-messages.ts";
 import {
@@ -58,7 +59,7 @@ function orderedParts(content: unknown, mode: ImageMode): string[] {
 	let n = 0;
 	const out: string[] = [];
 	for (const c of content as Array<{ type?: string; text?: string }>) {
-		if (c?.type === "text" && typeof c.text === "string" && c.text.trim()) out.push(c.text.trim());
+		if (c?.type === "text" && typeof c.text === "string" && c.text.trim()) out.push(citationsToReadableText(c.text.trim()));
 		else if (c?.type === "image") out.push(renderImage(c, ++n, mode));
 	}
 	return out;
@@ -160,6 +161,11 @@ function toolResultBody(result: ToolResultMessage, ctx?: MarkdownContext): { hea
 		return { heading, body };
 	}
 
+	const pluginProblem = readPluginProblemSnapshot((result.details as { pluginProblem?: unknown } | undefined)?.pluginProblem);
+	if (pluginProblem && ctx && pluginProblemById(ctx.messages, pluginProblem.problemId)) {
+		return { heading: "Problem", body: [pluginProblem.input.statement] };
+	}
+
 	if (result.toolName === CODE_EXERCISE_TOOL) {
 		const code = result.details as
 			| Partial<{ questionText: string; thinking: string; graded: boolean; runs: number; dismissed: boolean; lastRun: { passed?: boolean; error?: string; timedOut?: boolean } }>
@@ -233,11 +239,14 @@ export function messageMarkdown(
 	const anchor = anchors ? ` · ${mid}` : "";
 	const parts: string[] = [];
 
-	if (role === "user") {
+	if (message.role === "custom" && message.customType === "plugin-problem-submission") {
+		const submitted = readPluginProblemSubmission(message.details);
+		if (submitted) parts.push(`### Learner${anchor}\n\n\`\`\`json\n${JSON.stringify({ submission: submitted.submission, thinking: submitted.thinking, ...(submitted.processing ? { processing: submitted.processing } : {}) }, null, 2)}\n\`\`\``);
+	} else if (role === "user") {
 		const content = (message as { content: unknown }).content;
 		const blocks = hasNativeImage(content)
 			? orderedParts(content, imageMode)
-			: userFacingTextOf(content).map((text) => text.trim()).filter(Boolean);
+			: userFacingTextOf(content).map((text) => citationsToReadableText(text).trim()).filter(Boolean);
 		if (blocks.length > 0) parts.push(`### Learner${anchor}\n\n${blocks.join("\n\n")}`);
 	} else if (role === "assistant") {
 		for (const text of userFacingTextOf((message as { content: unknown }).content, ctx?.failedOutputCalls ?? failedOutputCallIds([message]))) {
@@ -257,7 +266,7 @@ export function messageMarkdown(
 		const images = Array.isArray(result.content)
 			? result.content.filter((c) => (c as { type?: string } | null)?.type === "image").map((c, i) => renderImage(c, i + 1, imageMode))
 			: [];
-		parts.push(`### ${heading}${anchor}\n\n${[...body, ...images].join("\n\n")}`);
+		parts.push(`### ${heading}${anchor}\n\n${[...body.map((line) => citationsToReadableText(line)), ...images].join("\n\n")}`);
 	}
 
 	// custom markers are invisible, same as the extraction view.

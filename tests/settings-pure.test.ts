@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { appearanceVars, resolveAppearance, staleVarNames } from "../components/settings/appearance.tsx";
 import { clearColorOverrides, colorOverride, composeColorOverride, composeThemeSelection } from "../components/settings/appearance-section.tsx";
-import { BUILTIN_THEMES, DEFAULT_THEME } from "../src/core";
+import { BUILTIN_THEMES, DEFAULT_THEME, resolveSettings } from "../src/core";
 import {
 	PROMPT_IN_USE_HINT,
 	composePromptSwitch,

@@ -23,7 +23,8 @@
  */
 
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
-import type { SideChatAnchor, SideChatMessage, SideChatThread } from "./contracts/chat.ts";
+import type { ChatRecord, SideChatAnchor, SideChatMessage, SideChatThread } from "./contracts/chat.ts";
+import type { LhViewMessage, LhViewPart } from "./view.ts";
 import type { LhMarkerMessage, LhMessage } from "./native-messages.ts";
 import {
 	activeProblemOf,
@@ -357,4 +358,106 @@ export function sideChatModelTurns(thread: SideChatThread, lessonDocument: strin
 /** Does the thread end in a question still waiting for an answer? */
 export function sideThreadAwaitsAnswer(thread: SideChatThread): boolean {
 	return thread.messages.at(-1)?.role === "user";
+}
+
+// ─── Plugin-host compatibility (side-context projection) ─────────────────────
+
+/** The assistant segment a source message belongs to. Twig's inline side
+ *  questions anchor to prose blocks directly, so the message id is enough;
+ *  plugin-host callers only need a stable non-null current segment. */
+export function sideSegmentId(messages: readonly LhMessage[], sourceMessageId?: string): string | null {
+	if (sourceMessageId) return messages.some((message) => message.id === sourceMessageId) ? sourceMessageId : null;
+	for (let index = messages.length - 1; index >= 0; index--) {
+		if (messages[index]!.role === "assistant") return messages[index]!.id;
+	}
+	return null;
+}
+
+/** Twig renders side questions as inline windows, not as synthetic view
+ *  entries. The plugin host reads this map, so an empty map is the correct
+ *  no-op rather than inventing a second presentation channel. */
+export function sideEntryPoints(
+	_messages: readonly LhMessage[],
+	_view: readonly LhViewMessage[],
+): ReadonlyMap<string, ReadonlyMap<number, string>> {
+	return new Map();
+}
+
+function sideReplyState(message: SideChatMessage): string {
+	return message.pending ? "pending" : message.stopped ? "stopped" : message.error !== undefined ? "failed" : "complete";
+}
+
+/** Delivery watermarks live in immutable native side-question entries. */
+function sideDeliveryLedger(messages: readonly LhMessage[]) {
+	const delivered = new Map<string, Map<string, SideChatMessage>>();
+	const revisions = new Map<string, number>();
+	for (const message of messages) {
+		if (message.role !== "custom" || message.customType !== "side-question" || !message.details || typeof message.details !== "object") continue;
+		const details = message.details as { threadId?: unknown; updates?: unknown; snapshot?: unknown };
+		if (typeof details.threadId !== "string") continue;
+		const updates = details.updates ?? details.snapshot;
+		if (!Array.isArray(updates)) continue;
+		const thread = delivered.get(details.threadId) ?? new Map<string, SideChatMessage>();
+		for (const update of updates) {
+			if (!update || typeof update.id !== "string" || typeof update.text !== "string" || !["user", "assistant"].includes(update.role)) continue;
+			const { append, ...entry } = update as SideChatMessage & { append?: boolean };
+			thread.set(entry.id, { ...entry, text: append ? (thread.get(entry.id)?.text ?? "") + entry.text : entry.text });
+		}
+		delivered.set(details.threadId, thread);
+		revisions.set(details.threadId, (revisions.get(details.threadId) ?? 0) + 1);
+	}
+	return { delivered, revisions };
+}
+
+/** Capture only new raw text/status from all side conversations at a main
+ *  model-request or dismissal boundary. `after` includes newly appended
+ *  messages so their adjacency is preserved. */
+export function sideConversationEntries(
+	record: Pick<ChatRecord, "messages" | "sideChats">,
+	after: readonly LhMessage[] = record.messages,
+): LhMarkerMessage[] {
+	const { delivered, revisions } = sideDeliveryLedger(after);
+	const present = new Set(after.map((message) => message.id));
+	const changes: { threadId: string; message: SideChatMessage; previous?: SideChatMessage }[] = [];
+	for (const thread of record.sideChats ?? []) {
+		const previous = delivered.get(thread.id);
+		const current = new Set(thread.messages.map((message) => message.id));
+		for (const message of thread.messages) {
+			const old = previous?.get(message.id);
+			if (!old || old.text !== message.text || sideReplyState(old) !== sideReplyState(message)) changes.push({ threadId: thread.id, message, previous: old });
+		}
+		for (const old of previous?.values() ?? []) {
+			if (old.pending && !current.has(old.id)) changes.push({
+				threadId: thread.id,
+				previous: old,
+				message: { ...old, pending: false, error: "Reply interrupted before completion", at: new Date().toISOString() },
+			});
+		}
+	}
+	changes.sort((a, b) => (Date.parse(a.message.at) || 0) - (Date.parse(b.message.at) || 0));
+	return changes.map(({ threadId, message, previous }) => {
+		let revision = (revisions.get(threadId) ?? 0) + 1;
+		let id = `exchange_${threadId}_update_${revision}`;
+		while (present.has(id)) id = `exchange_${threadId}_update_${++revision}`;
+		present.add(id);
+		revisions.set(threadId, revision);
+		const extendsPrevious = previous && message.text.startsWith(previous.text);
+		const text = !previous ? message.text : extendsPrevious ? message.text.slice(previous.text.length) : message.text;
+		const label = message.role === "user" ? "Learner" : "Helper";
+		const kind = !previous ? "" : previous.text === message.text ? " (reply status update)" : extendsPrevious ? " (continued reply)" : " (updated wording of the earlier reply)";
+		const quoted = !previous ? (message.quotes ?? []).map((quote) => `Quoted tutor passage:\n${quote}`).join("\n\n") : "";
+		const status = message.pending ? "\n[This helper reply is still generating; later text will arrive in a subsequent update.]" :
+			message.stopped ? "\n[The learner stopped this helper reply; it is incomplete.]" :
+			message.error !== undefined ? "\n[This helper reply failed or was interrupted; any recorded text is incomplete.]" :
+			previous?.pending ? "\n[This helper reply is now complete.]" : "";
+		return {
+			id,
+			role: "custom",
+			customType: "side-question",
+			content: `Recorded learner–helper conversation update\nConversation: ${threadId}\n\n${quoted ? `${quoted}\n\n` : ""}${label}${kind}:\n${text}${status}\n\nEnd of recorded learner–helper conversation update.`,
+			details: { threadId, updates: [{ ...message, text, append: extendsPrevious === true }] },
+			display: false,
+			timestamp: Date.parse(message.at) || 0,
+		};
+	});
 }

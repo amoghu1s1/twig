@@ -41,11 +41,19 @@ if (exists(path.join(ROOT, "public"))) {
 	copyTree(path.join(ROOT, "public"), path.join(STANDALONE, "public"));
 }
 // 2) Safety: the repo's real data/ must NEVER ride along in the bundle.
+// Next's Turbopack tracer can still copy repo data/ when the checkout has a
+// live profile (the excludes cover module traversal, not every traced read).
+// Never ship it: refuse symlinks outright, otherwise remove the traced tree
+// and leave an explicit warning so a tracing regression stays visible.
 const leakedData = path.join(STANDALONE, "data");
 if (exists(leakedData)) {
-	console.error("[build-server] REFUSING: standalone contains a data/ directory — repo session data would ship in the app.");
-	console.error("             Check outputFileTracingExcludes in next.config.ts.");
-	process.exit(1);
+	const stat = fs.lstatSync(leakedData);
+	if (stat.isSymbolicLink() || !stat.isDirectory()) {
+		console.error("[build-server] REFUSING: standalone data/ is not a plain directory.");
+		process.exit(1);
+	}
+	fs.rmSync(leakedData, { recursive: true, force: true });
+	console.warn("[build-server] removed traced repo data/ from standalone — check outputFileTracingExcludes if this persists.");
 }
 
 // 2b) Safety: the repo's dev SECRETS must never ride along either — the
@@ -70,6 +78,22 @@ if (!exists(path.join(STANDALONE, "public", "pyodide", "pyodide.asm.wasm"))) {
 	console.error("             Run `node scripts/copy-pyodide.mjs` (needs the pyodide devDependency installed).");
 	process.exit(1);
 }
+
+// Plugin payload: staged Core packages and the native loader are build assets,
+// not traced modules. Copy them explicitly after the data/secret guards.
+copyTree(path.join(ROOT, "scripts", "plugin-loader.cjs"), path.join(STANDALONE, "scripts", "plugin-loader.cjs"));
+try {
+	const core = path.join(ROOT, "core-plugins");
+	const packagedCore = path.join(STANDALONE, "core-plugins");
+	validateCorePackages(ROOT, core);
+	fs.rmSync(packagedCore, { recursive: true, force: true });
+	copyTree(core, packagedCore);
+	validateCorePackages(ROOT, packagedCore);
+} catch (error) {
+	console.error("[build-server] REFUSING: Core plugin payload is missing or unsafe. Run npm run plugins:build-core.", error);
+	process.exit(1);
+}
+buildPluginAuthoring({ root: ROOT, standalone: true });
 
 // 2c) Payload curation (2026-10-11): the trace sweep can copy repo-root
 // plugins/ (authoring sources/tests), dist/ (previous installers), and the development Electron

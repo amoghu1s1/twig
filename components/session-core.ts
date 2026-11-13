@@ -29,6 +29,7 @@ import {
 	newUserMessage,
 	projectView,
 	nativeImageContent,
+	isCodeExerciseAnswer,
 	type ChatInput,
 	type LhMarkerMessage,
 	type LhMessage,
@@ -695,9 +696,7 @@ export class SessionModel {
 			case "tool_execution_end": {
 				// The execution layer: clean question placeholders are IGNORED
 				// downstream (view.ts fork 2); errors keep their validation text.
-				const result = agent.result as
-					| { content?: Array<{ type?: string; text?: string; data?: string; mimeType?: string }>; details?: unknown }
-					| null;
+				const result = agent.result as Pick<ToolResultMessage, "content" | "details"> | null;
 				const text = result?.content?.find((c) => c.type === "text")?.text ?? "The tool call failed.";
 				const images = nativeImageContent(result?.content);
 				this.mutate(() => {
@@ -903,7 +902,7 @@ export class SessionModel {
 			(subject?.key !== questionKey || subject.toolCallId !== input.toolCallId)) return refused();
 		const expectedKey = questionKey ?? (input.type === "answer" && subject?.toolCallId === input.toolCallId ? subject.key : undefined);
 		const imageBearing = input.type === "text" || input.type === "thinking" ? !!input.images?.length
-			: input.type === "answer" ? Object.values(input.answer.images ?? {}).some(images => images?.length)
+			: input.type === "answer" ? !isCodeExerciseAnswer(input.answer) && Object.values(input.answer.images ?? {}).some(images => images?.length)
 				: (input.type === "plugin-question-answer" || input.type === "plugin-problem-submission") && Object.values(input.images ?? {}).some(images => images?.length);
 		this.retireImagePreview(this.imagePreview?.owner ?? null);
 		this.releaseImagePost(this.imagePostOwner);
@@ -1103,15 +1102,16 @@ export class SessionModel {
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ input: { type: "steer", id, text: t, ...(images?.length ? { images } : {}) } }),
 			});
-			if (res.ok) { acked(true); return; } // parked or delivered — the stream lands the card
+			if (res.ok) { acked(true); return true; } // parked or delivered — the stream lands the card
 			if (res.status === 409) {
 				// The line holds the learner's latest word: an edit made while this
 				// POST was in flight rides the plain send, and a cancel (the line is
 				// gone) sends nothing — read it BEFORE dropSteer removes it.
 				const latest = this.steerQueueValue.find((s) => s.id === id)?.text;
 				dropSteer();
-				if (latest) await this.send({ type: "text", text: latest }); // the settle race: plain send
-				return;
+				if (latest) return await this.send({ type: "text", text: latest }, undefined, undefined, settleDelivery); // the settle race: plain send
+				settleDelivery();
+				return false;
 			}
 			dropSteer();
 			settleDelivery();

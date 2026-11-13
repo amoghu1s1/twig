@@ -80,6 +80,19 @@ import { TidyGraphButton } from "@/components/graph-tidy";
 
 import { LatexGlyph } from "@/components/latex-glyph";
 import { useNodeDeepDive } from "@/components/readings/node-readings";
+import { ToolContentResponse } from "@/components/ai-elements/message";
+import {
+	TreeCell,
+	TreeCheckbox,
+	TreeDisclosure,
+	TreeGuide,
+	TreeHeader,
+	TreeSelectionSpacer,
+	TreeSeparator,
+	treeBranchLayout,
+	treeColumnLayout,
+	treeRowLayout,
+} from "./tree-presentation";
 
 /** The sortable columns (owner ruling: all three — consistency). */
 export type ChainSortCol = "name" | "props" | "created";
@@ -136,6 +149,7 @@ export function ChainTableBody({
 	sourceInventoryPending = false,
 	onDeepDive,
 	deepDiveError,
+	pickerChrome = false,
 }: {
 	sourceInventoryPending?: boolean;
 	pickerChrome?: boolean;

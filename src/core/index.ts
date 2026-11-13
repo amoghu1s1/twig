@@ -144,3 +144,15 @@ export * from "./side-chat.ts";
 // notes.ts (per-session lesson notes): the save-input sanitizer + the
 // stale-write fingerprint. Pure, browser-safe.
 export * from "./notes.ts";
+
+// Plugin host contracts (plugins wave, 2026-11): the browser-safe plugin
+// vocabulary and the submission/view/question/problem adapters.
+export { copyImmutableData } from "./immutable-data.ts";
+export * from "./plugins.ts";
+export * from "./plugin-questions.ts";
+export * from "./plugin-problems.ts";
+export * from "./plugin-view-context.ts";
+export * from "./plugin-submissions.ts";
+export type * from "./plugin-ui.ts";
+export type * from "./plugin-tree.ts";
+export * from "./plugin-agents.ts";

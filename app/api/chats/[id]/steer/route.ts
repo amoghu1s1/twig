@@ -24,15 +24,11 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
 		if (err instanceof ChatInputError) return Response.json({ error: err.message }, { status: 400 });
 		throw err;
 	}
-	try {
-		const result = await prepareAndSteerChat(id, input);
-		if (result === "stale") return Response.json({ code: "submission-stale", error: "The live submission target changed. Your input has been kept." }, { status: 412 });
-		if (result === "settled") return Response.json({ error: "no live turn to steer" }, { status: 409 });
-		return Response.json({ ok: true });
-	} catch (err) {
-		if (err instanceof ChatInputError) return Response.json({ error: err.message }, { status: 400 });
-		throw err;
+	const message = newUserSteer(input.text, input.id);
+	if (!steerLiveChat(id, message)) {
+		return Response.json({ error: "no live turn to steer" }, { status: 409 });
 	}
+	return Response.json({ ok: true });
 }
 
 // PUT — edit (or, with blank text, cancel) a steer that is still queued

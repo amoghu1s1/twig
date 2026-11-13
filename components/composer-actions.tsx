@@ -23,7 +23,7 @@ export function ComposerActions({ picker, setup }: { picker?: ReactNode; setup?:
 
 /** Count and Clear stay together if the setup action wraps onto another line.
  * These are node counts, even when a whole chain supplied the selection. */
-export function NodePickerControl({ count, onOpen, onClear, emptyLabel = "Pick nodes" }: {
+export function NodePickerControl({ count, onOpen, onClear, emptyLabel = "Pick nodes", disabled, triggerRef }: {
 	count: number;
 	/** The label while nothing is picked (capstone: says picks are required). */
 	emptyLabel?: string;

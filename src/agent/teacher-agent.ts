@@ -14,8 +14,9 @@ import {
 	type ProberToolContext,
 	type TeacherToolContext,
 } from "./tools.ts";
-import { practiceTools, type PracticeToolContext } from "./tools/practice.ts";
+import { practiceTools, createPracticeGate, type PracticeGate, type PracticeToolContext } from "./tools/practice.ts";
 import { capstoneTools, type CapstoneToolContext } from "./tools/capstone.ts";
+import { pluginProblemTools, isPluginProblemPoseAcknowledgment, type NativePluginProblemContribution } from "./plugin-problem-tools.ts";
 import { healToolRecord, withArgumentHeal } from "./tools/heal.ts";
 import { sendToUserApplies, sendToUserTool } from "./tools/send-to-user.ts";
 import { makeNarrationGuard, narrationGuardApplies, SEND_TO_USER_DELIVERY_RULE } from "./narration-guard.ts";
@@ -27,7 +28,8 @@ import {
 	type SessionAttachment,
 } from "./tools/attachments.ts";
 import { quizInputObject, quizInputProblems } from "../core/question-core.ts";
-import { QUESTION_TOOLS, type EnabledTools } from "../core/pending.ts";
+import { QUESTION_TOOLS, TOGGLEABLE_TOOLS, type EnabledTools } from "../core/pending.ts";
+import type { PluginToolContext } from "../core/plugins.ts";
 import { toLlmMessages, nativeInputCause, needsContinuation, isEmptyAssistantCompletion, PRACTICE_PROBLEM_TOOL, type LhMessage } from "../core/native-messages.ts";
 import type { ChatGPTRequestCycle } from "./chatgpt-request-cycle.ts";
 import { usageWasAdmitted } from "./subscription-request-cycle.ts";
@@ -233,12 +235,40 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	const engine = opts.engine ?? piEngineFor(kind as "prober" | "teacher");
 	const stopper = makeQuestionStopper(kind);
 	const narrationGuard = narrationGuardApplies(kind, engine.model, opts.tools !== undefined);
+	const narrationHooks = narrationGuard ? makeNarrationGuard() : undefined;
+	// Doctrine + the session-attachments manifest section (Twig attachments
+	// wave); plugin instructions join AFTER it so the doctrine prefix stays
+	// cacheable and the manifest stays adjacent to the file tools.
 	const systemPrompt = systemPromptFor(kind, opts);
 	const guardedPrompt = narrationGuard ? `${systemPrompt}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}` : systemPrompt;
 	const sessionTools = opts.tools === undefined ? Object.values(healToolRecord(attachmentTools(opts.attachments ?? []))) : [];
 	const attachedImages = engine.model.input?.includes("image")
 		? attachmentImageParts(opts.attachments ?? [], engine.model)
 		: null;
+	// Bind native read and preserve the kind/model-aware Claude output gate
+	// before resolving additive plugins. Explicit registries remain caller-owned.
+	const builtinTools = [
+		...tools.map((tool) => tool.name === "read" && tool.execute === readTool.execute
+			? { ...tool, execute: createReadTool(engine.model).execute as AgentTool<any>["execute"] }
+			: tool),
+		...sessionTools,
+		...(sendToUserApplies(kind, engine.model, opts.tools !== undefined)
+			? [withArgumentHeal(sendToUserTool)]
+			: []),
+	];
+	// Capstone is an app-owned session kind with no plugin agent surface
+	// (PluginAgentKind covers prober/teacher/practice only).
+	const contributions = kind !== "capstone" && opts.tools === undefined && opts.chatId && opts.pluginContributions
+		? opts.pluginContributions({ chatId: opts.chatId, agent: kind }, [...CONVERSATION_TOOL_NAMES, ...builtinTools.map(tool => tool.name)])
+		: undefined;
+	const questionLedger = contributions?.questionTypes?.length && opts.chatId
+		? new PluginQuestionLedger(contributions.questionTypes, opts.chatId, nodeExists) : undefined;
+	const problemTools = kind === "practice" && practice && opts.chatId
+		? pluginProblemTools(contributions?.problemTypes ?? [], opts.chatId, practice.gate, practice.graphNodes) : [];
+	// Never replace the builtin prompt or tools, or mutate an already-running Agent.
+	const composedPrompt = contributions?.instructions.length
+		? [guardedPrompt, ...contributions.instructions].join("\n\n---\n\n")
+		: guardedPrompt;
 	// Debug recorder (owner, 2026-10-04): raw provider events when
 	// LH_PROVIDER_EVENTS=1 and the caller handed a chatId; undefined is
 	// the normal no-observer path (tests, env-off).
@@ -253,22 +283,18 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 		identity: APP_IDENTITY,
 		sessionId: opts.chatId,
 		initialState: {
-			systemPrompt: guardedPrompt,
+			systemPrompt: composedPrompt,
 			model: engine.model,
 			thinkingLevel: engine.level,
 			// Conditional registry inclusion, like the graph-tool gates: when
 			// closed, neither the tool nor its usage instructions reach the model.
 			// Match Claude across providers (including OpenRouter), not the API
 			// transport. Explicit test registries remain caller-owned.
-			tools: [
-				...tools.map((tool) => tool.name === "read" && tool.execute === readTool.execute
-					? { ...tool, execute: createReadTool(engine.model).execute as AgentTool<any>["execute"] }
-					: tool),
-				...sessionTools,
-				...(sendToUserApplies(kind, engine.model, opts.tools !== undefined)
-					? [withArgumentHeal(sendToUserTool)]
-					: []),
-			],
+			// Plugin contributions are ADDITIVE: builtin order is preserved and a
+			// contributed name can never shadow a reserved builtin.
+			tools: contributions
+				? [...builtinTools, ...contributions.tools, ...(questionLedger?.tools ?? []), ...problemTools]
+				: builtinTools,
 			messages: opts.messages ?? [],
 		},
 		streamFn: engine.streamFn,
@@ -290,6 +316,9 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 		// Wave C registerLiveAgent-before-runPiTurn design depends on.
 		// undefined preserves normal scheduling (the old boolean false).
 		finishTurn: (turn, signal) => {
+			// Plugin acknowledgments (a posed question/problem persists a host
+			// snapshot) end the run like a native question pose.
+			if (turn.toolResults.some(result => questionLedger?.isAcknowledgment(result) || (kind === "practice" && isPluginProblemPoseAcknowledgment(result)))) return { action: "end" };
 			if (stopper(turn)) return { action: "end" };
 			if (!answerReactionOwed || signal?.aborted) return;
 			// No-dispatch failures can resume through the subscription cycle;
@@ -311,6 +340,11 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 				// let the same Agent resume, and are filtered out at settlement.
 				return { messages: [{ role: "system", content: "The learner has answered the question. Your previous response was empty. Start the next turn now: respond to that answer and continue the lesson without waiting for another learner message.", timestamp: Date.now() }] };
 			}
+			if (opts.contextUpdates) {
+				const messages = opts.contextUpdates(turn.context.messages);
+				return messages.length ? { messages } : undefined;
+			}
+			return undefined;
 		},
 		// Wave C (2026-09-26, owner correction same day): markers handed to a
 		// live run drain from pi's STEERING queue — the lesson loop is one
@@ -363,6 +397,9 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 			Object.assign(event.message, { stopReason: "error", errorMessage: "The teacher returned an empty response twice. Retry to continue from your saved answer." });
 		}
 	});
+	// Exact plugin occurrence binding: the ledger observes this Agent's own
+	// messages so a pose's persisted snapshot can only come from a real call.
+	questionLedger?.bind(agent);
 	if (opts.onUsage) {
 		agent.subscribe((event: AgentEvent) => {
 			if (event.type === "message_end" && event.message.role === "assistant" && "usage" in event.message) {

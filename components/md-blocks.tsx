@@ -27,7 +27,7 @@
  * EXPAND icon (opens the session overlay) when a chat page is mounted.
  */
 
-import { cloneElement, isValidElement, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { cloneElement, createContext, isValidElement, useContext, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { CheckIcon, CopyIcon, MaximizeIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -360,12 +360,15 @@ export function MarkdownCode(props: ComponentProps<"code"> & ExtraProps) {
 	const meta = (node?.properties?.metastring as string | undefined) ?? "";
 	const source = codeSource(children);
 
-	if (language === "mermaid") return <MermaidInline chart={source} />;
+	if (language === BUILTIN_MERMAID_LANGUAGE) return <MermaidInline chart={source} />;
 	if (language === "svg") return <SvgFigure source={source} />;
 
+	// Ordinary fences: Twig's melted code renderer (with the hover copy
+	// corner), unless a plugin registered a renderer for this language —
+	// display-only (host-mounted) Markdown never mounts plugin UI.
 	const startMatch = /startLine=(\d+)/.exec(meta);
 	const startLine = startMatch ? Number.parseInt(startMatch[1]!, 10) : undefined;
-	return (
+	const fallback = (
 		<CodeFence
 			source={source}
 			language={language}
@@ -375,7 +378,9 @@ export function MarkdownCode(props: ComponentProps<"code"> & ExtraProps) {
 			lineNumbers={!/\bnoLineNumbers\b/.test(meta)}
 		/>
 	);
-	return displayOnly ? fallback : <PluginCodeBlock language={language} source={source} meta={meta} incomplete={incomplete} fallback={fallback} />;
+	return displayOnly ? fallback : (
+		<PluginCodeBlock language={language} source={source} meta={meta} incomplete={incomplete} fallback={fallback} />
+	);
 }
 
 // ─── Key-idea callouts (the Streamdown `blockquote` override) ────────────────

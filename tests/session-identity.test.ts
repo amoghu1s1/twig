@@ -12,6 +12,9 @@ import { createProberAgent, createTeacherAgent, createPracticeAgent, type AgentB
 import { runSubagent } from "../src/agent/subagents/pi-run.ts";
 import { healToolRecord } from "../src/agent/tools/heal.ts";
 import { streamSideAnswer } from "../src/agent/side-chat.ts";
+import { createPluginInference } from "../src/server/plugin-inference.ts";
+import { createPluginTaskRecordStore } from "../src/store/plugin-task-records.ts";
+import type { ModelCatalogResponse } from "../src/core/contracts/models.ts";
 import metadata from "../package.json" with { type: "json" };
 
 const factories = [

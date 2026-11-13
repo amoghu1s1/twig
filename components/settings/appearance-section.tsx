@@ -46,7 +46,7 @@ import { useInteractionLayers } from "@/components/interaction-layers";
 import { Hint } from "@/components/ui/hint";
 import { BUNDLED_READING_FONTS, useAppearance } from "./appearance.tsx";
 import { FontMenuList } from "./model-menu";
-import { CommitInput, SettingsMenuTrigger, SettingsRow, ThinSelect, Toggle } from "./controls.tsx";
+import { CommitInput, SettingsMenuTrigger, SettingsRow, ThinSelect, Toggle, type SettingsCommitResult } from "./controls.tsx";
 import { AnkiRows } from "./anki-rows.tsx";
 import { ObsidianRows } from "./obsidian-rows.tsx";
 import { ModeCards } from "./mode-cards.tsx";
@@ -181,7 +181,7 @@ function ColorOverrideRow({
 	value: string;
 	themeColor: string;
 	effective: string;
-	onCommit: (next: string) => void;
+	onCommit: (next: string) => SettingsCommitResult;
 }) {
 	const { label, note } = COLOR_LABELS[colorKey];
 	const empty = `Empty = ${themeColor}`;
@@ -314,7 +314,7 @@ export function AppearanceSection({
 			document.removeEventListener("pointerdown", onPointerDown);
 			document.removeEventListener("keydown", onKeyDown, true);
 		};
-	}, [fontMenuOpen]);
+	}, [fontMenuOpen, interactions]);
 
 	return (
 		<>

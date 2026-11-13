@@ -764,7 +764,7 @@ function SessionsSidebar() {
 						<CircleXIcon className="size-3" />
 						Mistakes
 					</Link>
-				</div>
+				</PluginSidebarActions>
 
 				<div className="mx-3 mb-2 flex items-center gap-2">
 					<span className="text-xs uppercase tracking-widest text-muted-foreground/70">Sessions</span>
@@ -995,16 +995,23 @@ function SessionsSidebar() {
  *  the right when it's open. Rendered once in the root layout. */
 export function AppShell({ children }: { children: React.ReactNode }) {
 	const pageRef = useRef<HTMLElement>(null);
+	const [contentRoot, setContentRoot] = useState<HTMLElement | null>(null);
+	const pathname = usePathname();
 	return (
-		<SettingsDialogProvider>
-			<SessionsSidebar />
-			<FilePathDropZone mainRef={pageRef} className="relative min-w-0 flex-1">{children}</FilePathDropZone>
-			{/* Alt+P or the bar's pencil button; the page shrinks beside it. */}
-			<ScratchpadHost page={pageRef} />
-			{/* The single document-level keydown listener (keyboard wave A) —
-			    after the content in the tree, but it's window-level so order only
-			    matters for the events it dispatches, never for DOM priority. */}
-			<KeyboardShortcuts />
-		</SettingsDialogProvider>
+		<HostRouteLifetimeProvider pathname={pathname}>
+		<HostContentRootContext.Provider value={contentRoot}>
+			<InteractionLayersProvider><SettingsDialogProvider>
+				<SessionsSidebar />
+				<FilePathDropZone mainRef={pageRef} onContentRoot={setContentRoot} className="relative min-w-0 flex-1">{children}</FilePathDropZone>
+				{/* Alt+P or the bar's pencil button; the page shrinks beside it. */}
+				<ScratchpadHost page={pageRef} />
+				{/* The single document-level keydown listener (keyboard wave A) —
+				    after the content in the tree, but it's window-level so order only
+				    matters for the events it dispatches, never for DOM priority. */}
+				<KeyboardShortcuts />
+				<PluginWidgets />
+			</SettingsDialogProvider></InteractionLayersProvider>
+		</HostContentRootContext.Provider>
+		</HostRouteLifetimeProvider>
 	);
 }

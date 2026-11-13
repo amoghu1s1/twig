@@ -207,12 +207,19 @@ export interface SideChatMessage {
 	text: string;
 	/** user only: the passages the learner attached to this question. */
 	quotes?: string[];
+	/** Matching canonical Tutor quote links retain each passage's actual
+	 * native source and exact-text selector, independent of segment identity. */
+	quoteCitations?: string[];
 	/** ISO time the message was saved. */
 	at: string;
 	/** assistant only: provider-qualified model ("provider:id"). */
 	model?: string;
+	/** Idempotency identity of the ask/retry producing this reply. */
+	requestId?: string;
 	/** assistant only: the learner stopped the answer; `text` is partial. */
 	stopped?: boolean;
+	/** Delivery snapshot only: this reply was still generating at capture. */
+	pending?: boolean;
 	/** assistant only: the call failed; `text` is whatever arrived. */
 	error?: string;
 }
@@ -226,6 +233,9 @@ export interface SideChatThread {
 	open: boolean;
 	createdAt: string;
 	messages: SideChatMessage[];
+	/** Compatibility snapshot retained when reading records that use a one-shot
+	 * context cutoff. Current delivery uses immutable native update entries. */
+	contextSnapshot?: SideChatMessage[];
 }
 
 /** One model call's token accounting — the SDK's LanguageModelUsage

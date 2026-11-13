@@ -54,7 +54,7 @@ const zen = entry("opencode", "kimi-k2");
 const go = entry("opencode-go", "kimi-k2");
 const catalog: ModelCatalogResponse = {
 	models: [zen, go], defaults: null,
-	rolePins: { researcher: null, demoBuilder: null, visualMaker: null, extractor: null, auditor: null },
+	rolePins: { researcher: null, demoBuilder: null, visualMaker: null, extractor: null, auditor: null, sideQuestion: null },
 	slots: { strong: { model: { provider: go.provider, id: go.id }, thinkingLevel: "off" }, cheap: { model: { provider: go.provider, id: go.id }, thinkingLevel: "off" }, vision: { model: { provider: go.provider, id: go.id }, thinkingLevel: "off" } },
 	providers: [{ id: "opencode", envVar: "OPENCODE_API_KEY", keyPresent: true }, { id: "opencode-go", envVar: "OPENCODE_API_KEY", keyPresent: true }],
 };
@@ -168,7 +168,7 @@ describe("model tooltips", () => {
 	});
 	it("the agent settings slot trigger", async () => {
 		installFetch();
-		await render(<><Reader /><AgentSection agent={undefined} models={strongGo} graph={undefined} compaction={undefined} onSectionChange={() => {}} onModelsChange={() => {}} onCompactionChange={() => {}} /></>);
+		await render(<><Reader /><AgentSection agent={undefined} models={strongGo} graph={undefined} compaction={undefined} onSectionChange={() => true} onModelsChange={() => true} onCompactionChange={() => true} /></>);
 		assert.equal(await tooltipFor("slot-model-strong"), "OpenCode Go · kimi-k2");
 	});
 });

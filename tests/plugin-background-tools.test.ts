@@ -57,6 +57,7 @@ function memoryJobs(): JobStore {
 		listJobs(chatId) { return [...jobs.values()].filter((job) => job.chatId === chatId).map((job) => structuredClone(job)); },
 		findJobByToolCallId(chatId, toolCallId) { return this.listJobs(chatId).find((job) => job.toolCallId === toolCallId) ?? null; },
 		deleteJobsForChat(chatId) { const list = this.listJobs(chatId); for (const job of list) jobs.delete(job.id); return list.length; },
+		deleteJob(id) { return jobs.delete(id); },
 	};
 }
 const schema = Type.Object({ query: Type.String() });

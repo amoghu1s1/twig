@@ -520,7 +520,7 @@ export function KeysSection({
 	}
 
 	return (
-		<>
+		<div ref={editorScopeRef} className="contents">
 			{loadError && (
 				<div role="alert" className="mb-3 flex items-center gap-3 rounded-sm border border-error/40 px-3 py-2 text-xs text-error" data-testid="keys-load-error">
 					<span className="min-w-0 flex-1">{loadError}</span>

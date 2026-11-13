@@ -39,6 +39,7 @@ export type KeyAction =
 	| "question-submit"
 	| "open-settings"
 	| "toggle-user-thinking"
+	| "toggle-question-thread"
 	| "toggle-calculator"
 	| "toggle-scratchpad"
 	| "read-by-sentence"
@@ -79,6 +80,7 @@ export const KEYBOARD_ACTIONS: readonly KeyActionDef[] = [
 	{ id: "new-session", label: "New session", scope: "global", binding: "mod+n" },
 	{ id: "rename-session", label: "Rename session", scope: "chat", binding: "f2" },
 	{ id: "toggle-user-thinking", label: "Toggle all your thinking", scope: "chat", binding: "mod+t" },
+	{ id: "toggle-question-thread", label: "Question · ask for a nudge (side thread)", scope: "chat", binding: "mod+j" },
 	// The floating calculator (components/calculator): Alt+C works in every
 	// browser (mod+ letters collide with browser shortcuts) and inside text
 	// fields, which pass mod/alt combos through.

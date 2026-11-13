@@ -36,6 +36,8 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ImageContent, Message, TextContent, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 import { imageBlock, type ComposerImage } from "./images.ts";
+import { ImmutableReadCache } from "./immutable-data.ts";
+import type { PluginSubmissionImages, PluginSubmissionOccurrence } from "./plugin-submissions.ts";
 import { QUESTION_TOOLS, type PendingQuestion } from "./pending.ts";
 import { pluginProblemForCall, readPluginProblemSubmission, type PluginProblemSnapshot } from "./plugin-problems.ts";
 import { CLAUDE_CODE_PROVIDER } from "./contracts/claude-code.ts";
@@ -83,7 +85,9 @@ export interface LhMarkerMessage {
 		| "practice-next"
 		| "problem-dismissed"
 		| "compaction"
-		| "reading-discussion";
+		| "reading-discussion"
+		| "side-question"
+		| "side-question-told";
 	/** The model-facing text ("" for plan blocks — UI-only). */
 	content: string;
 	display: boolean;
@@ -209,6 +213,21 @@ export function newMessageId(): string {
 // ─── constructors (the input-event → native append mapping lives in
 //     core/input-events.ts; steers in core/contracts/jobs.ts) ─────────────────
 
+/** Keep legacy text-only storage unchanged; explicit images become native blocks. */
+export function nativeInlineImageContent(text: string, images?: readonly ImageContent[]): string | (TextContent | ImageContent)[] {
+	return images?.length ? [...(text ? [{ type: "text" as const, text }] : []), ...images.map(image => ({ ...image }))] : text;
+}
+
+/** Compact answer text is the sole text authority; labels identify image channels. */
+export function nativeAnswerContent(answerText: string, images?: PluginSubmissionImages): ToolResultMessage["content"] {
+	const content: ToolResultMessage["content"] = [{ type: "text", text: answerText }];
+	for (const [channel, label] of [["answer", "Answer images"], ["thinking", "Question thinking images"], ["readingThinking", "Reading thinking images"]] as const) {
+		if (!images?.[channel]?.length) continue;
+		content.push({ type: "text", text: `${label}:` }, ...images[channel]!.map(image => ({ ...image })));
+	}
+	return content;
+}
+
 /** A learner-authored user message (text input, verdict note). Session
  *  attachment ids ride alongside the text; a legacy inline image payload is
  *  also accepted (the composer's blob path never uses it) so old callers
@@ -251,12 +270,14 @@ export function newAnswerResult(
 	toolName: string,
 	answer: unknown,
 ): LhMessage & ToolResultMessage {
+	const typed = answer as AnswerData;
+	const images = typed.kind === "code-exercise" ? undefined : typed.images;
 	return {
 		id: newMessageId(),
 		role: "toolResult",
 		toolCallId,
 		toolName,
-		content: [{ type: "text", text: JSON.stringify(compactAnswer(answer as AnswerData)) }],
+		content: nativeAnswerContent(JSON.stringify(compactAnswer(typed)), images),
 		// 0.87.1 narrowed ToolResultMessage.details to JsonRepresentation —
 		// our payloads are JSON-safe answer structures, so the cast is honest.
 		details: answer as ToolResultMessage["details"],
@@ -576,6 +597,16 @@ export function problemInputForConclude(
 	return undefined;
 }
 
+/** Common practice pose recognition, independent of the currently enabled plugins. */
+export function practiceProblemForCall(messages: readonly LhMessage[], occurrence: PluginSubmissionOccurrence): { input: unknown; pluginProblem?: PluginProblemSnapshot } | null {
+	const owner = messages.find(message => message.id === occurrence.messageId && message.role === "assistant") as (AssistantMessage & { id: string }) | undefined;
+	const call = owner?.content[occurrence.contentIndex];
+	if (call?.type !== "toolCall" || call.id !== occurrence.toolCallId || call.name !== occurrence.toolName) return null;
+	if (call.name === PRACTICE_PROBLEM_TOOL) return { input: call.arguments };
+	const pluginProblem = pluginProblemForCall(messages, occurrence);
+	return pluginProblem ? { input: pluginProblem.input, pluginProblem } : null;
+}
+
 export function activeProblemOf(
 	messages: readonly LhMessage[],
 ): { toolCallId: string; input: unknown; pluginProblem?: PluginProblemSnapshot } | null {
@@ -766,15 +797,17 @@ export function toLlmMessages(
 			continue;
 		}
 		// Strip app-only record fields (id, attachment ids, CLI context
-		// metadata): the wire carries the native shape only.
-		const { id: _id, attachmentIds, cliContextWindow: _cliContextWindow, ...native } = m as LhMessage;
+		// metadata, plugin occurrence annotations): the wire carries the
+		// native shape only. Learner citations are links in the record; the
+		// wire carries them expanded (core/citations.ts).
+		const { id: _id, attachmentIds, cliContextWindow: _cliContextWindow, lhQuestions: _lhQuestions, lhQuestionOccurrence: _lhQuestionOccurrence, ...native } = m as LhMessage;
+		const user = role === "user" ? expandUserCitations(native as UserMessage) : null;
 		const parts = role === "user" && attachmentIds?.length ? (opts.attachmentParts?.(attachmentIds) ?? []) : [];
-		if (parts.length > 0) {
-			const user = native as UserMessage;
+		if (user && parts.length > 0) {
 			const text = typeof user.content === "string" ? [{ type: "text" as const, text: user.content }] : user.content;
 			out.push({ ...user, content: [...text, ...parts] });
 		} else {
-			out.push(native as Message);
+			out.push((user ?? native) as Message);
 		}
 		// Repair unanswered calls from completed generations, not calls in
 		// failed generations. Pi filters error/aborted assistants itself;
@@ -1045,9 +1078,10 @@ export function nativeInputCause(message: AgentMessage, history: readonly AgentM
 	if (message.role === "system" || message.role === "assistant") return "neutral";
 	if (message.role === "custom") {
 		if (["probe-handoff", "subagent-steer", "subagent-abort"].includes(message.customType)) return "automatic";
-		if (["practice-thinking", "practice-next"].includes(message.customType)) return "learner";
+		if (["practice-thinking", "plugin-problem-submission", "practice-next"].includes(message.customType)) return "learner";
 		// reading-discussion: a held note riding a run it never starts (docs/readings.md §14).
-		return ["graph-context", "plan-block", "problem-dismissed", "compaction", "reading-discussion"].includes(message.customType) ? "neutral" : "unrecognizable";
+		// side-question markers are held context that never starts a run either.
+		return ["graph-context", "plan-block", "problem-dismissed", "compaction", "reading-discussion", "side-question", "side-question-told"].includes(message.customType) ? "neutral" : "unrecognizable";
 	}
 	if (message.role === "toolResult") {
 		const pluginAnswer = readPluginQuestionAnswer(message.details);
@@ -1103,7 +1137,9 @@ export function isEmptyAssistantCompletion(message: AgentMessage): boolean {
 		message.content.every((block) => block.type === "thinking" || (block.type === "text" && !block.text.trim()));
 }
 
-export function needsContinuation(messages: readonly LhMessage[]): boolean {
+export function needsContinuation(record: readonly LhMessage[]): boolean {
+	const messages = tailIgnoringSideQuestions(record);
+	if (pluginQuestionCallsOf(messages).some(call => call.status === "answerable" || call.status === "unreadable")) return false;
 	const last = messages[messages.length - 1];
 	if (!last || (last as { role?: string }).role !== "toolResult") return false;
 	// The trailing results batch (contiguous by construction — the agent

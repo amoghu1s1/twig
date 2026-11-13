@@ -282,6 +282,24 @@ export function SettingsDialogBody({
 		setActive(initialSection);
 	}, [initialSection, navigationRequest]);
 
+	const enabledPlugins = snapshot.plugins.filter(plugin => plugin.info.enabled);
+	const activePluginId = active.startsWith("plugin:") ? active.slice("plugin:".length) : null;
+	const activePlugin = enabledPlugins.find(plugin => plugin.info.id === activePluginId);
+	// Keep a deep link pending while discovery loads. Once discovery settles,
+	// disabled/uninstalled destinations return to management, never stale DOM.
+	const missingPlugin = activePluginId !== null && !activePlugin && !snapshot.loading;
+	const management = snapshot.plugins.find(plugin => plugin.info.id === activePluginId)?.info.origin === "core" ? "core-plugins" : "plugins";
+	useEffect(() => {
+		if (missingPlugin) setActive(management);
+	}, [missingPlugin, management]);
+	const selected = missingPlugin ? management : active;
+	const navSections: { id: SectionId; label: string; icon?: LucideIcon }[] = [
+		...SECTIONS,
+		{ id: "core-plugins", label: "Core plugins", icon: PlugIcon },
+		{ id: "plugins", label: "Community plugins", icon: PuzzleIcon },
+		...enabledPlugins.map(plugin => ({ id: `plugin:${plugin.info.id}` as const, label: plugin.info.manifest?.name ?? plugin.info.id })),
+	];
+
 	// Fetch once per dialog mount. 200 {settings: null} is FIRST BOOT
 	// (no record = factory everything), not a failure — the error state is
 	// a non-200 or a network throw only. Retry re-runs exactly this read.
@@ -327,13 +345,18 @@ export function SettingsDialogBody({
 	 *  record mirror in sync, surface route/network errors inline. Writes
 	 *  are SERIALIZED — two fast toggles must not race their whole-section
 	 *  payloads. The optimistic mirror lands before the request so the next
-	 *  click composes from the value the learner just chose. */
+	 *  click composes from the value the learner just chose.
+	 *
+	 *  Returns the upstream acknowledgement shape (`boolean`) so plugin
+	 *  settings rows and CommitInput can keep a rejected draft, while the
+	 *  Twig queue semantics stay authoritative for ordering. */
 	const writeQueue = useRef<Promise<void>>(Promise.resolve());
 	const write = useCallback(
 		(
 			section: "general" | "agent" | "models" | "appearance" | "graph" | "compaction",
 			body: object,
-		): Promise<void> => {
+		): Promise<boolean> => {
+			let accepted = false;
 			const task = writeQueue.current.then(async () => {
 				setError(null);
 				const before = recordRef.current;
@@ -367,13 +390,14 @@ export function SettingsDialogBody({
 					notifySettingsSaved(section);
 					if (section === "appearance")
 						onAppearanceChange(body as AppearanceSettings);
+					accepted = true;
 				} catch {
 					setRecord(before);
 					setError(`${section}: couldn't reach the app server. Try again.`);
 				}
 			});
 			writeQueue.current = task.catch(() => undefined);
-			return task;
+			return task.then(() => accepted);
 		},
 		[onAppearanceChange, writeOrder],
 	);

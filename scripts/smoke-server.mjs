@@ -217,6 +217,12 @@ registerHooks({resolve(specifier,context,next){ const result=next(specifier,cont
 		const pyodide = await pyodideProblem(url);
 		if (pyodide) throw new Error(pyodide);
 		console.log("[smoke-server] GET /pyodide/pyodide.asm.wasm → 200 with CORS");
+
+		// 4) Plugin host: Core catalog discovery, activation, asset serving,
+		//    and the external native loader in the packaged payload.
+		await verifyCorePlugins({ root: ROOT, standalone, dataDirectory: dataDir, url });
+		await verifyPluginServer(url, home);
+		console.log("[smoke-server] plugin host and Core plugin payload verified");
 	} catch (err) {
 		failed = err;
 	} finally {

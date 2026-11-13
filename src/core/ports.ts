@@ -10,6 +10,8 @@
  */
 
 import type { LhMessage } from "./native-messages.ts";
+import type { PluginAgentRecord } from "./plugin-agents.ts";
+import type { PluginTaskRecord } from "./plugin-workers.ts";
 import type { AnkiNoteRecord } from "./anki.ts";
 import type {
 	AttachmentRecord,
@@ -35,6 +37,22 @@ import type {
 } from "./contracts.ts";
 import type { UserSettings } from "./settings.ts";
 import type { Theme, ThemeFile } from "./themes.ts";
+
+// ─── Plugin sessions — plugin-owned data, separate from core chats ──────────
+
+/** One writer per plugin directory. Failed atomic replacements must throw. */
+export interface PluginAgentRecordStore {
+	list(): PluginAgentRecord[];
+	get(id: string): PluginAgentRecord | null;
+	save(record: PluginAgentRecord): void;
+}
+
+/** One writer per plugin task directory; accepted results require an atomic save. */
+export interface PluginTaskRecordStore {
+	list(): PluginTaskRecord[];
+	get(id: string): PluginTaskRecord | null;
+	save(record: PluginTaskRecord): void;
+}
 
 // ─── ChatStore — the session record's home (data/chats) ─────────────────────
 

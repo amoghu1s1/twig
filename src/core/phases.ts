@@ -48,6 +48,14 @@ function isTeachQuestionPart(part: PhaseMessage["parts"][number]): boolean {
 	return (part.type === "tool-quiz" || part.type === "tool-explain") && taggedNodeId(part.input);
 }
 
+/** The plan→teach seam: a teach-variant plugin question OR any native
+ *  position tool (quiz/explain/code exercise) whose input carries nodeId. */
+function isTeachingSeamPart(part: PhaseMessage["parts"][number]): boolean {
+	return part.pluginQuestion !== undefined
+		? isTeachQuestionPart(part)
+		: isPositionToolPart(part.type) && taggedNodeId(part.input);
+}
+
 /** The phase at `upToIndex` (inclusive; default: the last message). */
 export function phaseAt3(messages: readonly PhaseMessage[], upToIndex?: number): Phase3 {
 	let phase: Phase3 = "probe";
@@ -77,11 +85,7 @@ function advance(
 		}
 		// plan → teach via the first nodeId-tagged quizzing CALL — quiz OR
 		// explain, whichever mechanic the settings armed (both carry nodeId).
-		if (
-			phase === "plan" &&
-			isPositionToolPart(part.type) &&
-			taggedNodeId(part.input)
-		) {
+		if (phase === "plan" && isTeachingSeamPart(part)) {
 			phase = "teach";
 		}
 	}
@@ -113,10 +117,7 @@ export function teachStepIndex(
 			latest = i;
 			continue;
 		}
-		if (
-			isPositionToolPart(part.type) &&
-			taggedNodeId(part.input)
-		) {
+		if (isTeachingSeamPart(part)) {
 			// The call's governing step: 0–1 step-starts seen = the message's
 			// FIRST step → -1 (the divider belongs before the whole message);
 			// a later step → that step-start's index (the divider renders at

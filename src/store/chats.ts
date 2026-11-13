@@ -348,5 +348,4 @@ export const chatStore: ChatStore = {
 	referencedAttachmentFiles,
 	appendTurnUsage,
 	appendExtractionUsage,
-	updateSideChats,
 };

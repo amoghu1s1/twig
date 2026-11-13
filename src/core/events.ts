@@ -47,6 +47,10 @@ export interface ServerEvents {
 	"side-chats-changed": { chatId: string };
 	/** The learner's mistakes changed (found, analyzed, deleted). */
 	"mistakes-changed": Record<string, never>;
+	/** Plugin availability/lifecycle changed; refetch installed packages. */
+	"plugins-changed": Record<string, never>;
+	/** Live-only, plugin-scoped notifications. Reconnect requires snapshot resync. */
+	"plugin-message": { pluginId: string; topic: string; data?: unknown };
 }
 
 export type ServerEventType = keyof ServerEvents;
@@ -68,6 +72,8 @@ export const SERVER_EVENT_TYPES = [
 	"discussion-changed",
 	"side-chats-changed",
 	"mistakes-changed",
+	"plugins-changed",
+	"plugin-message",
 ] as const satisfies readonly ServerEventType[];
 
 /** One notification: distribute over the vocabulary so narrowing `type`

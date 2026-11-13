@@ -1,7 +1,7 @@
 "use client";
 
 import { ToolContentResponse } from "@/components/ai-elements/message";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { cn } from "@/lib/utils";
 import type { ArtifactPartProps } from "@/src/core";
 
 /**
@@ -127,7 +127,9 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 			<div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 				Concluded
 				{(OUTCOME_LABEL[outcome] ?? "") !== "" && outcome !== "dismissed" && (
-					<StatusBadge text={OUTCOME_LABEL[outcome] ?? ""} color={OUTCOME_COLOR[outcome]} />
+					<span className={cn("rounded px-1.5 py-0.5", OUTCOME_CHIP[outcome] ?? OUTCOME_CHIP.movedOn)}>
+						{OUTCOME_LABEL[outcome]}
+					</span>
 				)}
 			</div>
 			{/* The verdict — plain prose under the heading, no 'Verdict:' label

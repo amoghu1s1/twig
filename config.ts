@@ -63,7 +63,9 @@ export type ModelRole =
 	/** The readings writer (docs/readings.md) — learner-facing documents. */
 	| "writer"
 	| "cardWriter"
-	| "tidier";
+	| "tidier"
+	/** Upstream's side-question companion role; retained for plugin-host types. */
+	| "sideQuestion";
 
 /**
  * The LIVE graph store (src/store/graph.ts) — owned by the app's extraction
@@ -152,14 +154,6 @@ export const PROMPTS_OVERRIDE_DIR = path.join(/* turbopackIgnore: true */ DATA_R
  * active one by id (appearance.theme).
  */
 export const THEMES_DIR = path.join(/* turbopackIgnore: true */ DATA_ROOT, "themes");
-
-/**
- * Imported custom themes (theme wave, 2026-11-04): one `<id>.json` per
- * theme (core/themes.ts ThemeFile shape), written by POST /api/themes and
- * listed beside the built-in presets. The settings record names the
- * active one by id (appearance.theme).
- */
-export const THEMES_DIR = path.join(DATA_ROOT, "themes");
 
 /**
  * THE AUTH/KEY STORE (auth-keys wave, 2026-09-19): BYOK provider keys in a

@@ -194,7 +194,7 @@ async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
 	if (!record) return;
 	const messages = record.messages;
 	const model = deps.includeReasoning ? deps.engine.model : undefined;
-	const tokensBefore = projectedContextTokens(messages, deps.systemPromptTokens, model);
+	const tokensBefore = projectedContextTokens(deps.projectMessages?.(record) ?? messages, deps.systemPromptTokens, model);
 	if (tokensBefore <= deps.thresholdTokens) return; // settled beneath while we waited
 
 	const cut = compactionCutIndex(messages, undefined, model);
@@ -317,8 +317,13 @@ export async function ensureCompacted(deps: CompactionDeps, chatId: string): Pro
 	if (deps.canStart?.() === false) return;
 	const record = deps.chatStore.getChat(chatId);
 	if (!record) return;
-	if (projectedContextTokens(record.messages, deps.systemPromptTokens, deps.includeReasoning ? deps.engine.model : undefined) <= deps.thresholdTokens) return;
-	if (state().inFlight.has(chatId)) return; // a concurrent caller started it while we awaited
+	const model = deps.includeReasoning ? deps.engine.model : undefined;
+	if (projectedContextTokens(deps.projectMessages?.(record) ?? record.messages, deps.systemPromptTokens, model) <= deps.thresholdTokens) return;
+	const admitted = state().inFlight.get(chatId); // a concurrent caller started it while we awaited
+	if (admitted) {
+		await admitted;
+		return;
+	}
 	const run = compact(deps, chatId);
 	state().inFlight.set(chatId, run);
 	try {

@@ -89,9 +89,15 @@ export function derivePlanStatuses(tree: PlanTree, messages: readonly PartsCarri
 		for (const part of m.parts) {
 			// Either quizzing tool (quiz/explain) tags position — the mechanic
 			// is a settings switch; the fold recognizes both (owner 2026-09-27)
-			// — and so does a code exercise (same validated nodeId).
-			if (!isPositionToolPart(part.type)) continue;
-			const nodeId = (part.input as { nodeId?: unknown } | undefined)?.nodeId;
+			// — and so does a code exercise (same validated nodeId). Plugin
+			// questions carry the position on their canonical teach snapshot.
+			let input: unknown = part.input;
+			if (part.pluginQuestion !== undefined) {
+				const snapshot = posedPluginQuestionOfPart(part);
+				if (snapshot?.variant !== "teach") continue;
+				input = snapshot.input;
+			} else if (!isPositionToolPart(part.type)) continue;
+			const nodeId = (input as { nodeId?: unknown } | undefined)?.nodeId;
 			if (typeof nodeId !== "string" || !ids.has(nodeId)) continue; // untagged/unknown — moves nothing
 			if (runs.at(-1) !== nodeId) runs.push(nodeId);
 		}
@@ -141,9 +147,19 @@ export function derivePlanStatusesLh(tree: PlanTree, messages: readonly LhMessag
 		if ((m as { role?: string }).role !== "assistant") continue;
 		const content = (m as { content?: unknown }).content;
 		if (!Array.isArray(content)) continue;
-		for (const block of content as Array<{ type?: string; name?: string; arguments?: unknown }>) {
-			if (block.type !== "toolCall" || block.name === undefined || !isPositionTool(block.name)) continue;
-			const nodeId = (block.arguments as { nodeId?: unknown } | undefined)?.nodeId;
+		for (const [contentIndex, block] of (content as Array<{ type?: string; name?: string; arguments?: unknown }>).entries()) {
+			if (block.type !== "toolCall") continue;
+			const annotation = readPluginQuestionMessageAnnotation(m, contentIndex);
+			let input: unknown;
+			if (annotation.status !== "absent") {
+				// Plugin authority: only a posed, teach-variant question moves position.
+				if (annotation.status !== "posed" || annotation.snapshot.variant !== "teach") continue;
+				input = annotation.snapshot.input;
+			} else {
+				if (block.name === undefined || !isPositionTool(block.name)) continue;
+				input = block.arguments;
+			}
+			const nodeId = (input as { nodeId?: unknown } | undefined)?.nodeId;
 			if (typeof nodeId !== "string" || !ids.has(nodeId)) continue;
 			if (runs.at(-1) !== nodeId) runs.push(nodeId);
 		}
