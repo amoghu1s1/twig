@@ -1,9 +1,9 @@
 # Upstream 0.6.1 plugin integration — handoff
 
-Last updated: 2026-11-13 12:00
+Last updated: 2026-11-13 12:10
 Branch: `integrate/upstream-0.6`
 Base merge commit: `6cc02786`
-Latest code/test head: `9aee5995` (later commits are docs only)
+Latest code/test head: `e05cad07` (later commits are docs only)
 
 ## Sweep resumed (2026-11-13 11:20)
 
@@ -83,16 +83,21 @@ headers, subscription rejection, plugin-host paths/same-origin).
 
 ### Gate audit: `tests/desktop-payload.test.ts` (Ops static audit)
 
-Capped run (`NODE_OPTIONS=--max-old-space-size=2048`): **7 pass / 4 fail**.
+Fixed in `e05cad07`; capped run is **10 pass / 1 fail**.
 
-- `:131` expects four Core packages; `core-plugins.json` ships only
-  `rich-code-blocks` (actual `['rich-code-blocks']`). `:132` reads the missing
-  flashcards font next.
-- `:198-203` expects traced `data/chat.json` to fail the build; `build-server.mjs:44-57`
-  now removes it with a warning. The other three secret cases pass.
-- `:218-222` removes `core-plugins/flashcards`; ENOENT before the script runs.
-- `:226-228` removes `side-chat/90-style.md`; the fixture writes only `00-base.md`,
-  so ENOENT before the script runs.
+- `:131/:132` pin the Core catalog to `rich-code-blocks` and check that
+  package's font.
+- `:198-203` assert traced `data/chat.json` is removed with the
+  `build-server.mjs:44-57` warning; `auth.json`, `.env`, `.env.local` still
+  refuse.
+- `:211` writes data inside the real `rich-code-blocks` package and asserts
+  `Refusing unsafe Core package content` (no longer passes via an extra dir).
+- `:218-222` remove `rich-code-blocks` for the missing-catalog case; the extra
+  `ui-showcase` case is unchanged.
+- `:226-228` remains failing by design: the fixture does not create
+  `side-chat/90-style.md`, and Twig does not read it. The owner is deciding
+  between adopting upstream's brevity layer (read the file + restore the build
+  guard) and dropping the unused asset; that case is fixed either way.
 
 **90-style guard provenance:** upstream `scripts/build-server.mjs:104-116` lists
 `side-chat/00-base.md` and `side-chat/90-style.md` (lines 109-110; added in
