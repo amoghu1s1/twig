@@ -1,20 +1,16 @@
 # Upstream 0.6.1 plugin integration — handoff
 
-Last updated: 2026-11-13 11:10
+Last updated: 2026-11-13 11:20
 Branch: `integrate/upstream-0.6`
 Base merge commit: `6cc02786`
 Latest code/test head: `44285fe4` (later commits are docs only)
 
-## STOP — test sweep paused (2026-11-13 11:05)
+## Sweep resumed (2026-11-13 11:20)
 
-- Batch 7a resumed: files 241–245 pass **71/71** (`/tmp/opencode/twig-tests/241-245.log`).
-- Batch 246–250 now passes **84/84** at a 489 MB peak after `02891b6e` fixed the
-  `plugin-markdown` linkedom assertion (`/tmp/opencode/verify-batch246.log`). The
-  earlier OOM was the test's DOM-node assert, not the app.
-- Per `AGENTS.md`, no test batch, memory probe or build may run until the CEO clears
-  the sweep. No test child processes remain.
-- The `plugin-markdown` fix is committed (`02891b6e`); there are no uncommitted test
-  changes. The next sweep position is file **281**.
+- The 11:05 STOP block no longer applies; the CEO cleared the sweep.
+- Files 241–280 are green, including the capped 246–250 rerun (84/84, 489 MB peak).
+- Batch 8a (files 281–285): **23 pass, 0 fail**.
+- Next sweep position: file **286**. No test/build processes remain.
 
 This file is the source of truth for the in-progress upstream integration. Read it
 before touching the branch. The session/harness has a habit of cutting long shell
@@ -143,6 +139,7 @@ Twig while keeping the Twig implementations we chose to retain.
 | Batch 7b (files 251–260) | 59 pass, 0 fail |
 | Batch 7c (files 261–270) | 196 pass, 0 fail |
 | Batch 7d (files 271–280) | 107 pass + 1 failure; `plugin-renderers` fixed → 14/14 |
+| Batch 8a (files 281–285) | 23 pass, 0 fail |
 
 A full monolithic `npm test` was never completed. The cut-off shell calls were **not** a
 harness limit. The morning retries (09:25, 09:27, 09:35, 09:43) each died at the
@@ -162,11 +159,11 @@ A future failing node comparison reproduces the same machine-wide OOM.
 
 ## Remaining work
 
-1. **Finish the test sweep** from file 281 onward when the CEO clears it (see command
-   below), then re-run the earlier failing files. Files 241–280 are green. Most plugin
-   tests have already passed individually; the recent failures were fixed in
-   `f6dcc4e2`. Fix real failures; park only upstream-only behavior that conflicts with
-   a Twig decision. Every batch must run in a capped scope after the linkedom OOM.
+1. **Finish the test sweep** from file 286 onward (see command below), then re-run the
+   earlier failing files. Files 241–285 are green. Most plugin tests have already
+   passed individually; the recent failures were fixed in `f6dcc4e2`. Fix real
+   failures; park only upstream-only behavior that conflicts with a Twig decision.
+   Every batch must run capped (`NODE_OPTIONS=--max-old-space-size=2048`, `timeout 45`).
 2. **Audit `-X ours` losses** in non-feature files. The merge deliberately kept Twig on
    conflicts, so check upstream-only security/bug fixes that may have been dropped:
    - `electron/main.cjs` (external-link handling, browser-service isolation)
