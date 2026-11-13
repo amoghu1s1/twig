@@ -10,8 +10,8 @@
 // back to a plain text send (the settle race). Stranding safety: the
 // registry copy survives a question termination or abort and rides the
 // chat's next run.
-import { ChatInputError, newUserSteer, parseUserSteerEditInput, parseUserSteerInput } from "@/src/core";
-import { editLiveSteer, getChat, steerLiveChat } from "@/src/server";
+import { ChatInputError, parseUserSteerEditInput, parseUserSteerInput } from "@/src/core";
+import { editLiveSteer, getChat, prepareAndSteerChat } from "@/src/server";
 
 export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
 	const { id } = await ctx.params;
@@ -24,11 +24,20 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
 		if (err instanceof ChatInputError) return Response.json({ error: err.message }, { status: 400 });
 		throw err;
 	}
-	const message = newUserSteer(input.text, input.id);
-	if (!steerLiveChat(id, message)) {
-		return Response.json({ error: "no live turn to steer" }, { status: 409 });
+	try {
+		const result = await prepareAndSteerChat(id, input);
+		if (result === "stale") {
+			return Response.json(
+				{ code: "submission-stale", error: "The live submission target changed. Your input has been kept." },
+				{ status: 412 },
+			);
+		}
+		if (result === "settled") return Response.json({ error: "no live turn to steer" }, { status: 409 });
+		return Response.json({ ok: true });
+	} catch (err) {
+		if (err instanceof ChatInputError) return Response.json({ error: err.message }, { status: 400 });
+		throw err;
 	}
-	return Response.json({ ok: true });
 }
 
 // PUT — edit (or, with blank text, cancel) a steer that is still queued
