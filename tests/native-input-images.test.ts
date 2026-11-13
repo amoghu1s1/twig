@@ -5,7 +5,8 @@ import { assertNativeSubmissionTarget, inputAppends, parseChatInput, parseUserSt
 import { type LhMessage, activeProblemOf, activeProblemOccurrenceOf, newAnswerResult, newUserMessage, newUserSteer, newThinkingMessage, toLlmMessages } from "../src/core/native-messages.ts";
 import { dismissedAnswer } from "../src/core/question-core.ts";
 
-const image: ImageContent = { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" };
+// A real 1×1 transparent PNG: Twig validates the actual bytes, not the label.
+const image: ImageContent = { type: "image", mimeType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z1ZkAAAAASUVORK5CYII=" };
 const occurrence = { messageId: "pose", contentIndex: 0, toolCallId: "call", toolName: "ask_user_question" };
 function pose(name = "ask_user_question", id = "pose"): LhMessage {
 	return { ...fauxAssistantMessage([fauxToolCall(name, name === "problem" ? { statement: "Work it out" } : { question: "Why?", mode: "text" }, { id: "call" })], { stopReason: "toolUse" }), id } as LhMessage;

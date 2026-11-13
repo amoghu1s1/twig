@@ -62,8 +62,10 @@ Code/data locations are explicit:
 | Community code | `<learning data>/plugins/<id>/dist/manifest.json` and built assets |
 | Community writable records | `<learning data>/plugins/<id>/data/` |
 
-`core-plugins.json` selects Flashcards, Coding Questions, Drawing Pad and Rich Code Blocks.
-`plugins:build-core` builds/stages those packages, assets and licenses before supported
+In Twig, `core-plugins.json` selects **Rich Code Blocks** only. Flashcards, Coding
+Questions and Drawing Pad remain upstream source references; Twig keeps those features
+native (FSRS/Anki review, code exercises, and the scratchpad). `plugins:build-core`
+builds/stages the selected packages, assets and licenses before supported
 web/desktop dev and production builds. UI Showcase stays a developer example. Staging
 validates before replacing old generated output; failed builds preserve the previous
 staged tree. `build-server.mjs` requires the exact catalog, copies built core packages

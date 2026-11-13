@@ -24,12 +24,13 @@ of replacing these primary examples.
 
 ## Core references are not Community packages
 
-The four IDs **`flashcards`**, **`coding-questions`**, **`drawing-pad`** and
-**`rich-code-blocks`** are reserved for app-shipped Core plugins, even when a Core
-package is disabled, broken or missing. Their sources are included for study and
-adaptation, not installation as Community duplicates. Enable the app-supplied features
-in **Settings → Core plugins**. App updates supply Core code; writable records live
-under `<learning data>/core-plugin-data/<id>/`, separate from that code.
+Upstream reserves the four IDs **`flashcards`**, **`coding-questions`**,
+**`drawing-pad`** and **`rich-code-blocks`** for app-shipped Core plugins. Twig ships
+only **`rich-code-blocks`** as a Core plugin; Flashcards, Coding Questions and Drawing
+Pad are kept as Twig-native features, so their sources are reference material rather
+than installed Core packages. Enable the shipped Core plugin in **Settings → Core
+plugins**. App updates supply Core code; writable records live under
+`<learning data>/core-plugin-data/<id>/`, separate from that code.
 
 A Community fork needs its **own manifest ID and matching folder name**. Also review
 contribution/type identifiers, native tool names and code-fence names: changing a

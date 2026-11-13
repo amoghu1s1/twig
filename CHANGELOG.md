@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased — upstream 0.6.1 plugin integration
+
+### Plugins
+
+- **Plugin host** — upstream's plugin lifecycle, trusted local frontends/backends, plugin-owned data, settings, actions, surfaces, submissions, workers and document conversion are integrated.
+- **Core plugin catalog** — **Rich Code Blocks** is the shipped optional Core plugin. Drawing Pad, Flashcards and Coding Questions are not shipped because Twig keeps those features native.
+- **Code-block dispatch** — plugin code-block renderers now layer over Twig's ordinary code renderer, so `smiles`, `abc` and `tikz` fences render while ordinary code keeps Twig's copy/theme behavior.
+
+### Preserved native features
+
+- **FSRS-6 + Anki** — native review scheduling and Anki export, with review sessions still opening ordinary practice sessions.
+- **Drawing board** — Twig's persistent scratchpad, calculator and inline SVG figures.
+- **Themes, side questions, SVG and code exercises** — Twig's implementations remain in place; the upstream side companion, headless browser isolation and native coding plugin are not adopted.
+
+### Build and packaging
+
+- Plugin setup, Core package staging, authoring-kit generation and packaged-server smoke checks.
+- Packaged-server payload now strips traced repo `data/` and validates the Core plugin payload before shipping.
+
 ## 0.6.1 — 2026-11-09
 
 ### Teaching

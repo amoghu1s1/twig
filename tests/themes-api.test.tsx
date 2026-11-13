@@ -26,6 +26,7 @@ const { readSettingsRecord, writeSettingsRecord, readThemeBoot } = await import(
 const { BUILTIN_THEMES, exportThemeFile, themeVars, effectiveColors } = await import("../src/core/index.ts");
 const { AppearanceProvider, appearanceVars, resolveAppearance } = await import("../components/settings/appearance.tsx");
 const { AppearanceSection } = await import("../components/settings/appearance-section.tsx");
+const { InteractionLayersProvider } = await import("../components/interaction-layers.tsx");
 type Theme = import("../src/core/index.ts").Theme;
 type AppearanceSettings = import("../src/core/index.ts").AppearanceSettings;
 
@@ -46,9 +47,11 @@ const list = async () => ((await (await getThemes()).json()) as { themes: Theme[
 function renderSection(): string {
 	const { appearance, theme } = readThemeBoot();
 	return renderToStaticMarkup(
-		<AppearanceProvider initialAppearance={appearance} initialTheme={theme}>
-			<AppearanceSection appearance={appearance} onSectionChange={() => true} />
-		</AppearanceProvider>,
+		<InteractionLayersProvider>
+			<AppearanceProvider initialAppearance={appearance} initialTheme={theme}>
+				<AppearanceSection appearance={appearance} onSectionChange={() => true} />
+			</AppearanceProvider>
+		</InteractionLayersProvider>,
 	);
 }
 const pressed = (html: string, id: string) => {

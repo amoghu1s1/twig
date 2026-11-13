@@ -21,8 +21,15 @@ test("user image parts preserve native ordering, legacy text and paths without i
 	assert.equal(nativeInlineImageContent("./diagram.png"), "./diagram.png");
 	assert.equal(nativeInlineImageContent("legacy", []), "legacy");
 	const message = newUserMessage("./diagram.png", [answerImage]);
-	assert.deepEqual(projectView([message])[0]!.parts, [{ type: "text", text: "./diagram.png", state: "done" }, answerImage]);
-	assert.deepEqual(projectView([newUserMessage("", [answerImage])])[0]!.parts, [answerImage]);
+	const parts = projectView([message])[0]!.parts;
+	assert.deepEqual(parts[0], { type: "text", text: "./diagram.png", state: "done", id: parts[0]!.id });
+	assert.equal(parts[1]!.type, "image");
+	assert.equal(parts[1]!.url, "data:image/png;base64,YWJj");
+	assert.equal(parts[1]!.alt, "Attached image");
+	const imageOnly = projectView([newUserMessage("", [answerImage])])[0]!.parts;
+	assert.equal(imageOnly.length, 1);
+	assert.equal(imageOnly[0]!.type, "image");
+	assert.equal(imageOnly[0]!.url, "data:image/png;base64,YWJj");
 	assert.deepEqual(projectView([newUserMessage("legacy")])[0]!.parts, [{ type: "text", text: "legacy", state: "done" }]);
 });
 

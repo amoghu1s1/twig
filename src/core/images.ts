@@ -284,6 +284,11 @@ function checkShape(value: unknown): ComposerImage {
 	if (v.type !== "image" || typeof v.mimeType !== "string" || typeof v.data !== "string") {
 		throw new ImageInputError(IMAGE_ERRORS.shape);
 	}
+	// The composer payload is explicit bytes only. A URL/path field is never
+	// an alternate source (and never silently ignored): reject the shape.
+	for (const key of Object.keys(v)) {
+		if (key !== "type" && key !== "mimeType" && key !== "data") throw new ImageInputError(IMAGE_ERRORS.shape);
+	}
 	checkImageMeta(v.mimeType, 0);
 	// Size is judged on the encoded length first (cheap, pre-regex).
 	if (v.data.length > MAX_ENCODED_IMAGE_CHARS) throw new ImageInputError(IMAGE_ERRORS.size);

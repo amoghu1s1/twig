@@ -26,8 +26,8 @@
  * event first and can claim it with stopPropagation.
  */
 
-import { useEffect, useRef, useState } from "react";
-import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { useEffect, useId, useRef, useState } from "react";
+import { HostDialog } from "@/components/host-dialog";
 import { useOptionalInteractionLayers } from "@/components/interaction-layers";
 import { useRouter } from "next/navigation";
 import {
@@ -76,18 +76,23 @@ export function KeyboardShortcuts() {
 		const onKeyDown = (e: KeyboardEvent) => {
 			// A surfaced layer (settings/modal/popover/dialog) that claimed the
 			// key at capture owns it; the global chain must not also act.
-			if (e.defaultPrevented) return;
+			// Provider capture prevents native Tab without stopping propagation;
+			// the Tab branch below still owns its Shift+Tab/field-cycle action.
+			if (e.key !== "Tab" && e.defaultPrevented) return;
+			if (pluginQuestionKeySuppressed(e) || composingQuestionKey(e)) return;
 			// ── Tab is dead (owner, 2026-09-17): preventDefault even when
 			// nothing is bound to it — browser tab-focus is abandoned, and
 			// the default action runs after dispatch, so suppressing it here
-			// works from any focus.
+			// works from any focus. Provider capture already suppressed
+			// native Tab without stopping target propagation; keep the
+			// legacy unprovided fixture fallback.
 			if (e.key === "Tab") {
-				// Dialogs own their focus walk (Settings and ConnectionDialog
-				// trap it). The app-wide "Tab is dead" rule is for the page.
-				if (e.target instanceof Element && e.target.closest('[role="dialog"], [role="alertdialog"]')) return;
+				if (!controller) e.preventDefault();
 				sequenceRef.current = null;
-				e.preventDefault();
-				if (e.shiftKey) window.dispatchEvent(new CustomEvent("lh:kbd-cycle-thinking"));
+				if (e.shiftKey) {
+					if (!dispatchFocusedPluginShortcut("cycle-thinking", controller))
+						window.dispatchEvent(new CustomEvent("lh:kbd-cycle-thinking"));
+				}
 				// Plain Tab cycles the active surface's text fields (owner,
 				// keyboard round 2026-10-06) — forward-only, wrapping; each
 				// composer-bearing page answers with its own chain. The quiz
@@ -210,9 +215,8 @@ export function KeyboardShortcuts() {
  *  Until the settings milestone ships an editor, this is how shortcuts
  *  stay discoverable. */
 function CheatSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
-	const backdropDismiss = useBackdropDismiss(onClose);
+	const headingId = useId();
 	const { rows: pluginRows } = usePluginShortcutRows();
-	if (!open) return null;
 	const scopes = ["global", "chat", "graph"] as const;
 	const scopeLabels: Record<(typeof scopes)[number], string> = {
 		global: "Global",
@@ -220,17 +224,21 @@ function CheatSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
 		graph: "Graph view",
 	};
 	return (
-		<div
-			data-testid="cheat-sheet"
-			className="fixed inset-0 z-50 flex items-center justify-center bg-background/80"
-			{...backdropDismiss}
-		>
-			<div
+		<HostDialog
+			open={open}
+			onClose={() => { onClose(); return "closed"; }}
+			aria-labelledby={headingId}
+			backdropProps={{
+				"data-testid": "cheat-sheet",
+				className: "fixed inset-0 z-50 flex items-center justify-center bg-background/80",
+			}}
+			frame={<div
 				className="max-h-[80vh] w-full max-w-[36rem] overflow-y-auto rounded-xl border bg-card p-5 shadow-2xl"
 				onClick={(e) => e.stopPropagation()}
-			>
+			/>}
+		>
 				<div className="mb-4 flex items-baseline justify-between">
-					<span className="text-sm font-medium text-card-foreground">Keyboard shortcuts</span>
+					<span id={headingId} role="heading" aria-level={2} className="text-sm font-medium text-card-foreground">Keyboard shortcuts</span>
 					<span className="text-xs text-muted-foreground">Esc to close</span>
 				</div>
 				{scopes.map((scope) => {
@@ -261,7 +269,6 @@ function CheatSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
 						<div className="text-xs text-muted-foreground/70">{pluginShortcutScopeLabel(row)}{row.reason ? ` · Inactive: ${row.reason}` : ""}</div>
 					</div>)}
 				</div>)}
-			</div>
-		</div>
+		</HostDialog>
 	);
 }

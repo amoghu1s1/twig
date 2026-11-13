@@ -1109,7 +1109,7 @@ export class SessionModel {
 				// gone) sends nothing — read it BEFORE dropSteer removes it.
 				const latest = this.steerQueueValue.find((s) => s.id === id)?.text;
 				dropSteer();
-				if (latest) return await this.send({ type: "text", text: latest }, undefined, undefined, settleDelivery); // the settle race: plain send
+				if (latest) return await this.send({ type: "text", text: latest }, onAccepted, undefined, settleDelivery); // the settle race: plain send
 				settleDelivery();
 				return false;
 			}

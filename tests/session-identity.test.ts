@@ -279,9 +279,9 @@ describe("native app and conversation identity", { concurrency: false }, () => {
 			}
 			for (const request of requests) {
 				assert.equal(new URL(request.url).origin, "https://opencode.ai");
-				assert.equal(new URL(request.url).pathname, "/inference/go/v1/chat/completions");
+				assert.equal(new URL(request.url).pathname, "/inference/go/openai/v1/chat/completions");
 				assert.equal(request.headers.get("x-opencode-client"), metadata.name);
-				assert.equal(request.headers.get("user-agent"), `learnharness/${metadata.version}`);
+				assert.equal(request.headers.get("user-agent"), `twig/${metadata.version}`);
 				assert.ok(!JSON.stringify(Object.fromEntries(request.headers)).includes("dummy-router"));
 			}
 		} finally {
@@ -316,7 +316,7 @@ describe("native app and conversation identity", { concurrency: false }, () => {
 				assert.equal(requests.length, 1);
 				const { headers, body } = requests[0]!;
 				assert.equal(headers.get("x-opencode-session"), null);
-				assert.equal(headers.get("user-agent"), `learnharness/${metadata.version}`);
+				assert.equal(headers.get("user-agent"), `twig/${metadata.version}`);
 				if (provider === "openrouter") {
 					assert.equal(headers.get("x-session-id"), sessionId);
 					assert.equal(headers.get("x-openrouter-title"), metadata.name);
