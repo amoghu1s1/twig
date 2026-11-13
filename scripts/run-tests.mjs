@@ -14,10 +14,12 @@ const files = readdirSync(testsDir)
 	.sort()
 	.map((name) => path.join("tests", name));
 
+const nodeOptions = `${process.env.NODE_OPTIONS ?? ""} --max-old-space-size=2048`.trim();
+
 const child = spawn(process.execPath, ["--import", "tsx", "--test", ...files], {
 	cwd: root,
 	stdio: "inherit",
-	env: { ...process.env, NODE_ENV: "test" },
+	env: { ...process.env, NODE_ENV: "test", NODE_OPTIONS: nodeOptions },
 });
 child.on("error", (error) => {
 	console.error("[test] failed to start:", error);
