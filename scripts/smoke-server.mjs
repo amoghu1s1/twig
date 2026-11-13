@@ -223,6 +223,17 @@ registerHooks({resolve(specifier,context,next){ const result=next(specifier,cont
 		await verifyCorePlugins({ root: ROOT, standalone, dataDirectory: dataDir, url });
 		await verifyPluginServer(url, home);
 		console.log("[smoke-server] plugin host and Core plugin payload verified");
+
+		// 5) Optional browser proof: the live plugin UI loads in a loopback
+		//    browser with every off-origin request blocked. --browser is a
+		//    manual gate; CI/release run the HTTP boot without it.
+		if (BROWSER_MODE) {
+			const { verifyPluginBrowser } = await import("./smoke-plugin-browser.mjs");
+			const evidenceDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "lh-plugin-browser-evidence-"));
+			console.log("[smoke-server] browser evidence:", evidenceDirectory);
+			await verifyPluginBrowser(url, { scratchDirectory: evidenceDirectory });
+			console.log("[smoke-server] live plugin UI verified in a loopback browser");
+		}
 	} catch (err) {
 		failed = err;
 	} finally {
