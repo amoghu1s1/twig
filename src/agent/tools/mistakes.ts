@@ -28,7 +28,14 @@ const DEFAULT_LIMIT = 8;
 /** Hard cap on records in one list response (the token budget). */
 export const MAX_MISTAKES_LIMIT = 40;
 
-const oneLine = (value: string, max: number): string => value.replace(/\s+/g, " ").trim().slice(0, max);
+const oneLine = (value: unknown, max: number): string =>
+	typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
+
+/** Known labels, else the raw stored slug; never the word "undefined". */
+function errorTypeLabel(type: unknown): string {
+	if (typeof type !== "string" || !type) return "Unknown error type";
+	return (ERROR_TYPE_LABELS as Record<string, string>)[type] ?? type;
+}
 
 const errorTypeSchema = Type.Union(
 	ERROR_TYPES.map((type) => Type.Literal(type)),
@@ -64,21 +71,24 @@ type MistakesInput = Static<typeof mistakesInput>;
 function matches(record: MistakeRecord, input: MistakesInput): boolean {
 	if (input.chatId && record.chatId !== input.chatId) return false;
 	const session = input.session?.trim().toLowerCase();
-	if (session && !record.chatId.toLowerCase().includes(session) && !(record.sessionTitle ?? "").toLowerCase().includes(session)) return false;
+	const title = typeof record.sessionTitle === "string" ? record.sessionTitle : "";
+	if (session && !record.chatId.toLowerCase().includes(session) && !title.toLowerCase().includes(session)) return false;
 	if (input.errorType && record.analysis?.errorType !== input.errorType) return false;
 	if (input.status && record.status !== input.status) return false;
 	const topic = input.topic?.trim().toLowerCase();
-	if (topic && !(record.analysis?.topic ?? "").toLowerCase().includes(topic)) return false;
+	const analysisTopic = typeof record.analysis?.topic === "string" ? record.analysis.topic : "";
+	if (topic && !analysisTopic.toLowerCase().includes(topic)) return false;
 	return true;
 }
 
 function newestFirst(records: readonly MistakeRecord[]): MistakeRecord[] {
-	const when = (record: MistakeRecord) => record.createdAt || record.answeredAt || "";
+	const when = (record: MistakeRecord) =>
+		typeof record.createdAt === "string" ? record.createdAt : typeof record.answeredAt === "string" ? record.answeredAt : "";
 	return [...records].sort((a, b) => when(b).localeCompare(when(a)) || a.id.localeCompare(b.id));
 }
 
 function analysisLabel(record: MistakeRecord): string {
-	if (record.analysis) return ERROR_TYPE_LABELS[record.analysis.errorType];
+	if (record.analysis) return errorTypeLabel(record.analysis.errorType);
 	if (record.status === "pending") return "Analysis pending";
 	if (record.status === "failed") return "Analysis failed";
 	return "Not analyzed";
@@ -94,9 +104,12 @@ function listText(records: readonly MistakeRecord[], input: MistakesInput): stri
 	const heading = `${matched.length} ${matched.length === 1 ? "mistake" : "mistakes"} found${suffix}:`;
 	const lines = [heading];
 	for (const record of shown) {
-		const topic = record.analysis?.topic ? ` · ${oneLine(record.analysis.topic, 80)}` : "";
+		const topicLabel = oneLine(record.analysis?.topic, 80);
+		const topic = topicLabel ? ` · ${topicLabel}` : "";
+		const session = oneLine(record.sessionTitle, 80) || "Untitled session";
+		const kind = oneLine(record.kind, 40) || "mistake";
 		lines.push(
-			`- ${record.id} · ${record.kind} · ${analysisLabel(record)}${topic} · ${oneLine(record.sessionTitle || "Untitled session", 80)}: ${oneLine(record.question, 160)}`,
+			`- ${record.id} · ${kind} · ${analysisLabel(record)}${topic} · ${session}: ${oneLine(record.question, 160)}`,
 		);
 	}
 	if (matched.length > shown.length) {
@@ -118,7 +131,7 @@ function summaryText(records: readonly MistakeRecord[], input: MistakesInput): s
 	];
 	if (summary.byType.length > 0) {
 		lines.push("By error type:");
-		for (const { type, count } of summary.byType) lines.push(`- ${ERROR_TYPE_LABELS[type]}: ${count}`);
+		for (const { type, count } of summary.byType) lines.push(`- ${errorTypeLabel(type)}: ${count}`);
 	}
 	const patterns = [patternLine(matched, "errorType"), patternLine(matched, "topic")].filter((line): line is string => line !== null);
 	if (patterns.length > 0) {
@@ -131,17 +144,22 @@ function summaryText(records: readonly MistakeRecord[], input: MistakesInput): s
 function getText(records: readonly MistakeRecord[], id: string): string {
 	const record = records.find((candidate) => candidate.id === id);
 	if (!record) return `No mistake with id "${id}". Use action list to see available ids.`;
+	const session = oneLine(record.sessionTitle, 160) || "Untitled session";
+	const sessionKind = oneLine(record.sessionKind, 40) || "session";
+	const status = oneLine(record.status, 40) || "unknown status";
+	const kind = oneLine(record.kind, 40) || "mistake";
+	const recorded = typeof record.createdAt === "string" && record.createdAt ? ` · ${record.createdAt.slice(0, 10)}` : "";
 	const lines = [
 		`Mistake ${record.id}`,
-		`Session: ${oneLine(record.sessionTitle || "Untitled session", 160)} (${record.sessionKind})`,
-		`Status: ${record.status} · ${record.kind}${record.createdAt ? ` · ${record.createdAt.slice(0, 10)}` : ""}`,
+		`Session: ${session} (${sessionKind})`,
+		`Status: ${status} · ${kind}${recorded}`,
 		`Question: ${oneLine(record.question, 600)}`,
 		`Your answer: ${oneLine(record.yourAnswer, 300)}`,
 		`Correct answer: ${oneLine(record.correctAnswer, 300)}`,
 	];
 	if (record.analysis) {
 		lines.push(
-			`Error type: ${ERROR_TYPE_LABELS[record.analysis.errorType]}`,
+			`Error type: ${errorTypeLabel(record.analysis.errorType)}`,
 			`Topic: ${oneLine(record.analysis.topic, 120)}`,
 			`What went wrong: ${oneLine(record.analysis.whatYouDid, 700)}`,
 			`Correct reasoning: ${oneLine(record.analysis.correct, 700)}`,
@@ -155,7 +173,7 @@ function getText(records: readonly MistakeRecord[], id: string): string {
 	if (record.outcome) lines.push(`Outcome: ${oneLine(record.outcome, 120)}`);
 	if (record.verdict) lines.push(`Verdict: ${oneLine(record.verdict, 300)}`);
 	if (record.thinking) lines.push(`Your thinking: ${oneLine(record.thinking, 400)}`);
-	if (record.confidence !== undefined) lines.push(`Confidence: ${record.confidence}%`);
+	if (typeof record.confidence === "number") lines.push(`Confidence: ${record.confidence}%`);
 	return lines.join("\n");
 }
 

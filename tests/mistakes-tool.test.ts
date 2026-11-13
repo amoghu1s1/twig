@@ -160,6 +160,46 @@ describe("mistakes tool", () => {
 		assert.match(await run({ action: "get", id: "nope" }), /No mistake with id "nope"/);
 	});
 
+	it("renders a malformed record with missing strings instead of throwing", async () => {
+		const malformed = {
+			id: "chat-m:q1",
+			chatId: "chat-m",
+			kind: "missed",
+			origin: "quiz",
+			sessionTitle: "Malformed",
+			sessionKind: "teach",
+			sources: [],
+			status: "ready",
+			analysis: { errorType: "confusable-pair" },
+		} as unknown as MistakeRecord;
+		writeRecords([malformed]);
+		assert.match(await run({ action: "list" }), /chat-m:q1/);
+		const detail = await run({ action: "get", id: "chat-m:q1" });
+		assert.match(detail, /Mistake chat-m:q1/);
+		assert.doesNotMatch(detail, /undefined/);
+	});
+
+	it("renders an unknown error type as its own string, never undefined", async () => {
+		const unknown = {
+			...record({ id: "chat-u:q1", chatId: "chat-u", question: "Which type is this?", sessionTitle: "Unknowns" }),
+			analysis: {
+				errorType: "renamed-type",
+				topic: "Future topic",
+				whatYouDid: "Used an older name.",
+				correct: "Use the current name.",
+				rule: "Read the current taxonomy.",
+			},
+		} as unknown as MistakeRecord;
+		writeRecords([unknown]);
+		const output = [
+			await run({ action: "list" }),
+			await run({ action: "get", id: "chat-u:q1" }),
+			await run({ action: "summary" }),
+		].join("\n");
+		assert.match(output, /renamed-type/);
+		assert.doesNotMatch(output, /undefined/);
+	});
+
 	it("caps the list and prints the truncation notice", async () => {
 		writeRecords(FIXTURES);
 		const text = await run({ action: "list", limit: 1 });
