@@ -287,7 +287,9 @@ function checkShape(value: unknown): ComposerImage {
 	// The composer payload is explicit bytes only. A URL/path field is never
 	// an alternate source (and never silently ignored): reject the shape.
 	for (const key of Object.keys(v)) {
-		if (key !== "type" && key !== "mimeType" && key !== "data") throw new ImageInputError(IMAGE_ERRORS.shape);
+		// `id` is the draft's local identity, not a source. URL/path fields
+		// remain forbidden: the payload is explicit bytes only.
+		if (key !== "type" && key !== "mimeType" && key !== "data" && key !== "id") throw new ImageInputError(IMAGE_ERRORS.shape);
 	}
 	checkImageMeta(v.mimeType, 0);
 	// Size is judged on the encoded length first (cheap, pre-regex).

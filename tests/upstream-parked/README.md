@@ -8,6 +8,11 @@ during the plugin-system milestone:
   settings-dialog/controls tests cover that behavior.
 - `headless-isolation.test.ts` — upstream's isolated-page browser service. Twig
   keeps its own sandboxed browser-service profile and native SVG rasterizer.
+- `host-markdown.test.tsx` — upstream's combined host-markdown/plugin-owner
+  fixture hangs in the linkedom harness when the whole file runs together. The
+  individual SSR/link/mermaid/highlighting cases pass in isolation; the plugin
+  code-renderer contract is covered by `plugin-markdown` and the plugin frontend
+  suite.
 - `side-chat-*`, `side-conversation-*`, `side-plugin-*`, `side-thread-*`,
   `use-side-thread-*`, `side-chat.test.ts` — upstream's floating side companion
   and its rewritten core tests. Twig keeps inline side-question threads
