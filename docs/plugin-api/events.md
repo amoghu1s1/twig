@@ -59,9 +59,17 @@ export interface ServerEvents {
         chatId: string;
         running: boolean;
     };
+    "readings-changed": {
+        chatId?: string;
+    };
+    "discussion-changed": {
+        readingId: string;
+        chatId?: undefined;
+    };
     "side-chats-changed": {
         chatId: string;
     };
+    "mistakes-changed": Record<string, never>;
     "plugins-changed": Record<string, never>;
     "plugin-message": {
         pluginId: string;
@@ -88,8 +96,14 @@ export interface ServerEvents {
 - ["compaction-changed"](#serverevents-compaction-changed)
 - ["compaction-changed".chatId](#serverevents-compaction-changedchatid)
 - ["compaction-changed".running](#serverevents-compaction-changedrunning)
+- ["readings-changed"](#serverevents-readings-changed)
+- ["readings-changed".chatId](#serverevents-readings-changedchatid)
+- ["discussion-changed"](#serverevents-discussion-changed)
+- ["discussion-changed".readingId](#serverevents-discussion-changedreadingid)
+- ["discussion-changed".chatId](#serverevents-discussion-changedchatid)
 - ["side-chats-changed"](#serverevents-side-chats-changed)
 - ["side-chats-changed".chatId](#serverevents-side-chats-changedchatid)
+- ["mistakes-changed"](#serverevents-mistakes-changed)
 - ["plugins-changed"](#serverevents-plugins-changed)
 - ["plugin-message"](#serverevents-plugin-message)
 - ["plugin-message".pluginId](#serverevents-plugin-messagepluginid)
@@ -222,10 +236,54 @@ chatId: string;
 running: boolean;
 ```
 
+### ServerEvents "readings-changed"
+
+A reading record changed (created, progress, settled, deleted —
+docs/readings.md). chatId when the reading is session-anchored.
+
+```ts
+"readings-changed": {
+    chatId?: string;
+};
+```
+
+### ServerEvents "readings-changed".chatId
+
+```ts
+chatId?: string;
+```
+
+### ServerEvents "discussion-changed"
+
+A reading's discussion changed (an ask, an answer settling —
+docs/readings.md §14). Live tokens ride their own stream. Never
+chat-scoped (the reading owns it) — chatId stays absent.
+
+```ts
+"discussion-changed": {
+    readingId: string;
+    chatId?: undefined;
+};
+```
+
+### ServerEvents "discussion-changed".readingId
+
+```ts
+readingId: string;
+```
+
+### ServerEvents "discussion-changed".chatId
+
+```ts
+chatId?: undefined;
+```
+
 ### ServerEvents "side-chats-changed"
 
-A side conversation changed. Notify-then-fetch: open views refetch
-GET /api/chats/:id/side-chats. Closing never deletes it.
+A side-question thread changed for the chat (side-question wave): a
+question saved, an answer settled, a window opened/closed, a thread
+deleted. Notify-then-fetch: open views refetch GET
+/api/chats/:id/side-chats. Never touches the teaching record.
 
 ```ts
 "side-chats-changed": {
@@ -237,6 +295,14 @@ GET /api/chats/:id/side-chats. Closing never deletes it.
 
 ```ts
 chatId: string;
+```
+
+### ServerEvents "mistakes-changed"
+
+The learner's mistakes changed (found, analyzed, deleted).
+
+```ts
+"mistakes-changed": Record<string, never>;
 ```
 
 ### ServerEvents "plugins-changed"

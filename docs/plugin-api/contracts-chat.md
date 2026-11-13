@@ -4,6 +4,8 @@
 
 [API index](README.md) · [Data access and host boundaries](../plugin-authoring.md#backend-and-data)
 
+- [AttachmentKind](#attachmentkind) — supporting declaration
+- [AttachmentRecord](#attachmentrecord) — supporting declaration
 - [CallUsage](#callusage) — supporting declaration
 - [ChatKind](#chatkind) — supporting declaration
 - [ChatListItem](#chatlistitem)
@@ -18,12 +20,138 @@
 - [SideChatThread](#sidechatthread) — supporting declaration
 - [TurnUsage](#turnusage) — supporting declaration
 
+## AttachmentKind
+
+Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
+
+```ts
+export type AttachmentKind = "image" | "pdf" | "epub";
+```
+
+## AttachmentRecord
+
+Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
+
+One attached file. `file` is the content-addressed blob name
+(`<sha256><ext>` under data/attachments/ — relative, so LH_DATA_DIR can
+move; chats attaching the same bytes share it); `name` is what the
+learner picked. Structure facts are captured once, at upload.
+
+```ts
+export interface AttachmentRecord {
+    id: string;
+    name: string;
+    kind: AttachmentKind;
+    mimeType: string;
+    bytes: number;
+    file: string;
+    addedAt: string;
+    pages?: number;
+    chapters?: number;
+    title?: string;
+    detachedAt?: string;
+}
+```
+
+**Related types:** [AttachmentKind](contracts-chat.md#attachmentkind).
+
+**Member index** (including nested object members; inherited members are defined in the linked base types):
+
+- [id](#attachmentrecord-id)
+- [name](#attachmentrecord-name)
+- [kind](#attachmentrecord-kind)
+- [mimeType](#attachmentrecord-mimetype)
+- [bytes](#attachmentrecord-bytes)
+- [file](#attachmentrecord-file)
+- [addedAt](#attachmentrecord-addedat)
+- [pages](#attachmentrecord-pages)
+- [chapters](#attachmentrecord-chapters)
+- [title](#attachmentrecord-title)
+- [detachedAt](#attachmentrecord-detachedat)
+
+### AttachmentRecord id
+
+```ts
+id: string;
+```
+
+### AttachmentRecord name
+
+```ts
+name: string;
+```
+
+### AttachmentRecord kind
+
+```ts
+kind: AttachmentKind;
+```
+
+### AttachmentRecord mimeType
+
+```ts
+mimeType: string;
+```
+
+### AttachmentRecord bytes
+
+```ts
+bytes: number;
+```
+
+### AttachmentRecord file
+
+```ts
+file: string;
+```
+
+### AttachmentRecord addedAt
+
+```ts
+addedAt: string;
+```
+
+### AttachmentRecord pages
+
+PDF page count.
+
+```ts
+pages?: number;
+```
+
+### AttachmentRecord chapters
+
+EPUB chapter count (spine items).
+
+```ts
+chapters?: number;
+```
+
+### AttachmentRecord title
+
+EPUB title metadata.
+
+```ts
+title?: string;
+```
+
+### AttachmentRecord detachedAt
+
+Set when the learner removed the file from the session's context
+(ISO time); absent = active. The record and its blob stay so Undo
+needs no re-upload.
+
+```ts
+detachedAt?: string;
+```
+
 ## CallUsage
 
 Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
 
-Persisted token accounting for one model call. Undefined means the
-provider did not report that field; absence must not be interpreted as zero.
+One model call's token accounting — the SDK's LanguageModelUsage
+flattened to the fields we persist (undefined = provider didn't report;
+renderers show absent, never zero).
 
 ```ts
 export interface CallUsage {
@@ -96,12 +224,25 @@ reasoningTokens: number | undefined;
 
 Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
 
-Session kind: teach is the default when a saved record omits kind.
-Practice uses the adaptive-practice agent without teaching extraction or
-graph writes. Reading an absent kind does not require a record migration.
+One persisted session: data/chats/<id>.json. Wave B (owner-approved
+2026-09-26): the stored messages are pi-NATIVE history (LhMessage — the
+agent loop's own shapes, provider/model/usage/thinkingSignature stamped
+by pi) — the canonical session record IS the agent state; replay is
+`state.messages = record.messages` + continue(). The client-shaped view
+is the client's own grouping fold (core/view.ts, Wave D) — a pending quiz
+is an unanswered question tool call, which is exactly what makes
+resume-mid-question free.
+
+The session's kind (practice sessions, owner 2026-10-04): "teach" is
+the default and ABSENT on pre-practice records (no migration — absence
+reads as teach); "practice" marks an adaptive-practice session — the
+practice agent, its two tools, no extraction, no graph writes.
+"capstone" (2026-11-01) marks a build-it session: the learner pitches a
+software project, builds it outside the app, and the capstone agent
+reviews it read-only against accepted criteria — also no extraction.
 
 ```ts
-export type ChatKind = "teach" | "practice";
+export type ChatKind = "teach" | "practice" | "capstone";
 ```
 
 ## ChatListItem
@@ -162,12 +303,14 @@ export interface ChatRecord {
     turns?: TurnUsage[];
     extractions?: ExtractionRunUsage[];
     settings?: ChatSettings;
+    notes?: string;
     sideChats?: SideChatThread[];
+    attachments?: AttachmentRecord[];
     version?: number;
 }
 ```
 
-**Related types:** [ChatKind](contracts-chat.md#chatkind), [ChatSettings](contracts-chat.md#chatsettings), [ExtractionRunUsage](contracts-chat.md#extractionrunusage), [ImageSnapshot](contracts-chat.md#imagesnapshot), [LhMessage](native-messages.md#lhmessage), [PlanTree](contracts-plan.md#plantree), [SideChatThread](contracts-chat.md#sidechatthread), [TurnUsage](contracts-chat.md#turnusage).
+**Related types:** [AttachmentRecord](contracts-chat.md#attachmentrecord), [ChatKind](contracts-chat.md#chatkind), [ChatSettings](contracts-chat.md#chatsettings), [ExtractionRunUsage](contracts-chat.md#extractionrunusage), [ImageSnapshot](contracts-chat.md#imagesnapshot), [LhMessage](native-messages.md#lhmessage), [PlanTree](contracts-plan.md#plantree), [SideChatThread](contracts-chat.md#sidechatthread), [TurnUsage](contracts-chat.md#turnusage).
 
 **Member index** (including nested object members; inherited members are defined in the linked base types):
 
@@ -182,7 +325,9 @@ export interface ChatRecord {
 - [turns](#chatrecord-turns)
 - [extractions](#chatrecord-extractions)
 - [settings](#chatrecord-settings)
+- [notes](#chatrecord-notes)
 - [sideChats](#chatrecord-sidechats)
+- [attachments](#chatrecord-attachments)
 - [version](#chatrecord-version)
 
 ### ChatRecord id
@@ -267,21 +412,49 @@ Per-chat model/thinking overrides for the conversation agents.
 settings?: ChatSettings;
 ```
 
+### ChatRecord notes
+
+The session's learner notes (notes wave, 2026-11): Markdown with
+$…$ / $$…$$ math, where `>` lines are the tutor's words (the
+quote-to-notes convention). Absent when empty. DELIBERATELY outside
+`messages`: notes never enter agent context, extraction, coverage
+or compaction — nobody re-reads the field but its own route.
+
+```ts
+notes?: string;
+```
+
 ### ChatRecord sideChats
 
-Durable clarification threads. Each explanation and associated check
-shares one thread. Every main request appends new raw exchanges across
-all threads; already-recorded teacher history is never rewritten.
+Side questions (inline clarification threads, side-question wave):
+learner questions anchored to a teacher-prose block, answered by a
+separate tool-less call on the session's model. DELIBERATELY outside
+`messages`: the teaching/practice agents, extraction, coverage and
+compaction never read this field. Absent = none.
 
 ```ts
 sideChats?: SideChatThread[];
 ```
 
+### ChatRecord attachments
+
+Session context attachments (2026-10-29): files the learner attached
+from the composer, stored once by content under data/attachments/. The
+agent sees them through the system prompt's attachments section and
+reads them on demand — contents never ride the record. Records are
+never deleted: removal sets `detachedAt`, Undo clears it.
+
+```ts
+attachments?: AttachmentRecord[];
+```
+
 ### ChatRecord version
 
-Schema version. Absence denotes version 1; writes stamp the current
-supported version. Reads refuse records stamped newer than this build
-so a downgraded app cannot rewrite an unsupported record.
+SCHEMA STAMP (schema-versioning wave, owner 2026-10-10): LAZY v1 —
+existing records stay unstamped (absence reads as v1); every write
+stamps the current version. A record stamped NEWER than this build
+(the downgrade scenario) is REFUSED on read: a read-modify-write
+store must never rewrite what it doesn't understand.
 
 ```ts
 version?: number;
@@ -751,7 +924,6 @@ quotes?: string[];
 
 Matching canonical Tutor quote links retain each passage's actual
 native source and exact-text selector, independent of segment identity.
-Legacy string-only quotes remain readable without a guessed target.
 
 ```ts
 quoteCitations?: string[];
@@ -809,8 +981,8 @@ error?: string;
 
 Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
 
-One side thread per explanation and associated question, displayed in
-the shared floating/docked companion rather than inline windows.
+One side thread = one inline window. A block may carry several,
+stacked in creation order.
 
 ```ts
 export interface SideChatThread {
@@ -848,7 +1020,7 @@ anchor: SideChatAnchor;
 
 ### SideChatThread open
 
-Saved open/closed state for this thread.
+Window state (open window vs. the one-line closed bar).
 
 ```ts
 open: boolean;

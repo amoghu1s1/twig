@@ -44,13 +44,6 @@ to: string;
 
 Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
 
-Plan-tree contracts — the session-scoped dependency tree
-
-Part of the domain-split contracts (src/core/contracts/): each domain file
-is owned outright by its stream — cross-domain schema changes go through
-master. Pure types + protocol docs + tiny pure helpers; type-only imports
-of "ai" (safe everywhere: server, client, tests). See docs/archive/vision.md.
-
 ```ts
 export interface PlanNode {
     id: string;

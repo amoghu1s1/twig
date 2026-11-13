@@ -400,6 +400,9 @@ function toolPartOf(
 	const exec = live?.executions.get(block.id);
 	const isQuestion = isPlaceholderResultTool(block.name);
 	if (exec) {
+		// Plugin/host renderers read the native content/details/isError, not
+		// only the presentation `output`; live and restored parts must agree.
+		if (exec.result) part.result = exec.result;
 		if (exec.images?.length && (!isQuestion || exec.isError)) part.images = exec.images;
 		if (exec.isError) {
 			// An invalid call NEVER becomes input-available — the dock's mount

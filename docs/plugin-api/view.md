@@ -81,6 +81,7 @@ export interface LhViewPart extends Record<string, unknown> {
     pluginProblem?: PluginProblemSnapshot;
     input?: unknown;
     output?: unknown;
+    images?: ImageContent[];
     rawInput?: unknown;
     errorText?: string;
     result?: Pick<ToolResultMessage, "content" | "details" | "isError">;
@@ -103,6 +104,7 @@ export interface LhViewPart extends Record<string, unknown> {
 - [pluginProblem](#lhviewpart-pluginproblem)
 - [input](#lhviewpart-input)
 - [output](#lhviewpart-output)
+- [images](#lhviewpart-images)
 - [rawInput](#lhviewpart-rawinput)
 - [errorText](#lhviewpart-errortext)
 - [result](#lhviewpart-result)
@@ -178,6 +180,14 @@ input?: unknown;
 
 ```ts
 output?: unknown;
+```
+
+### LhViewPart images
+
+Native result images, separate from the tool's presentation metadata.
+
+```ts
+images?: ImageContent[];
 ```
 
 ### LhViewPart rawInput

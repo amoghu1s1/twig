@@ -68,6 +68,12 @@ export type AgentKind = "prober" | "teacher" | "practice" | "capstone";
 export const CONVERSATION_TOOL_NAMES = Object.freeze([
 	...QUESTION_TOOLS, ...TOGGLEABLE_TOOLS, "probe_done", "read", "ls", "find", "grep",
 	"plan_init", "list_sessions", "list_propositions", "problem", "conclude", sendToUserTool.name,
+	// Twig's additional builtins (files, web, media and capstone) must stay
+	// reserved too: a plugin may never shadow a native tool.
+	"pdf", "pdf_extract", "pdf_info", "pdf_search", "pdf_view",
+	"epub_info", "epub_read", "epub_search", "show_image",
+	"web_fetch", "web_fetch_pdf", "web_search", "find_candidates",
+	"demo", "visual", "brief", "evaluate", "gap_report",
 ] as const);
 
 // P2 (2026-09-19): segment discovery + override resolution live in ONE

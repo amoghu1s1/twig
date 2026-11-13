@@ -16,6 +16,7 @@ import React, { act } from "react";
 import assert from "node:assert/strict";
 import { afterEach, before, describe, it } from "node:test";
 import { parseHTML } from "linkedom";
+import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
 import type { Root } from "react-dom/client";
 import type { ModelCatalogEntry, ModelCatalogResponse, ModelsSettings } from "../src/core/index.ts";
 
@@ -23,7 +24,7 @@ const dom = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, {
 	window: dom.window, document: dom.document, Element: dom.window.Element, Node: dom.window.Node,
 	HTMLElement: dom.window.HTMLElement, HTMLInputElement: dom.window.HTMLInputElement, HTMLTextAreaElement: dom.window.HTMLTextAreaElement,
-	CustomEvent: dom.window.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true,
+	CustomEvent: dom.window.CustomEvent, MutationObserver: dom.window.MutationObserver, IS_REACT_ACT_ENVIRONMENT: true,
 	ResizeObserver: class { observe() {} unobserve() {} disconnect() {} },
 	getComputedStyle: () => ({ animationName: "none" }),
 	localStorage: { getItem: () => null, setItem() {} },
@@ -73,7 +74,7 @@ function installFetch() {
 }
 async function render(children: React.ReactNode) {
 	if (!root) { host = document.createElement("div"); document.body.append(host); root = createRoot(host); }
-	await act(async () => root!.render(children));
+	await act(async () => root!.render(<InteractionLayersProvider>{children}</InteractionLayersProvider>));
 	await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
 }
 function element(testid: string) { const e = document.querySelector<HTMLElement>(`[data-testid="${testid}"]`); assert.ok(e, testid); return e; }

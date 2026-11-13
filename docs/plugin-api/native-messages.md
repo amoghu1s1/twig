@@ -22,7 +22,7 @@ keys rendering on customType; the flag documents intent).
 export interface LhMarkerMessage {
     id: string;
     role: "custom";
-    customType: "graph-context" | "probe-handoff" | "subagent-steer" | "subagent-abort" | "plan-block" | "practice-thinking" | "plugin-problem-submission" | "practice-next" | "problem-dismissed" | "compaction" | "side-question" | "side-question-told";
+    customType: "graph-context" | "probe-handoff" | "subagent-steer" | "subagent-abort" | "plan-block" | "practice-thinking" | "plugin-problem-submission" | "practice-next" | "problem-dismissed" | "compaction" | "reading-discussion" | "side-question" | "side-question-told";
     content: string;
     display: boolean;
     details: unknown;
@@ -57,7 +57,7 @@ role: "custom";
 ### LhMarkerMessage customType
 
 ```ts
-customType: "graph-context" | "probe-handoff" | "subagent-steer" | "subagent-abort" | "plan-block" | "practice-thinking" | "plugin-problem-submission" | "practice-next" | "problem-dismissed" | "compaction" | "side-question" | "side-question-told";
+customType: "graph-context" | "probe-handoff" | "subagent-steer" | "subagent-abort" | "plan-block" | "practice-thinking" | "plugin-problem-submission" | "practice-next" | "problem-dismissed" | "compaction" | "reading-discussion" | "side-question" | "side-question-told";
 ```
 
 ### LhMarkerMessage content
@@ -94,10 +94,14 @@ timestamp: number;
 Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
 
 A record message: a native pi message (or our marker) plus the record id.
+`attachmentIds` (learner user messages only) names the session
+attachments sent with that message — ids, never bytes; images expand at
+the wire (toLlmMessages' attachmentParts hook).
 
 ```ts
 export type LhMessage = (UserMessage | AssistantMessage | ToolResultMessage | LhMarkerMessage) & {
     id: string;
+    attachmentIds?: string[];
     cliContextWindow?: number;
     lhQuestions?: PluginQuestionOccurrenceMap;
     lhQuestionOccurrence?: PluginQuestionOccurrence;
@@ -109,6 +113,7 @@ export type LhMessage = (UserMessage | AssistantMessage | ToolResultMessage | Lh
 **Member index** (including nested object members; inherited members are defined in the linked base types):
 
 - [id](#lhmessage-id)
+- [attachmentIds](#lhmessage-attachmentids)
 - [cliContextWindow](#lhmessage-clicontextwindow)
 - [lhQuestions](#lhmessage-lhquestions)
 - [lhQuestionOccurrence](#lhmessage-lhquestionoccurrence)
@@ -117,6 +122,12 @@ export type LhMessage = (UserMessage | AssistantMessage | ToolResultMessage | Lh
 
 ```ts
 id: string;
+```
+
+### LhMessage attachmentIds
+
+```ts
+attachmentIds?: string[];
 ```
 
 ### LhMessage cliContextWindow

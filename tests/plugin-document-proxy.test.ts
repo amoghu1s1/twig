@@ -98,7 +98,7 @@ it("current Proxy config leaves a valid no-Content-Length multipart document con
 
 const methods = ["POST", "GET", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] as const;
 const secret = "a".repeat(64);
-const capabilityHeader = "x-learnharness-desktop";
+const capabilityHeader = "x-twig-desktop";
 const forbidden = { error: "Desktop API access requires the trusted LearnHarness window." };
 
 async function withDesktopEnvironment(marker: string | undefined, capability: string | undefined, run: () => Promise<void>) {
