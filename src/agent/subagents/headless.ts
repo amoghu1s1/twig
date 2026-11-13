@@ -317,7 +317,7 @@ async function connectBrowserService(): Promise<ConnectedBrowserService | null> 
 			});
 		});
 		if (port === null) {
-			browserServiceProc = null;
+			if (browserServiceProc === proc) browserServiceProc = null;
 			return null;
 		}
 		(proc as { __cdpPort?: number }).__cdpPort = port;
