@@ -1,7 +1,7 @@
 "use client";
 
 import { ToolContentResponse } from "@/components/ai-elements/message";
-import { cn } from "@/lib/utils";
+import { StatusBadge } from "@/components/ui/status-badge";
 import type { ArtifactPartProps } from "@/src/core";
 
 /**
@@ -88,12 +88,10 @@ const OUTCOME_LABEL: Record<string, string> = {
  * green (the "correct" twin), solved-with-hints amber (succeeded with
  * cost), surrendered red (the problem beat the learner), moved on muted
  * (the agent's call, not a verdict against him). */
-const OUTCOME_CHIP: Record<string, string> = {
-	solved: "bg-success/15 text-success",
-	solvedWithHints: "bg-warning/15 text-warning",
-	movedOn: "bg-muted text-muted-foreground",
-	surrendered: "bg-error/15 text-error",
-	dismissed: "bg-muted text-muted-foreground",
+const OUTCOME_COLOR: Record<string, string | undefined> = {
+	solved: "var(--lh-success)",
+	solvedWithHints: "var(--lh-warning)",
+	surrendered: "var(--lh-error)",
 };
 
 export function ConcludeCard({ part }: ArtifactPartProps) {
@@ -127,9 +125,7 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 			<div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 				Concluded
 				{(OUTCOME_LABEL[outcome] ?? "") !== "" && outcome !== "dismissed" && (
-					<span className={cn("rounded px-1.5 py-0.5", OUTCOME_CHIP[outcome] ?? OUTCOME_CHIP.movedOn)}>
-						{OUTCOME_LABEL[outcome]}
-					</span>
+					<StatusBadge text={OUTCOME_LABEL[outcome] ?? ""} color={OUTCOME_COLOR[outcome]} />
 				)}
 			</div>
 			{/* The verdict — plain prose under the heading, no 'Verdict:' label

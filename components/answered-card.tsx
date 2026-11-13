@@ -105,11 +105,11 @@ export function AnsweredCard({
 														: "Question"}
 							{isQuiz &&
 								(answer.dontKnow ? (
-									<span className="rounded bg-muted px-1.5 py-0.5">didn't know</span>
+									<StatusBadge text="didn't know" />
 								) : answer.correct ? (
-									<span className="rounded bg-success/15 px-1.5 py-0.5 text-success">correct</span>
+									<StatusBadge text="correct" color="var(--lh-success)" />
 								) : (
-									<span className="rounded bg-error/15 px-1.5 py-0.5 text-error">incorrect</span>
+									<StatusBadge text="incorrect" color="var(--lh-error)" />
 								))}
 						</div>
 						<div className="mb-3 font-medium">
