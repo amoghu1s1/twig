@@ -21,16 +21,17 @@ The custom app bar remains on all platforms. macOS has left traffic lights/syste
 Build **on each target OS**. Next traces native binaries for its build machine; a macOS standalone tree is not a Windows/Linux payload.
 
 1. `npm ci`
-2. Run native renderer/browser-service tests in Electron's Node:
+2. `npm run plugins:setup`
+3. Run native renderer/browser-service tests in Electron's Node:
    ```sh
    ELECTRON_RUN_AS_NODE=1 NODE_ENV=test npx electron --import tsx --test tests/pdf-native-render.test.ts tests/pdf-ops.test.ts tests/svg-native-render.test.ts tests/browser-service.test.ts
    ```
    This environment-prefix syntax is for a POSIX shell; CI uses Bash on every OS.
-3. `npm run build`
-4. `node scripts/smoke-provider-runtime.mjs` — check the **fresh trace before curation**, including native provider initialization and fixture payloads, not real sign-in/generation.
-5. `node scripts/build-server.mjs` — copy static assets, validate prompt assets, refuse known data/credential leaks, and remove only standalone-root old installers/development Electron.
-6. `node scripts/smoke-server.mjs --electron` — check renderer/demo dependencies, providers, gzip backpressure, and isolated standalone HTTP boot under Electron's Node.
-7. Package with Electron Builder using the appropriate local/release policy below.
+4. `npm run build`
+5. `node scripts/smoke-provider-runtime.mjs` — check the **fresh trace before curation**, including native provider initialization and fixture payloads, not real sign-in/generation.
+6. `node scripts/build-server.mjs` — copy static assets, validate prompt assets, refuse known data/credential leaks, and remove only standalone-root old installers/development Electron.
+7. `node scripts/smoke-server.mjs --electron --isolated` — check renderer/demo dependencies, providers, gzip backpressure, and isolated standalone HTTP boot under Electron's Node.
+8. Package with Electron Builder using the appropriate local/release policy below.
 
 The shell/updater ships in `app.asar`; the server/native renderers ship unpacked as `extraResources`. Pi/PDF/canvas/resvg/Photon dynamic assets are explicitly traced in [`next.config.ts`](../next.config.ts). Keep trace exclusions narrow: broad `dist/**` or `data/**` patterns can remove dependency assets. Curation guards are not a substitute for inspecting a changed payload.
 
