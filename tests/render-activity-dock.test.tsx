@@ -60,7 +60,7 @@ describe("activity dock pure layer", () => {
 		}] };
 		const blob = toBlobs(feed)[0]!;
 		assert.equal(blob.process, "plugin-worker");
-		assert.equal(blob.chatId, undefined);
+		assert.ok(!blob.chatId, "plugin workers carry no session identity (Twig uses \"\" for session-less rows)");
 		assert.equal(blob.cost, 0.004);
 		assert.equal(blob.model, "offline:fixture");
 		assert.equal(blob.steps, 3);
