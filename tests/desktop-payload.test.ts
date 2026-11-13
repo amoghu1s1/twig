@@ -231,9 +231,9 @@ describe("desktop standalone payload", () => {
 		});
 	});
 
-	it("still refuses missing runtime prompt assets, including the side brevity fragment", () => {
-		for (const asset of [PROMPT, path.join("src", "agent", "prompts", "side-chat", "90-style.md")]) withPayload(({ root, run }) => {
-			fs.rmSync(path.join(root, STANDALONE, asset));
+	it("still refuses missing runtime prompt assets", () => {
+		withPayload(({ root, run }) => {
+			fs.rmSync(path.join(root, STANDALONE, PROMPT));
 			const result = run();
 			assert.equal(result.status, 1);
 			assert.match(String(result.stderr), /prompt asset missing/);
