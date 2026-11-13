@@ -222,6 +222,10 @@ export function browserServiceBinary(): string | null {
 }
 
 const BROWSER_SERVICE_TIMEOUT_MS = 15_000;
+/** The CDP WebSocket upgrade has no internal timeout; bound it explicitly. */
+const BROWSER_SERVICE_CONNECT_TIMEOUT_MS = 10_000;
+/** Grace between SIGTERM and SIGKILL for a helper that ignores shutdown. */
+const HELPER_KILL_GRACE_MS = 2_000;
 /** Helper idle shutdown: no job for this long → kill it (the next job
  *  respawns it), so the CDP port is not left listening between jobs. */
 export const HELPER_IDLE_MS = 2 * 60_000;
@@ -235,14 +239,25 @@ function helperJobStarted(): void {
 	helperIdleTimer = null;
 }
 
+/** Stop a helper: clear ownership, SIGTERM, then SIGKILL if it ignores it. */
+function killHelper(proc: import("node:child_process").ChildProcess): void {
+	if (browserServiceProc === proc) browserServiceProc = null;
+	delete (proc as { __cdpPort?: number }).__cdpPort;
+	if (proc.exitCode !== null || proc.signalCode != null) return;
+	proc.kill("SIGTERM");
+	const timer = setTimeout(() => {
+		if (proc.exitCode === null && proc.signalCode == null) proc.kill("SIGKILL");
+	}, HELPER_KILL_GRACE_MS);
+	timer.unref?.();
+}
+
 function helperJobFinished(): void {
 	helperActiveJobs = Math.max(0, helperActiveJobs - 1);
 	if (helperActiveJobs > 0) return;
 	helperIdleTimer = setTimeout(() => {
 		helperIdleTimer = null;
 		if (helperActiveJobs > 0) return;
-		browserServiceProc?.kill();
-		browserServiceProc = null;
+		if (browserServiceProc) killHelper(browserServiceProc);
 	}, HELPER_IDLE_MS);
 	helperIdleTimer.unref?.();
 }
@@ -309,19 +324,38 @@ async function connectBrowserService(): Promise<ConnectedBrowserService | null> 
 	}
 
 	if (!proc) return null;
+	let info: { webSocketDebuggerUrl?: string };
 	try {
 		const version = await fetch(`http://127.0.0.1:${port}/json/version`);
-		const info = (await version.json()) as { webSocketDebuggerUrl?: string };
-		if (!info.webSocketDebuggerUrl) return null;
-		// connect ≠ launch: browser.close() below merely disconnects — the
-		// helper stays resident for the next job (IPC-owned lifetime).
-		const browser = await puppeteer.connect({
-			browserWSEndpoint: info.webSocketDebuggerUrl,
-			defaultViewport: null,
-		});
-		return { browser, proc };
+		info = (await version.json()) as { webSocketDebuggerUrl?: string };
 	} catch {
 		return null;
+	}
+	if (!info.webSocketDebuggerUrl) return null;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	let timedOut = false;
+	try {
+		// connect ≠ launch: browser.close() below merely disconnects — the
+		// helper stays resident for the next job (IPC-owned lifetime).
+		const browser = await Promise.race([
+			puppeteer.connect({
+				browserWSEndpoint: info.webSocketDebuggerUrl,
+				defaultViewport: null,
+			}),
+			new Promise<never>((_, reject) => {
+				timer = setTimeout(() => {
+					timedOut = true;
+					reject(new Error("Browser helper WebSocket connect timed out"));
+				}, BROWSER_SERVICE_CONNECT_TIMEOUT_MS);
+				timer.unref?.();
+			}),
+		]);
+		return { browser, proc };
+	} catch {
+		if (timedOut) killHelper(proc);
+		return null;
+	} finally {
+		if (timer) clearTimeout(timer);
 	}
 }
 
@@ -342,9 +376,7 @@ async function acquireBrowserService(): Promise<ConnectedBrowserService | null> 
 	try {
 		const helper = await Promise.race([connecting, timeout]);
 		if (!helper && timedOut) {
-			const stuck = browserServiceProc;
-			stuck?.kill();
-			if (browserServiceProc === stuck) browserServiceProc = null;
+			if (browserServiceProc) killHelper(browserServiceProc);
 			void connecting.then((late) => late?.browser.disconnect().catch(() => {})).catch(() => {});
 		}
 		return helper;
@@ -376,8 +408,7 @@ async function withBrowserPage<T>(fn: (page: import("puppeteer-core").Page) => P
 					// A failed retirement must never leave a live untrusted document
 					// on the shared target. Kill exactly this job's helper and let the
 					// next queued job acquire a fresh one.
-					helper.proc.kill();
-					if (browserServiceProc === helper.proc) browserServiceProc = null;
+					killHelper(helper.proc);
 				}
 				throw error;
 			} finally {
