@@ -224,8 +224,7 @@ reasoningTokens: number | undefined;
 
 Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
 
-One persisted session: data/chats/<id>.json. Wave B (owner-approved
-2026-09-26): the stored messages are pi-NATIVE history (LhMessage — the
+One persisted session: data/chats/<id>.json. Wave B (owner-approved): the stored messages are pi-NATIVE history (LhMessage — the
 agent loop's own shapes, provider/model/usage/thinkingSignature stamped
 by pi) — the canonical session record IS the agent state; replay is
 `state.messages = record.messages` + continue(). The client-shaped view
@@ -233,11 +232,11 @@ is the client's own grouping fold (core/view.ts, Wave D) — a pending quiz
 is an unanswered question tool call, which is exactly what makes
 resume-mid-question free.
 
-The session's kind (practice sessions, owner 2026-10-04): "teach" is
+The session's kind (practice sessions, owner): "teach" is
 the default and ABSENT on pre-practice records (no migration — absence
 reads as teach); "practice" marks an adaptive-practice session — the
 practice agent, its two tools, no extraction, no graph writes.
-"capstone" (2026-11-01) marks a build-it session: the learner pitches a
+"capstone" marks a build-it session: the learner pitches a
 software project, builds it outside the app, and the capstone agent
 reviews it read-only against accepted criteria — also no extraction.
 
@@ -438,7 +437,7 @@ sideChats?: SideChatThread[];
 
 ### ChatRecord attachments
 
-Session context attachments (2026-10-29): files the learner attached
+Session context attachments: files the learner attached
 from the composer, stored once by content under data/attachments/. The
 agent sees them through the system prompt's attachments section and
 reads them on demand — contents never ride the record. Records are
@@ -450,7 +449,7 @@ attachments?: AttachmentRecord[];
 
 ### ChatRecord version
 
-SCHEMA STAMP (schema-versioning wave, owner 2026-10-10): LAZY v1 —
+SCHEMA STAMP (schema-versioning wave, owner): LAZY v1 —
 existing records stay unstamped (absence reads as v1); every write
 stamps the current version. A record stamped NEWER than this build
 (the downgrade scenario) is REFUSED on read: a read-modify-write

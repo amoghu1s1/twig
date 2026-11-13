@@ -22,7 +22,17 @@ const guides = {
 };
 const declarationKind = node => ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node) || ts.isFunctionDeclaration(node) || ts.isVariableDeclaration(node) || ts.isEnumDeclaration(node);
 function comments(node) {
-	return (node.jsDoc ?? []).map(doc => typeof doc.comment === "string" ? doc.comment : doc.comment?.map(part => part.text ?? "").join("") ?? "").filter(Boolean).join("\n\n");
+	const text = (node.jsDoc ?? []).map(doc => typeof doc.comment === "string" ? doc.comment : doc.comment?.map(part => part.text ?? "").join("") ?? "").filter(Boolean).join("\n\n");
+	// Public API pages publish contracts, not repository history: source JSDoc
+	// carries owner dates and wave notes that the authoring bundle forbids.
+	return text
+		.replace(/\(\s*20\d\d-\d\d-\d\d\s*\)/g, "")
+		.replace(/\b20\d\d-\d\d-\d\d\b/g, "")
+		.replace(/[ \t]+\)/g, ")")
+		.replace(/[ \t]+([.,;:])/g, "$1")
+		.replace(/[ \t]{2,}/g, " ")
+		.replace(/\s*\n\s*(?=[).,;:])/g, "")
+		.trim();
 }
 function members(node, prefix = "") {
 	const result = [];
