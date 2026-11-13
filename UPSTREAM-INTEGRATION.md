@@ -1,9 +1,9 @@
 # Upstream 0.6.1 plugin integration — handoff
 
-Last updated: 2026-11-13 11:55
+Last updated: 2026-11-13 12:25
 Branch: `integrate/upstream-0.6`
 Base merge commit: `6cc02786`
-Latest code/test head: `15c4e89b` (later commits are docs only)
+Latest code/test head: `d86431d6` (later commits are docs only)
 
 ## Sweep resumed (2026-11-13 11:20)
 
@@ -57,9 +57,28 @@ Latest code/test head: `15c4e89b` (later commits are docs only)
 - Batch 9r (files 461–465): **36 pass, 0 fail**.
 - Batch 9s (files 466–470): **88 pass, 0 fail**.
 - Batch 9t (files 471–475): **52 pass, 0 fail**.
-- **Sweep complete:** files 1–475 covered. Earlier failing files re-ran green
-  (212 pass + 5 skipped); `plugin-markdown` passed 9/9 in isolation. No test/build
-  processes remain.
+- **Sweep complete across batches, not one frozen HEAD.** Every file ran, but at
+  different integration points; see the single-pass reconciliation below. Earlier
+  failing files re-ran green (212 pass + 5 skipped); `plugin-markdown` passed 9/9
+  in isolation. No test/build processes remain.
+
+### Single-pass `npm test` reconciliation (Ops gate at `17441a12`)
+
+The batch table is per-batch evidence, not a frozen-HEAD coverage guarantee. Ops'
+single-pass `npm test` found 9 failures in 6,123 tests (6,103 pass, 11 skipped);
+all five failing files reproduce individually, so the runner and `NODE_ENV` were
+not the difference. The sweep did cover every file, but at different points:
+
+- `desktop-platform` and `headless-helper-lifecycle` broke after their batches
+  (`--isolated` CI change; headless port). The latter was already fixed by
+  `99a75daa`.
+- `render-layout` passed before `3cb88108` changed `AnsweredCard`.
+- `desktop-dev-startup` exposed a merge loss: nativeTheme's surface and upstream's
+  abortable dev-readiness block were missing while the test expected them.
+- `plugin-authoring-bundle` copied source JSDoc dates into generated API docs.
+
+Fixes: `e3700c12`, `43730014`, `d86431d6`. Treat a single-pass `npm test` at a
+frozen HEAD as authoritative; do not read the batch table as one-tree coverage.
 
 ### Reviewer security audit — headless isolation (2026-11-13)
 
