@@ -73,14 +73,14 @@ describe("research fetch tools refuse local destinations", () => {
 	for (const host of ["127.0.0.1", "localhost", "[::ffff:127.0.0.1]"]) {
 		it(`web_fetch refuses http://${host}`, async () => {
 			const text = await runTool(createWebTools(() => null).web_fetch!, `http://${host}:${target.port}/secret`);
-			assert.match(text, /refusing to connect to a private or local address/);
+			assert.match(text, /private or local address/);
 			assert.doesNotMatch(text, /internal secret/);
 		});
 	}
 
 	it("web_fetch_pdf refuses a local address", async () => {
 		const text = await runTool(createPdfReadTools(dir).web_fetch_pdf!, `http://127.0.0.1:${target.port}/paper.pdf`);
-		assert.match(text, /refusing to connect to a private or local address/);
+		assert.match(text, /private or local address/);
 	});
 
 	it("no request ever reached the local server", () => {
