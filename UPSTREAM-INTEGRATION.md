@@ -1,9 +1,21 @@
 # Upstream 0.6.1 plugin integration — handoff
 
-Last updated: 2026-11-13
+Last updated: 2026-11-13 11:10
 Branch: `integrate/upstream-0.6`
 Base merge commit: `6cc02786`
-Latest committed head: `f6dcc4e2`
+Latest committed head: `6f47d693`
+
+## STOP — test sweep paused (2026-11-13 11:05)
+
+- Batch 7a resumed: files 241–245 pass **71/71** (`/tmp/opencode/twig-tests/241-245.log`).
+- Batch 246–250 did **not** complete: the OpenBot app scope was OOM-killed while
+  `tests/plugin-markdown.test.tsx` ran. The partial log has 75 passing checks and no
+  summary (`/tmp/opencode/twig-tests/246-250.log`).
+- Per `AGENTS.md`, no test batch, memory probe or build may run until the CEO clears
+  the sweep. No test child processes remain.
+- `tests/plugin-markdown.test.tsx` has an uncommitted memory-safe assertion fix
+  (compare tag names/primitives instead of linkedom DOM nodes). It was left
+  uncommitted and was not run after the stop order.
 
 This file is the source of truth for the in-progress upstream integration. Read it
 before touching the branch. The session/harness has a habit of cutting long shell
@@ -133,9 +145,19 @@ Twig while keeping the Twig implementations we chose to retain.
 | Batch 7c (files 261–270) | 196 pass, 0 fail |
 | Batch 7d (files 271–280) | 107 pass + 1 failure; `plugin-renderers` fixed → 14/14 |
 
-A full monolithic `npm test` was never completed: long shell calls are repeatedly cut
-by the harness/provider (no OOM; repo is committed and clean between attempts). Run the
-suite in 40-file batches.
+A full monolithic `npm test` was never completed. The cut-off shell calls were **not** a
+harness limit. `tests/plugin-markdown.test.tsx` compared a linkedom element to `null`;
+the selector matched Twig's retained code-block copy corner, so the assertion failed.
+Node's assert then inspected the linkedom element graph with `depth: 1000`, allocation
+grew without bound (a test child reached 13.4 GB RSS), RAM and zram swap hit 90%, and
+systemd-oomd killed the entire agent scope (`t3code-opencode-*`, `kitty-*`,
+`app-openbot-*`) — the "opencode crash". Fixed in `02891b6e`: the test now compares
+`tagName` primitives and expects the copy corner Twig keeps. The file passes 9/9 at a
+387 MB peak; batch 246–250 passes 84/84 at a 489 MB peak.
+
+Rule for the rest of the sweep: **never pass a DOM node to `assert.equal`/`deepEqual`
+when it can be non-null.** Compare `?.tagName ?? null`, `?.textContent`, or a count.
+A future failing node comparison reproduces the same machine-wide OOM.
 
 ## Remaining work
 
