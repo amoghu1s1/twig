@@ -102,10 +102,15 @@ it("coding model solution lazily uses real host Markdown for fenced code and exp
 	const widget = target.querySelector("[data-plugin-ui-widget]")!;
 	assert.match(widget.querySelector("[data-streamdown='code-block-body']")!.textContent!, /function square\(x\) \{ return x \* x; \}/);
 	assert.equal(widget.querySelector("strong")?.textContent, "Why:");
-	assert.equal(widget.querySelector("[data-testid='md-copy'], [data-streamdown='code-block-actions']"), null);
+	// Twig keeps its code-block copy corner in host Markdown; only streamdown's
+	// sticky action row must stay unmounted. Compare primitives, never DOM
+	// nodes: Node's assert inspects a failed object diff with depth 1000, and
+	// inspecting linkedom's element graph can exhaust all memory.
+	assert.equal(widget.querySelector("[data-testid='md-copy']")?.tagName, "BUTTON");
+	assert.equal(widget.querySelector("[data-streamdown='code-block-actions']")?.tagName ?? null, null);
 	await act(async () => { toggle.click(); });
 	assert.equal(store.getSnapshot().length, 0);
-	assert.equal(target.querySelector("[data-plugin-ui-widget]"), null);
+	assert.equal(target.querySelector("[data-plugin-ui-widget]")?.tagName ?? null, null);
 	await act(async () => { toggle.click(); scope.abort(); dispose(); dispose(); });
 	assert.equal(store.getSnapshot().length, 0);
 	assert.equal(target.textContent, "Keep me");
