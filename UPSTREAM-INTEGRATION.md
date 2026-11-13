@@ -3,7 +3,7 @@
 Last updated: 2026-11-13 11:30
 Branch: `integrate/upstream-0.6`
 Base merge commit: `6cc02786`
-Latest code/test head: `253dc976` (later commits are docs only)
+Latest code/test head: `8ba0bf33` (later commits are docs only)
 
 ## Sweep resumed (2026-11-13 11:20)
 
@@ -37,7 +37,29 @@ Latest code/test head: `253dc976` (later commits are docs only)
   Turbopack opt-outs for Twig runtime paths, `4591fc37` aligned the net-guard
   refusal assertions → **34 pass, 0 fail**.
 - Batch 9c (files 386–390): **49 pass, 0 fail**.
-- Next sweep position: file **391**. No test/build processes remain.
+- Batch 9d (files 391–395): **104 pass, 0 fail**.
+- Batch 9e (files 396–400): **57 pass, 0 fail**.
+- Batch 9f (files 401–405): **174 pass, 0 fail**.
+- Batch 9g (files 406–410): **73 pass, 0 fail**.
+- Batch 9h (files 411–415): **80 pass, 0 fail**.
+- Batch 9i (files 416–420): **65 pass, 0 fail**.
+- Batch 9j (files 421–425): **84 pass, 3 skipped, 0 fail**.
+- Batch 9k (files 426–430): **25 pass, 0 fail**.
+- Batch 9l (files 431–435): 24 pass + 9 fail; `3cb88108` restored the shared
+  `StatusBadge` in `AnsweredCard`/`ConcludeCard` → **33 pass, 0 fail**.
+- Batch 9m (files 436–440): 70 pass + 2 fail; `8ba0bf33` moved custom-theme
+  saves onto `writeFileAtomicSync` → **72 pass, 0 fail**.
+- Batch 9n (files 441–445): **38 pass, 0 fail**.
+- Batch 9o (files 446–450): 50 pass + 2 fail; `8ba0bf33` re-applied live vars
+  and canvas paint on server/same-mode palette refreshes → **52 pass, 0 fail**.
+- Batch 9p (files 451–455): **37 pass, 0 fail**.
+- Batch 9q (files 456–460): **87 pass, 0 fail**.
+- Batch 9r (files 461–465): **36 pass, 0 fail**.
+- Batch 9s (files 466–470): **88 pass, 0 fail**.
+- Batch 9t (files 471–475): **52 pass, 0 fail**.
+- **Sweep complete:** files 1–475 covered. Earlier failing files re-ran green
+  (212 pass + 5 skipped); `plugin-markdown` passed 9/9 in isolation. No test/build
+  processes remain.
 
 ### Gate audit: `tests/desktop-payload.test.ts` (Ops static audit)
 
@@ -226,11 +248,12 @@ A future failing node comparison reproduces the same machine-wide OOM.
 
 ## Remaining work
 
-1. **Finish the test sweep** from file 376 onward (see command below), then re-run the
-   earlier failing files. Files 241–375 are green (3 upstream bar cases parked). Most plugin tests have already
-   passed individually; the recent failures were fixed in `f6dcc4e2`. Fix real
-   failures; park only upstream-only behavior that conflicts with a Twig decision.
-   Every batch must run capped (`NODE_OPTIONS=--max-old-space-size=2048`, `timeout 45`).
+1. **Test sweep — complete.** Files 1–475 ran in capped batches; 241–475 are
+   green (3 upstream bar cases parked). Batches 9a–9t added 1,395 tests (1,392
+   pass, 3 skipped) and fixed runtime-path opt-outs, StatusBadge, atomic custom
+   themes, and live appearance refresh. Earlier failing files re-ran green
+   (212 pass + 5 skipped; `plugin-markdown` 9/9 isolated). Keep every future
+   batch capped (`NODE_OPTIONS=--max-old-space-size=2048`).
 2. **Audit `-X ours` losses** in non-feature files. The merge deliberately kept Twig on
    conflicts, so check upstream-only security/bug fixes that may have been dropped:
    - `electron/main.cjs` (external-link handling, browser-service isolation)
