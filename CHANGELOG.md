@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — upstream 0.6.1 plugin integration
+## 0.7.0 — 2026-11-13
 
 ### Plugins
 
