@@ -6,6 +6,7 @@ import { setImmediate } from "node:timers/promises";
 import { it, mock } from "node:test";
 import puppeteer, { type Browser } from "puppeteer-core";
 import { realHeadless } from "../src/agent/subagents/headless.ts";
+import { DEMO_SANDBOX_URL } from "../src/core/demo-sandbox.ts";
 
 function deferred() {
 	let resolve!: () => void;
@@ -31,22 +32,24 @@ function lifecycleFixture() {
 		const page = Object.assign(new EventEmitter(), {
 			target: () => ({ type: () => "page" }), url: () => "about:blank",
 			setRequestInterception: async (enabled: boolean) => { guarded = enabled; },
-			setContent: async () => {
-				assert.equal(owner.alive, true);
-				assert.equal(guarded, true);
-				liveDocument = true;
-				if (owner.holdNextLoad) { owner.holdNextLoad = false; heldLoad.resolve(); await releaseLoad.promise; }
-			},
-			goto: async () => {
+			goto: async (url: string) => {
 				if (!owner.alive) throw new Error(`dead helper ${id}: goto`);
+				if (url === DEMO_SANDBOX_URL) {
+					assert.equal(owner.alive, true);
+					assert.equal(guarded, true);
+					liveDocument = true;
+					if (owner.holdNextLoad) { owner.holdNextLoad = false; heldLoad.resolve(); await releaseLoad.promise; }
+					return null;
+				}
 				if (liveDocument && owner.failRetirement) throw new Error(`owned retirement failure ${id}`);
 				liveDocument = false;
+				return null;
 			},
 		});
 		const browser = { pages: async () => {
 			if (!owner.alive) throw new Error(`dead helper ${id}: pages`);
 			return [page];
-		} } as unknown as Browser;
+		}, disconnect: async () => {} } as unknown as Browser;
 		const handshake = () => proc.stdout.emit("data", Buffer.from(`BROWSER_SERVICE_CDP ${46000 + id}\n`));
 		return { id, owner, proc, page, browser, handshake, guarded: () => guarded };
 	}
