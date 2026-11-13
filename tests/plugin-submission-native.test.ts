@@ -109,7 +109,10 @@ test("image preparation reuses the processor defaults when the actual engine has
 	assert(prepared!.data.length < 4.5 * 1024 * 1024);
 });
 
-test("new turn admission uses the actual Strong conversation engine for prober, teacher and practice and persists normalized native bytes", async () => {
+// Twig decision: text-turn images become content-addressed session attachments;
+// ChatRecord never stores inline base64. This upstream case asserts the opposite,
+// so it is parked. Attachment persistence is covered by attachments.test.ts.
+test.skip("new turn admission uses the actual Strong conversation engine for prober, teacher and practice and persists normalized native bytes", async () => {
 	for (const kind of ["prober", "teacher", "practice"] as const) {
 		const chat = stores.chatStore.createChat(`Synthetic ${kind}`, kind === "practice" ? "practice" : undefined);
 		const original = image(); contexts = [];
@@ -136,7 +139,8 @@ test("text-only effective model refuses fresh images without persistence or agen
 	const chat = stores.chatStore.createChat("Synthetic unsupported model");
 	stores.chatStore.saveSettings(chat.id, { model: { provider, id: "text" } });
 	const response = await handleChatInput(chat.id, { type: "text", text: "", images: [image()] }, () => { throw new Error("must not construct"); });
-	assert.equal(response.status, 400); assert.match(await response.text(), /does not support images/);
+	// Twig's attachment image gate uses 422 with MODEL_CANNOT_READ_IMAGES_CODE.
+	assert.equal(response.status, 422); assert.match(await response.text(), /cannot read images/);
 	assert.equal(stores.chatStore.getChat(chat.id)!.messages.length, 0);
 	assert.equal(isTurnRunning(chat.id), false);
 });
@@ -171,7 +175,9 @@ for (const change of ["model", "resize", "catalog-removal", "occurrence"] as con
 	model.inputLimits.images.resize.maxWidth = 2; registerModels();
 });
 
-test("async model changes refuse new-turn admission before its claim or write", async () => {
+// Parked for the same Twig attachment decision: Twig does not run an inline
+// text-image worker at new-turn admission, so this upstream race does not apply.
+test.skip("async model changes refuse new-turn admission before its claim or write", async () => {
 	const chat = stores.chatStore.createChat("Synthetic stale new turn");
 	const response = await duringProcessing(() => stores.chatStore.saveSettings(chat.id, { model: { provider, id: "text" } }), () => handleChatInput(chat.id, { type: "text", text: "", images: [image()] }, () => { throw new Error("must not construct stale run"); }));
 	assert.equal(response.status, 412);
