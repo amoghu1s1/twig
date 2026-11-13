@@ -128,7 +128,7 @@ Twig while keeping the Twig implementations we chose to retain.
 | Batch 6b (files 211–220) | 145 pass, 0 fail |
 | Batch 6c (files 221–230) | plugin API reference stale; regenerated → 4/4 |
 | Batch 6d (files 231–240) | plugin contributions + document proxy fixed; plugin-renderers fixed |
-| Batch 7a (files 241–250) | interrupted by server restarts; individual plugin tests previously green |
+| Batch 7a (files 241–250) | first half 71/71; second half interrupted by server restarts |
 | Batch 7b (files 251–260) | 59 pass, 0 fail |
 | Batch 7c (files 261–270) | 196 pass, 0 fail |
 | Batch 7d (files 271–280) | 107 pass + 1 failure; `plugin-renderers` fixed → 14/14 |
