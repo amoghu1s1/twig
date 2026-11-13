@@ -12,7 +12,7 @@ import type { ThemeStore } from "../core/ports.ts";
 import { isBuiltinThemeId, isThemeId, sanitizeThemeFile, type Theme, type ThemeFile } from "../core/themes.ts";
 
 function fileFor(id: string): string {
-	return path.join(THEMES_DIR, `${id}.json`);
+	return path.join(/* turbopackIgnore: true */ THEMES_DIR, `${id}.json`);
 }
 
 function read(id: string): Theme | null {

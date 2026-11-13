@@ -27,11 +27,11 @@ export const PATHS = {
 	teacherPrompt: path.join(ROOT, "src", "agent", "system-prompt.md"),
 	data: DATA_ROOT,
 	/** Chat sessions (AI SDK UIMessage transcripts, one JSON file per chat). */
-	chats: path.join(DATA_ROOT, "chats"),
+	chats: path.join(/* turbopackIgnore: true */ DATA_ROOT, "chats"),
 	/** Session context attachments: content-addressed blobs,
 	 *  data/attachments/<sha256><ext> (session attachments wave). */
-	attachments: path.join(DATA_ROOT, "attachments"),
-	graph: path.join(DATA_ROOT, "graph"),
+	attachments: path.join(/* turbopackIgnore: true */ DATA_ROOT, "attachments"),
+	graph: path.join(/* turbopackIgnore: true */ DATA_ROOT, "graph"),
 	/** Debug artifacts (env-gated): data/debug/provider-events/<chatId>.jsonl
 	 * raw provider stream recordings (src/agent/provider-events.ts). */
 	debug: path.join(/* turbopackIgnore: true */ DATA_ROOT, "debug"),
@@ -89,13 +89,13 @@ export const LEDGER_FILES = {
  */
 export const SOURCES_FILE = path.join(/* turbopackIgnore: true */ PATHS.graph, "sources.json");
 /** Presentation-only source names/folder placement; never extraction identity. */
-export const SOURCE_ORGANIZATION_FILE = path.join(PATHS.graph, "source-organization.json");
+export const SOURCE_ORGANIZATION_FILE = path.join(/* turbopackIgnore: true */ PATHS.graph, "source-organization.json");
 /** Flashcards made from the graph (core/anki.ts): nodeId → cards + delivery
  *  state. Outside graph/ on purpose: Anki export is not part of the graph
  *  family, so it never touches the graph format stamp. */
-export const ANKI_CARDS_FILE = path.join(PATHS.data, "anki", "cards.json");
+export const ANKI_CARDS_FILE = path.join(/* turbopackIgnore: true */ PATHS.data, "anki", "cards.json");
 /** Tidy-graph proposals (fork, 2026-11-07): a JSON list, not a ledger. */
-export const TIDY_FILE = path.join(PATHS.graph, "tidy.json");
+export const TIDY_FILE = path.join(/* turbopackIgnore: true */ PATHS.graph, "tidy.json");
 /** The layout ledger (read-modify-write like sources.json): nodeId →
  *  {x,y} resting positions from the incremental settle (core/layout.ts).
  *  Carries an updatedAt stamp for future live-physics conflict handling. */
