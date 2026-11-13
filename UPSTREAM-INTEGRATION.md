@@ -30,7 +30,8 @@ Latest code/test head: `44285fe4` (later commits are docs only)
 - Batch 8o (files 351–355): **120 pass, 0 fail**.
 - Batch 8p (files 356–360): **70 pass, 0 fail**.
 - Batch 8q (files 361–365): **91 pass, 0 fail**.
-- Next sweep position: file **366**. No test/build processes remain.
+- Batch 8r (files 366–370): **128 pass, 0 fail**.
+- Next sweep position: file **371**. No test/build processes remain.
 
 This file is the source of truth for the in-progress upstream integration. Read it
 before touching the branch. The session/harness has a habit of cutting long shell
@@ -176,6 +177,7 @@ Twig while keeping the Twig implementations we chose to retain.
 | Batch 8o (files 351–355) | 120 pass, 0 fail |
 | Batch 8p (files 356–360) | 70 pass, 0 fail |
 | Batch 8q (files 361–365) | 91 pass, 0 fail |
+| Batch 8r (files 366–370) | 128 pass, 0 fail |
 
 A full monolithic `npm test` was never completed. The cut-off shell calls were **not** a
 harness limit. The morning retries (09:25, 09:27, 09:35, 09:43) each died at the
@@ -195,8 +197,8 @@ A future failing node comparison reproduces the same machine-wide OOM.
 
 ## Remaining work
 
-1. **Finish the test sweep** from file 366 onward (see command below), then re-run the
-   earlier failing files. Files 241–365 are green (3 upstream bar cases parked). Most plugin tests have already
+1. **Finish the test sweep** from file 371 onward (see command below), then re-run the
+   earlier failing files. Files 241–370 are green (3 upstream bar cases parked). Most plugin tests have already
    passed individually; the recent failures were fixed in `f6dcc4e2`. Fix real
    failures; park only upstream-only behavior that conflicts with a Twig decision.
    Every batch must run capped (`NODE_OPTIONS=--max-old-space-size=2048`, `timeout 45`).
