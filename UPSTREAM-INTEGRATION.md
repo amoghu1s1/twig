@@ -1,9 +1,9 @@
 # Upstream 0.6.1 plugin integration — handoff
 
-Last updated: 2026-11-13 11:20
+Last updated: 2026-11-13 11:30
 Branch: `integrate/upstream-0.6`
 Base merge commit: `6cc02786`
-Latest code/test head: `44285fe4` (later commits are docs only)
+Latest code/test head: `253dc976` (later commits are docs only)
 
 ## Sweep resumed (2026-11-13 11:20)
 
@@ -33,6 +33,28 @@ Latest code/test head: `44285fe4` (later commits are docs only)
 - Batch 8r (files 366–370): **128 pass, 0 fail**.
 - Batch 8s (files 371–375): **34 pass, 0 fail**.
 - Next sweep position: file **376**. No test/build processes remain.
+
+### Gate audit: `tests/desktop-payload.test.ts` (Ops static audit)
+
+Capped run (`NODE_OPTIONS=--max-old-space-size=2048`): **7 pass / 4 fail**.
+
+- `:131` expects four Core packages; `core-plugins.json` ships only
+  `rich-code-blocks` (actual `['rich-code-blocks']`). `:132` reads the missing
+  flashcards font next.
+- `:198-203` expects traced `data/chat.json` to fail the build; `build-server.mjs:44-57`
+  now removes it with a warning. The other three secret cases pass.
+- `:218-222` removes `core-plugins/flashcards`; ENOENT before the script runs.
+- `:226-228` removes `side-chat/90-style.md`; the fixture writes only `00-base.md`,
+  so ENOENT before the script runs.
+
+**90-style guard provenance:** upstream `scripts/build-server.mjs:104-116` lists
+`side-chat/00-base.md` and `side-chat/90-style.md` (lines 109-110; added in
+`64603e89`). The `-X ours` merge at `6cc02786` kept Twig's prompt block
+(readings/discuss/side-chat/capstone) and dropped the 90-style line. The prompt
+file itself did merge in (`src/agent/prompts/side-chat/90-style.md`), but Twig's
+`src/agent/side-chat.ts:25` reads only `00-base.md`; upstream's reads both
+(`side-chat.ts:29-30,50`). The guard therefore covers an unused asset in Twig, and
+the test fixture is stale.
 
 This file is the source of truth for the in-progress upstream integration. Read it
 before touching the branch. The session/harness has a habit of cutting long shell
