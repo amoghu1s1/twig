@@ -162,8 +162,14 @@ export function useAppearance() {
 
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
+function prefersDarkQuery(): MediaQueryList | null {
+	if (typeof window === "undefined" || typeof window.matchMedia !== "function") return null;
+	return window.matchMedia(DARK_QUERY);
+}
+
 function subscribePrefersDark(onChange: () => void): () => void {
-	const mq = window.matchMedia(DARK_QUERY);
+	const mq = prefersDarkQuery();
+	if (!mq) return () => {};
 	mq.addEventListener("change", onChange);
 	return () => mq.removeEventListener("change", onChange);
 }
@@ -172,7 +178,7 @@ function subscribePrefersDark(onChange: () => void): () => void {
  *  layout's default), so hydration matches the server HTML and React
  *  re-renders with the real value right after — no mismatch under System. */
 function usePrefersDark(): boolean {
-	return useSyncExternalStore(subscribePrefersDark, () => window.matchMedia(DARK_QUERY).matches, () => true);
+	return useSyncExternalStore(subscribePrefersDark, () => prefersDarkQuery()?.matches ?? true, () => true);
 }
 
 export function AppearanceProvider({
@@ -215,14 +221,18 @@ export function AppearanceProvider({
 	// and the swap lands before paint.
 	useLayoutEffect(() => {
 		const root = document.documentElement;
-		const dark = mode === "system" ? window.matchMedia(DARK_QUERY).matches : mode === "dark";
+		const dark = mode === "system" ? (prefersDarkQuery()?.matches ?? true) : mode === "dark";
 		root.classList.toggle("dark", dark);
 		root.classList.toggle("light", !dark);
-	}, [mode, resolvedMode, serverMode]);
+	}, [mode, resolvedMode, serverMode, initialTheme]);
 
 	// The vars apply on every change — stringified as the change signal.
 	const vars = useMemo(() => appearanceVars(appearance, activeTheme, resolvedMode), [appearance, activeTheme, resolvedMode]);
-	const key = useMemo(() => JSON.stringify(vars), [vars]);
+	// A refreshed server layout can rewrite <html>'s class/style while the
+	// mounted provider retains a newer local save. Reapply that live state
+	// when the server-rendered palette changes, even within the same mode.
+	const serverKey = JSON.stringify(themeVars(effectiveColors(initialTheme, initialAppearance), resolveRenderedMode(serverMode, prefersDark)));
+	const key = useMemo(() => JSON.stringify([vars, serverKey]), [vars, serverKey]);
 	// REMOVAL is half the job (owner repro, fix wave): a later write that
 	// OMITS a var (empty font = factory, serif toggle back on) must clear
 	// the previously-set inline value or the stale one wins forever. Every

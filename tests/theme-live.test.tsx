@@ -108,12 +108,13 @@ it("a server palette refresh cannot overwrite newer live colors or mode; typogra
 	);
 	try {
 		await act(async () => render({}));
-		await act(async () => live.onAppearanceChange({ theme: dawn.id, colors: { text: "#123456" }, fontFamily: "Georgia", sessionNameSerif: false }));
+		await act(async () => live.onAppearanceChange({ mode: "light", theme: dawn.id, colors: { text: "#123456" }, fontFamily: "Georgia", sessionNameSerif: false }));
 		assert.equal(document.documentElement.style.getPropertyValue("--foreground"), "#123456");
 		// Simulate <html> rewritten by a refreshed layout before provider effects.
+		// Twig's live mode (light) must beat the server's older dark mode.
 		document.documentElement.className = "dark";
 		document.documentElement.style.setProperty("--foreground", "#111111");
-		await act(async () => render({ colors: { text: "#111111" } }, { ...DEFAULT_THEME, mode: "light" }));
+		await act(async () => render({ colors: { text: "#111111" } }, { ...DEFAULT_THEME, mode: "dark" }));
 		assert.equal(document.documentElement.classList.contains("light"), true);
 		assert.equal(document.documentElement.style.getPropertyValue("--foreground"), "#123456");
 		assert.match(document.documentElement.style.getPropertyValue("--font-prose"), /Georgia/);
