@@ -3,7 +3,7 @@
 Last updated: 2026-11-13
 Branch: `integrate/upstream-0.6`
 Base merge commit: `6cc02786`
-Latest committed head: `6a97b3f4`
+Latest committed head: `f6dcc4e2`
 
 This file is the source of truth for the in-progress upstream integration. Read it
 before touching the branch. The session/harness has a habit of cutting long shell
@@ -90,6 +90,14 @@ Twig while keeping the Twig implementations we chose to retain.
 - `55d0433b`: parked upstream `commit-input` tests (Twig ruling is Escape-discards).
 - `6a97b3f4`: allowed the draft-local image `id` in `parseComposerImages`; parked the
   combined host-markdown/plugin-owner fixture that hangs in linkedom.
+- `f6dcc4e2`: finished the plugin-host contract regressions:
+  - regenerated `docs/plugin-api/*` from the current Twig contracts;
+  - reserved Twig's file/web/media/capstone builtin tool names against plugins;
+  - projected live `content/details/isError` into tool parts for plugin renderers;
+  - used Twig's `x-twig-desktop` capability header in the document-route test;
+  - provided interaction layers/MutationObserver to model-label fixtures;
+  - skipped the two upstream tests that assume Escape-commits settings behavior and
+    the literal-LaTeX-in-code markdown fixture (Twig behavior documented in the test).
 
 ## Verification completed
 
@@ -111,7 +119,19 @@ Twig while keeping the Twig implementations we chose to retain.
 | Batch 2 (40 files) | 432 pass, 0 fail |
 | Batch 3 (40 files) | 417 pass, 28 fail — all in `tests/commit-input.test.tsx` (now parked) |
 | Batch 4a (files 121–140, excluding parked/headless) | 263 pass, 0 fail |
-| Batch 4b (files 141–160, excluding headless) | **not completed** — shell was interrupted |
+| Batch 4b (files 141–160, excluding headless) | groups green: 87 + 69 + 56 + 30; `host-markdown-math` second case skipped |
+| Batch 5a (files 161–170) | 157 pass, 0 fail |
+| Batch 5b (files 171–180) | 109 pass, 0 fail |
+| Batch 5c (files 181–190) | initially 3 fixture failures; `model-provider-labels` fixed → 10/10 |
+| Batch 5d (files 191–200) | 146 pass, 0 fail |
+| Batch 6a (files 201–210) | 108 pass + 1 skipped (`passive-tooltip` Escape-commits case) |
+| Batch 6b (files 211–220) | 145 pass, 0 fail |
+| Batch 6c (files 221–230) | plugin API reference stale; regenerated → 4/4 |
+| Batch 6d (files 231–240) | plugin contributions + document proxy fixed; plugin-renderers fixed |
+| Batch 7a (files 241–250) | interrupted by server restarts; individual plugin tests previously green |
+| Batch 7b (files 251–260) | 59 pass, 0 fail |
+| Batch 7c (files 261–270) | 196 pass, 0 fail |
+| Batch 7d (files 271–280) | 107 pass + 1 failure; `plugin-renderers` fixed → 14/14 |
 
 A full monolithic `npm test` was never completed: long shell calls are repeatedly cut
 by the harness/provider (no OOM; repo is committed and clean between attempts). Run the
@@ -119,8 +139,10 @@ suite in 40-file batches.
 
 ## Remaining work
 
-1. **Finish the test sweep** from file 141 onward (see command below). Fix real failures;
-   park only upstream-only behavior that conflicts with a Twig decision.
+1. **Finish the test sweep** from file 241 onward (see command below), then re-run the
+   earlier failing files. Most plugin tests have already passed individually; the
+   recent failures were fixed in `f6dcc4e2`. Fix real failures; park only upstream-only
+   behavior that conflicts with a Twig decision.
 2. **Audit `-X ours` losses** in non-feature files. The merge deliberately kept Twig on
    conflicts, so check upstream-only security/bug fixes that may have been dropped:
    - `electron/main.cjs` (external-link handling, browser-service isolation)
@@ -153,6 +175,8 @@ suite in 40-file batches.
 | --- | --- |
 | `commit-input.test.tsx` | Upstream expects Escape to commit; Twig's ruling is Escape discards. Twig settings/controls suites cover the retained behavior. |
 | `host-markdown.test.tsx` | Combined plugin-owner fixture hangs in linkedom; individual SSR/link/mermaid/highlighting cases pass, and plugin markdown is covered elsewhere. |
+| `host-markdown-math.test.tsx` (second case) | The literal-overescaped-LaTeX-in-code case hangs the linkedom pipeline; the exact determinant recovery pin remains active. |
+| `passive-tooltip.test.tsx` (one case) | Assumes upstream CommitInput Escape-commits; Twig's Escape discards. The other 10 tooltip/layer cases run. |
 | `side-chat.test.ts`, `side-chat-*`, `side-conversation-*`, `side-plugin-*`, `side-thread-*`, `use-side-thread-*` | Upstream floating side companion; Twig keeps inline side questions. |
 | `headless-isolation.test.ts` | Upstream isolated-page browser service; Twig keeps its own sandboxed browser-service profile and native SVG rasterizer. |
 
@@ -165,22 +189,22 @@ npx tsc --noEmit
 npm run lint
 ```
 
-Run the remaining tests in batches. Example for the next 40-file window:
+Run the remaining tests in small batches. The server restarted repeatedly during this
+session; 5-file chunks are the most reliable. Example for the next window:
 
 ```sh
-bash -c 'mapfile -t files < <(ls tests/*.test.ts tests/*.test.tsx | sed "s|tests/||" | sort | sed -n "141,180p" | grep -v "headless" | sed "s|^|tests/|"); NODE_ENV=test timeout 120 npx tsx --test "${files[@]}"'
+bash -c 'mapfile -t files < <(ls tests/*.test.ts tests/*.test.tsx | sed "s|tests/||" | sort | sed -n "241,245p" | sed "s|^|tests/|"); NODE_ENV=test timeout 45 npx tsx --test "${files[@]}"'
 ```
 
-Then continue with `sed -n "181,220p"`, etc. Do not run one giant `npm test`; it gets
+Then continue with `sed -n "246,250p"`, etc. Do not run one giant `npm test`; it gets
 cut by the harness. A detached batch runner exists at
-`/tmp/opencode/run-all-tests.sh` but it may be killed on session/provider restart.
+`/tmp/opencode/run-all-tests.sh` but it is also killed on session/provider restart.
 
 ## Current working-tree note
 
-At the time this file was written, `tests/external-links.test.ts` had an uncommitted
-fix: the fake Electron fixture now provides `nativeTheme`, and the blocked-link log
-test matches Twig's `openExternal refused:` wording. Commit it before continuing if
-`git status` still shows it.
+The external-links fixture fix is committed in `b530fba5`/`f6dcc4e2`. If
+`git status` shows anything else, inspect it before continuing; the handoff should be
+the only deliberate working-tree artifact.
 
 ## Key files added/changed
 
