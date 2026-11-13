@@ -111,7 +111,7 @@ describe("proxy", () => {
 
 	it("keeps the desktop path unchanged: the secret decides, not Host or Origin", () => {
 		withEnv({ LH_DESKTOP_SERVER: "1", LH_DESKTOP_API_SECRET: secret, LH_ALLOWED_HOSTS: undefined }, () => {
-			const viaGateway = proxy(new NextRequest("http://mymac.local:4747/api/chats", { method: "POST", headers: { "x-learnharness-desktop": secret } }));
+			const viaGateway = proxy(new NextRequest("http://mymac.local:4747/api/chats", { method: "POST", headers: { "x-twig-desktop": secret } }));
 			assert.equal(viaGateway.headers.get("x-middleware-next"), "1");
 			assert.equal(proxy(new NextRequest("http://127.0.0.1:3000/api/chats", { method: "POST" })).status, 403);
 		});

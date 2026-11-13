@@ -17,6 +17,7 @@ import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai"
 import { BriefCard, EvaluateCard, GapReportCard, ReviewCard } from "../components/capstone-cards.tsx";
 import { SessionRow } from "../components/sidebar.tsx";
 import { DraftShell, startDraftSession } from "../components/new-session.tsx";
+import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
 import { CAPSTONE_PICK_HINT } from "../components/composer-actions.tsx";
 import {
 	parseBriefInput,
@@ -252,7 +253,7 @@ describe("capstone draft", () => {
 	});
 
 	it("empty state and pick pill say picks are required", () => {
-		const html = renderToStaticMarkup(<DraftShell busy={false} text="" onChange={() => {}} onSend={() => {}} mode="capstone" picks={[]} />);
+		const html = renderToStaticMarkup(<InteractionLayersProvider><DraftShell busy={false} text="" onChange={() => {}} onSend={() => {}} mode="capstone" picks={[]} /></InteractionLayersProvider>);
 		assert.match(html, /New capstone/);
 		assert.match(html, /pitch what you would build/);
 		assert.ok(html.includes(CAPSTONE_PICK_HINT));
@@ -260,9 +261,9 @@ describe("capstone draft", () => {
 	});
 
 	it("send is disabled with text but no picks, enabled once a node is picked", () => {
-		const off = renderToStaticMarkup(<DraftShell busy={false} text="a task cli" onChange={() => {}} onSend={() => {}} mode="capstone" picks={[]} />);
+		const off = renderToStaticMarkup(<InteractionLayersProvider><DraftShell busy={false} text="a task cli" onChange={() => {}} onSend={() => {}} mode="capstone" picks={[]} /></InteractionLayersProvider>);
 		const on = renderToStaticMarkup(
-			<DraftShell busy={false} text="a task cli" onChange={() => {}} onSend={() => {}} mode="capstone" picks={[{ id: "n_1", name: "N", statement: "S" }]} />,
+			<InteractionLayersProvider><DraftShell busy={false} text="a task cli" onChange={() => {}} onSend={() => {}} mode="capstone" picks={[{ id: "n_1", name: "N", statement: "S" }]} /></InteractionLayersProvider>,
 		);
 		const sendButton = (html: string) => /<button[^>]*aria-label="Send"[^>]*>/.exec(html)?.[0] ?? "";
 		assert.match(sendButton(off), /\sdisabled(=|\s|>)/);

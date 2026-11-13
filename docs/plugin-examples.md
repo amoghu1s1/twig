@@ -109,7 +109,7 @@ and copies required assets/notices. Build cleanup refuses symlinked `dist/` and
 misplaced `dist/data/` and preserves sibling `data/`. It does not start/build the host,
 install/enable a plugin, call a model or update Core code. For a newly identified
 Community fork or UI Showcase, follow the [Community installation guide](plugin-authoring.md#package-and-installation);
-do not install the four reserved-ID references.
+do not install the upstream reference packages as Community copies.
 
 ## Reading routes
 

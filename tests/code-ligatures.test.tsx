@@ -77,6 +77,11 @@ it("the Appearance switch preserves siblings, applies immediately through the pr
     previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
   }
+  Object.defineProperty(dom.window, "matchMedia", { configurable: true, value: (query: string) => ({
+    matches: false, media: query, onchange: null,
+    addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {},
+    dispatchEvent() { return false; },
+  }) });
   const { createRoot } = await import("react-dom/client");
   const root = createRoot(document.getElementById("root")!);
   const writes: AppearanceSettings[] = [];

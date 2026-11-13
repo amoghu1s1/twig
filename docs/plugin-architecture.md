@@ -14,8 +14,9 @@ plugin API is not a filesystem/network sandbox or resource-isolation guarantee.
 The host owns package identity/compatibility, enable state, lifetimes, native session
 contracts, persistence/admission and credential transport. Plugins own feature data,
 prompts, tools, presentation, algorithms and product policy. Official and externally
-installed plugins use the same host/APIs. No special Flashcards, Coding Questions or
-Drawing Pad domain logic belongs in host infrastructure.
+installed plugins use the same host/APIs. Upstream keeps no special Core-plugin domain
+logic in host infrastructure; Twig's native FSRS, code exercises and drawing board are
+host features and intentionally sit outside this plugin boundary.
 
 Backend learning APIs share native record interpretation and are read-only, not mandatory
 filesystem access control. Cross-file reads are not transactional. Native user-driven
