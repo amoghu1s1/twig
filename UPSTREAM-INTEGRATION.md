@@ -32,7 +32,12 @@ Latest code/test head: `253dc976` (later commits are docs only)
 - Batch 8q (files 361–365): **91 pass, 0 fail**.
 - Batch 8r (files 366–370): **128 pass, 0 fail**.
 - Batch 8s (files 371–375): **34 pass, 0 fail**.
-- Next sweep position: file **376**. No test/build processes remain.
+- Batch 9a (files 376–380): **155 pass, 0 fail**.
+- Batch 9b (files 381–385): 28 pass + 6 fail; `370de818` restored six
+  Turbopack opt-outs for Twig runtime paths, `4591fc37` aligned the net-guard
+  refusal assertions → **34 pass, 0 fail**.
+- Batch 9c (files 386–390): **49 pass, 0 fail**.
+- Next sweep position: file **391**. No test/build processes remain.
 
 ### Gate audit: `tests/desktop-payload.test.ts` (Ops static audit)
 
