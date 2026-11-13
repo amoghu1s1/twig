@@ -118,7 +118,7 @@ function boot() {
 		loadURL(url: string) { windows.push(url); }
 	}
 	const electron = {
-		app, BrowserWindow: FakeWindow, nativeTheme: { themeSource: "system" }, ipcMain: Object.assign(new EventEmitter(), { handle() {} }),
+		app, BrowserWindow: FakeWindow, nativeTheme: Object.assign(new EventEmitter(), { themeSource: "system", shouldUseDarkColors: false }), ipcMain: Object.assign(new EventEmitter(), { handle() {} }),
 		Menu: { buildFromTemplate() {}, setApplicationMenu() {} },
 		session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} } },
 	};

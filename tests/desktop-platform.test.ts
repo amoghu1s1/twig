@@ -45,7 +45,7 @@ describe("desktop development startup", () => {
 	it("does not open the window until the development server responds", async () => {
 		const devUrl = "http://localhost:3000";
 		const loaded: string[] = [];
-		let respond: ((response: { statusCode: number; resume(): void }) => void) | undefined;
+		let respond: (() => void) | undefined;
 		class FakeWindow {
 			static getAllWindows() { return []; }
 			webContents = { on() {}, setWindowOpenHandler() {} };
@@ -55,7 +55,7 @@ describe("desktop development startup", () => {
 		const electron = {
 			app: {
 				setName() {}, getPath: () => "/fixture/LearnHarness", setPath() {},
-				requestSingleInstanceLock: () => false, quit() {}, on() {}, whenReady: async () => {},
+				requestSingleInstanceLock: () => false, quit() {}, on() {}, once() {}, removeListener() {}, whenReady: async () => {},
 			},
 			BrowserWindow: FakeWindow,
 			nativeTheme: { shouldUseDarkColors: true, themeSource: "system", on() {} },
@@ -67,22 +67,24 @@ describe("desktop development startup", () => {
 			require: (id: string) => {
 				if (id === "electron") return electron;
 				if (id === "node:fs") return { mkdirSync() {}, appendFileSync() {} };
-				if (id === "node:http") return { get: (url: string, callback: typeof respond) => {
-					assert.equal(url, devUrl);
-					respond = callback;
-					return { on() {} };
-				} };
+				if (id === "./dev-server-readiness.cjs") return {
+					waitForDevServer: (url: string) => new Promise<void>((resolve) => {
+						assert.equal(url, devUrl);
+						respond = resolve;
+					}),
+				};
 				return mainRequire(id);
 			},
 			process: { platform: "linux", argv: [], env: { LH_DEV_URL: devUrl }, on() {} },
 			__dirname: dirname(mainFile),
+			AbortController,
 		};
 		runInNewContext(mainSource, context, { filename: mainFile });
 		const boot = runInNewContext("main()", context) as Promise<void>;
 		await new Promise<void>(resolve => setImmediate(resolve));
 		assert.deepEqual(loaded, [], "a slow server must not leave a failed navigation in the window");
 		assert.ok(respond, "startup probes the configured development server");
-		respond({ statusCode: 200, resume() {} });
+		respond();
 		await boot;
 		assert.deepEqual(loaded, [devUrl], "the window navigates once the server responds");
 	});
@@ -328,7 +330,7 @@ describe("desktop release workflow", () => {
 			assert.ok(native);
 			assert.ok(native.run?.startsWith("npx electron --import tsx --test "));
 			assert.equal(native.env?.ELECTRON_RUN_AS_NODE, "1");
-			assert.ok(steps.some(step => step.run === "node scripts/smoke-server.mjs --electron"));
+			assert.ok(steps.some(step => step.run === "node scripts/smoke-server.mjs --electron --isolated"));
 		}
 	});
 
