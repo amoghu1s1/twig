@@ -232,7 +232,7 @@ is the client's own grouping fold (core/view.ts, Wave D) — a pending quiz
 is an unanswered question tool call, which is exactly what makes
 resume-mid-question free.
 
-The session's kind (practice sessions, owner): "teach" is
+The session's kind (practice sessions): "teach" is
 the default and ABSENT on pre-practice records (no migration — absence
 reads as teach); "practice" marks an adaptive-practice session — the
 practice agent, its two tools, no extraction, no graph writes.
@@ -449,7 +449,7 @@ attachments?: AttachmentRecord[];
 
 ### ChatRecord version
 
-SCHEMA STAMP (schema-versioning wave, owner): LAZY v1 —
+SCHEMA STAMP (schema-versioning wave): LAZY v1 —
 existing records stay unstamped (absence reads as v1); every write
 stamps the current version. A record stamped NEWER than this build
 (the downgrade scenario) is REFUSED on read: a read-modify-write
