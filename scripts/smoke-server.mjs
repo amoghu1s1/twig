@@ -82,6 +82,42 @@ function get(url) {
 	});
 }
 
+/** One GET with its body, for artifact probes. */
+function getBytes(url) {
+	return new Promise((resolve) => {
+		const req = http.get(url, (res) => {
+			const chunks = [];
+			res.on("data", (chunk) => chunks.push(chunk));
+			res.on("end", () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks) }));
+		});
+		req.on("error", () => resolve({ status: 0, body: Buffer.alloc(0) }));
+		req.setTimeout(5000, () => {
+			req.destroy();
+			resolve({ status: 0, body: Buffer.alloc(0) });
+		});
+	});
+}
+
+/** Read a stored entry from the authoring ZIP (the builder emits ZIP32 stored entries). */
+function zipEntry(zip, name) {
+	let offset = 0;
+	while (offset + 30 <= zip.length && zip.readUInt32LE(offset) === 0x04034b50) {
+		const method = zip.readUInt16LE(offset + 8);
+		const size = zip.readUInt32LE(offset + 18);
+		const nameLength = zip.readUInt16LE(offset + 26);
+		const extraLength = zip.readUInt16LE(offset + 28);
+		const start = offset + 30;
+		const entryName = zip.subarray(start, start + nameLength).toString("utf8");
+		const dataStart = start + nameLength + extraLength;
+		if (entryName === name) {
+			if (method !== 0) throw new Error(`authoring ZIP entry ${name} is compressed; expected a stored entry`);
+			return zip.subarray(dataStart, dataStart + size);
+		}
+		offset = dataStart + size;
+	}
+	return null;
+}
+
 /** The code-exercise runtime: the standalone server must serve Pyodide's
  *  largest file WITH the CORS header its opaque-origin sandbox iframe needs
  *  (next.config.ts headers()). Resolves a problem string, or null when fine. */
@@ -224,7 +260,21 @@ registerHooks({resolve(specifier,context,next){ const result=next(specifier,cont
 		await verifyPluginServer(url, home);
 		console.log("[smoke-server] plugin host and Core plugin payload verified");
 
-		// 5) Optional browser proof: the live plugin UI loads in a loopback
+		// 5) Authoring download: the served ZIP is non-empty and its bundle
+		//    metadata matches this package version.
+		const authoringZip = await getBytes(`${url}/plugin-authoring/learnharness-plugins.zip`);
+		if (authoringZip.status !== 200) throw new Error(`GET /plugin-authoring/learnharness-plugins.zip → ${authoringZip.status} (expected 200)`);
+		if (authoringZip.body.length === 0) throw new Error("GET /plugin-authoring/learnharness-plugins.zip returned an empty body");
+		const bundleEntry = zipEntry(authoringZip.body, "learnharness-plugins/bundle.json");
+		if (!bundleEntry) throw new Error("authoring ZIP is missing learnharness-plugins/bundle.json");
+		const authoringBundle = JSON.parse(bundleEntry.toString("utf8"));
+		const packageVersion = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version;
+		if (authoringBundle.appVersion !== packageVersion) {
+			throw new Error(`authoring bundle appVersion ${authoringBundle.appVersion} does not match package ${packageVersion}`);
+		}
+		console.log(`[smoke-server] GET /plugin-authoring/learnharness-plugins.zip → 200 (${authoringZip.body.length} bytes, appVersion ${packageVersion})`);
+
+		// 6) Optional browser proof: the live plugin UI loads in a loopback
 		//    browser with every off-origin request blocked. --browser is a
 		//    manual gate; CI/release run the HTTP boot without it.
 		if (BROWSER_MODE) {
