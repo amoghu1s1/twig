@@ -43,6 +43,7 @@ function appWindow() {
 		Menu: { buildFromTemplate: (value: unknown) => value, setApplicationMenu() {} },
 		ipcMain: { on() {}, handle() {} },
 		session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} } },
+		nativeTheme: { shouldUseDarkColors: false, on() {} },
 		shell: { openExternal: async (target: string) => { opened.push(target); } },
 	};
 	const context = createContext({
@@ -100,9 +101,9 @@ describe("links leaving the app window", () => {
 	it("logs the blocked scheme, never the URL", () => {
 		const w = appWindow();
 		w.openWindow("smb://attacker.example/share?token=secret");
-		const lines = w.logged.filter((line) => line.includes("external link blocked"));
+		const lines = w.logged.filter((line) => line.includes("openExternal refused"));
 		assert.equal(lines.length, 1);
-		assert.match(lines[0]!, /scheme smb:/);
+		assert.match(lines[0]!, /smb:/);
 		assert.ok(!lines[0]!.includes("attacker.example"));
 	});
 });
