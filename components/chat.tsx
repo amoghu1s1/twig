@@ -1,10 +1,12 @@
 "use client";
 
 import { createContext, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useChatSession } from "@/components/session";
 import { editableUserMessage, visibleQueuedSteers } from "@/components/session-core";
 import { SetupDialog } from "@/components/setup-dialog";
 import { Hint } from "@/components/ui/hint";
+import { cn } from "@/lib/utils";
 import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
 import { useStickToBottomContext, type StickToBottomContext } from "use-stick-to-bottom";
 import {
@@ -18,7 +20,7 @@ import { PathText } from "@/components/file-path-chip";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { BrailleSpinner } from "@/components/braille-spinner";
-import { LiveToolCard } from "@/components/artifacts/live-tool-card";
+import { ToolPartRenderer } from "@/components/plugin-renderers";
 import { Separator } from "@/components/ui/separator";
 import { AnsweredCard } from "@/components/answered-card";
 import { MalformedQuestion } from "@/components/malformed-question";
@@ -31,10 +33,13 @@ import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { dockStateKey } from "@/components/dock-state-key";
 import { clearOpeningPrompt, readOpeningPromptEntry, stashOpeningPrompt, OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { forwardDockWheel, useDockHeight } from "@/components/dock-height";
+import { createDockMorph } from "@/components/dock-morph";
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
 import { EditMessageButton } from "@/components/edit-message";
 import { DictationBar, finishDictation, joinDictation, useDictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
+import { useOptionalInteractionLayers } from "./interaction-layers";
+import { isInteractionScopeEligible } from "./plugin-input-focus";
 import { JobsContext } from "@/components/jobs-context";
 import { StatsBar } from "@/components/stats-bar";
 import { useServerEvent, useServerResync } from "@/components/server-events";
@@ -44,6 +49,8 @@ import {
 	cliContextWindowOf,
 	latestReadablePassage,
 	messageAnchorId,
+	sideEntryPoints,
+	sideSegmentId,
 	textPartMessageId,
 	kbdEventForAction as kbdEventForChat,
 	type ChatInput,
@@ -53,7 +60,7 @@ import {
 } from "@/src/core";
 import { PlanBlock, PlanPopup, latestTree } from "@/components/plan-block";
 import { PlanMarginalia, planExists } from "@/components/plan-window";
-import { MermaidOverlay, SessionMermaidContext } from "@/components/session-overlay";
+import { MermaidOverlay, SessionMermaidContext, type SessionImage } from "@/components/session-overlay";
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
 import { ArrowRightIcon, BookOpenIcon, DumbbellIcon, HammerIcon, WaypointsIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -65,7 +72,11 @@ import { SessionFind, sessionFindHasForegroundLayer } from "@/components/session
 import { scrollSessionToBottom, scrollSessionToTop, SessionMessageNavigation } from "@/components/session-navigation";
 import { SentenceReader, SentenceReaderButton } from "@/components/sentence-reader";
 import { PracticeDock } from "@/components/practice-dock";
-import { ThinkingCard, type PracticeThinkingData } from "@/components/practice-cards";
+import { PluginProblemDock, type PluginProblemDockProps } from "./plugin-problem-dock";
+import { practiceProblemForCall } from "@/src/core";
+import { PluginProblemSubmitted } from "./plugin-problem-submitted";
+import { readPluginProblemSubmission, pluginProblemById } from "@/src/core";
+import { ThinkingCard, ProblemCard, type PracticeThinkingData } from "@/components/practice-cards";
 import { GraphContextCard, type GraphContextData } from "@/components/graph-context-card";
 import { TopBar } from "@/components/top-bar";
 import { ReadingsTray, useReadingsTray } from "@/components/readings/readings-tray";
@@ -251,6 +262,17 @@ function SystemLine({ children, testId }: { children: React.ReactNode; testId?: 
 	);
 }
 
+/** One immediate optimistic placeholder; only its wording changes during
+ * host-managed submission evaluation. The spinner keeps its identity. */
+export function PendingTurnIndicator({ evaluating }: { evaluating: boolean }) {
+	return (
+		<span className="flex items-center gap-2 font-ui text-xs font-medium uppercase tracking-wide text-muted-foreground">
+			<BrailleSpinner label={evaluating ? "Evaluating" : "Thinking"} />
+			<Shimmer duration={1}>{evaluating ? "EVALUATING…" : "THINKING…"}</Shimmer>
+		</span>
+	);
+}
+
 function isSubagentSteer(m: LhViewMessage): boolean {
 	return (m.metadata as { subagentResult?: unknown } | undefined)?.subagentResult != null;
 }
@@ -336,9 +358,45 @@ export function Chat({
 	const { messages, nativeMessages, hasConfirmedConversation, contextTokens, send, continueIfOwed, steer, editSteer, rewind, steerQueue, submitAnswer, dismissQuestion, dismissProblem, questionDraft, saveQuestionDraft, setMessages, adoptRecord, status, error, stop, clearError, resumeStream, setReattachSettled } =
 		useChatSession({ chatId, initialMessages, initialError, initiallyInFlight });
 
+	const controller = useOptionalInteractionLayers();
 	const sessionFindScopeRef = useRef<HTMLDivElement | null>(null);
+	const pathname = usePathname();
+	const surfaceTarget = usePageSurfaceBoundary({ active: pathname === `/chat/${encodeURIComponent(chatId)}`, viewKey: chatId, bodyRef: sessionFindScopeRef });
+	const { manager: pluginManager } = usePlugins();
+	const [, submissionChanged] = useState(0);
+	const [preparationError, setPreparationError] = useState<string>();
+	const [submissionRunner] = useState(() => new PluginSubmissionRunner(() => submissionChanged(n => n + 1)));
+	const [submissionModel] = useState(() => new SubmissionModelEpoch());
+	const submissionMounted = useRef(true);
+	useEffect(() => { submissionMounted.current = true; return () => { submissionMounted.current = false; submissionRunner.dispose(); }; }, [submissionRunner]);
+	useEffect(() => () => submissionRunner.dispose(), [surfaceTarget, submissionRunner]);
+	const inputViewReader = useRef<(() => PluginSessionViewInput) | null>(null) as SessionInputViewReader;
+	const refreshPluginActions = useRef<(() => void) | null>(null);
+	const notifyViewChanged = useCallback(() => { if (submissionMounted.current) refreshPluginActions.current?.(); }, []);
+	inputViewReader.changed = notifyViewChanged;
+	const submissionLive = useRef({ nativeMessages, surfaceTarget, ready: true });
+	submissionLive.current = { nativeMessages, surfaceTarget, ready: true };
+	const runSubmission = async (target: PluginSubmissionTarget, capture: () => PluginSubmission | Promise<PluginSubmission>, current: () => boolean, deliver: (prepared: PluginSubmission, attempt: SubmissionAttempt) => Promise<boolean>): Promise<boolean> => {
+		const modelRevision = submissionModel.capture();
+		const attempt = submissionRunner.begin(target, pluginManager?.captureSubmissionInterceptors() ?? [], () => submissionMounted.current && submissionModel.isCurrent(modelRevision) && submissionLive.current.surfaceTarget === target.surfaceTarget && !!findSurfaceBoundary(target.surfaceTarget) && current());
+		if (!attempt) return false;
+		setPreparationError(undefined);
+		try {
+			const input = await attempt.finalize(async () => { await finishDictation(); return capture(); });
+			const prepared = await attempt.prepare(input, submissionLive.current.nativeMessages);
+			if (!prepared) return false;
+			attempt.check();
+			return await deliver(prepared, attempt);
+		} catch (error) {
+			attempt.cancel(); attempt.refused();
+			if (!(error instanceof DOMException && error.name === "AbortError")) setPreparationError(attempt.preparationFailure(error).message);
+			return false;
+		}
+	};
+	const textTarget = (): Extract<PluginSubmissionTarget, { type: "text" }> | undefined => surfaceTarget ? { type: "text", sessionId: chatId, sessionKind: kind === "practice" ? "practice" : "teaching", surfaceTarget, channels: ["content"] } : undefined;
 	const scrollContextRef = useRef<StickToBottomContext | null>(null);
 	const sourceTextParts = useMemo(() => firstSourceTextParts(messages), [messages]);
+	const sideEntries = useMemo(() => sideEntryPoints(nativeMessages, messages), [nativeMessages, messages]);
 
 	// The reattach settled terminal → the sync-and-continue seam (below).
 	setReattachSettled(() => reattachSettledRef.current());
@@ -401,12 +459,13 @@ export function Chat({
 	// F2 opens the title rename (the chat header owns the editing state).
 	useEffect(() => {
 		const onRename = () => {
+			if (!isInteractionScopeEligible(sessionFindScopeRef.current, controller)) return;
 			setTitleDraft(titleText);
 			setRenaming(true);
 		};
 		window.addEventListener("lh:kbd-rename-session", onRename);
 		return () => window.removeEventListener("lh:kbd-rename-session", onRename);
-	}, [titleText]);
+	}, [titleText, controller]);
 
 	// The OTHER rename surface (wave 6: the sidebar's inline rename): its
 	// commit dispatches the same lh:chat-renamed event this header's rename
@@ -459,14 +518,16 @@ export function Chat({
 		const onAbort = (e: Event) => {
 			const target = escAbortTarget({
 				abortAsk: abortAskRef.current !== null,
+				sideThread: sideThreadOpenRef.current,
 				mermaidFocus: mermaidFocusRef.current !== null || figureFocusRef.current !== null,
 				planOpen: planOpenRef.current,
 				setupOpen: setupOpenRef.current,
-				pending: pendingRef.current !== null,
+				pending: pendingRef.current !== null || pluginQuestion !== null,
 				problem: activeProblemRef.current !== null,
 				busy: busyRef.current,
 			});
-			if (target === "question") setAbortAsk("question");
+			if (target === "side-thread") closeSideThreadRef.current();
+			else if (target === "question") { pluginAbortTarget.current = pluginQuestion; setAbortAsk("question"); }
 			else if (target === "problem") setAbortAsk("problem");
 			else if (target === "turn") setAbortAsk("turn");
 			else if (target === "mermaid") setMermaidFocus(null);
@@ -478,7 +539,7 @@ export function Chat({
 		};
 		window.addEventListener("lh:kbd-abort-turn", onAbort);
 		return () => window.removeEventListener("lh:kbd-abort-turn", onAbort);
-	}, []);
+	}, [controller]);
 	const confirmAbort = useCallback(
 		(mode: AbortMode) => {
 			setAbortAsk(null);
@@ -530,7 +591,7 @@ export function Chat({
 				if (busyRef.current) abortInFlightTurn();
 			}
 		},
-		[abortInFlightTurn, dismissQuestion, dismissProblem],
+		[abortInFlightTurn, dismissQuestion, dismissProblem, closeAbortAsk],
 	);
 	// Mount continuation: if the stored transcript ends with a fulfilled tool
 	// (a job result landed while no client was open), resume the lesson — the
@@ -566,7 +627,7 @@ export function Chat({
 	activeProblemRef.current = activeProblem;
 
 	const localStream = status === "submitted" || status === "streaming";
-	const busy = localStream || turnInFlight;
+	const busy = localStream || turnInFlight || reconciliation !== "ready";
 	const busyRef = useRef(busy);
 	busyRef.current = busy;
 	// The attach handoff (stream-reattach wave): the moment a resumed
@@ -615,7 +676,7 @@ export function Chat({
 	// A pending question can never precede its phase's seam in the transcript (the teacher's turn
 	// ends at the question call), so the session's current phase IS the
 	// question's phase.
-	const requiresReveal = pending !== null && questionNeedsReveal(pending.tool, pending.input, phaseAt3(messages));
+	const requiresReveal = pendingPlugin ? pendingPlugin.variant === "teach" && pendingPlugin.input.type === "check" : pending !== null && questionNeedsReveal(pending.tool, pending.input, phaseAt3(messages));
 
 	/* The READING-THINKING channel (owner 2026-10-03): a draft field for
 	 * thinking while reading the teaching prose, mounted while a check waits
@@ -628,10 +689,12 @@ export function Chat({
 	// thinking row to one state — transcript rows default open, so the
 	// first press collapses everything, the second re-expands.
 	useEffect(() => {
-		const onToggle = () => setAllUserThinkingOpen(!currentUserThinkingOpen());
+		const onToggle = () => {
+			if (isInteractionScopeEligible(sessionFindScopeRef.current, controller)) setAllUserThinkingOpen(!currentUserThinkingOpen());
+		};
 		window.addEventListener(kbdEventForChat("toggle-user-thinking"), onToggle);
 		return () => window.removeEventListener(kbdEventForChat("toggle-user-thinking"), onToggle);
-	}, []);
+	}, [controller]);
 	const applyReadingThinking = useCallback((v: string) => {
 		readingThinkingRef.current = v;
 	}, []);
@@ -639,18 +702,18 @@ export function Chat({
 		readingThinkingRef.current = "";
 		setReadingThinkingSeed((previous) => ({ ...previous, value: "", revision: previous.revision + 1 }));
 	}, []);
-	const pendingQuestionId = pending?.key ?? null;
+	const pendingQuestionId = pendingPlugin ? pluginQuestionOccurrenceKey(pendingPlugin.occurrence) : pending?.key ?? null;
 	useLayoutEffect(() => {
 		// Different calls never share a draft; a failed submission of THIS
 		// call restores the reading channel alongside the form's snapshot.
-		const value = pendingQuestionId ? questionDraft(pendingQuestionId)?.readingThinking ?? "" : "";
+		const value = pendingPlugin ? pluginQuestionDraft(pendingPlugin).readingThinking : pendingQuestionId ? questionDraft(pendingQuestionId)?.readingThinking ?? "" : "";
 		readingThinkingRef.current = value;
 		setReadingThinkingSeed((previous) =>
 			previous.questionId === pendingQuestionId && previous.value === value
 				? previous
 				: { questionId: pendingQuestionId, value, revision: previous.revision + 1 },
 		);
-	}, [pendingQuestionId, questionDraft]);
+	}, [pendingQuestionId, questionDraft, pluginQuestionDraft]);
 
 	// The phase at every message (one linear fold): the transcript draws a
 	// color-coded dotted divider at each boundary; the header chip reads the
@@ -664,12 +727,13 @@ export function Chat({
 	 * read the latest text without a parent render per input event. Explicit
 	 * resets still bump a revision so the local field can sync. */
 	const textRef = useRef("");
+	const composerEditRevision = useRef(0);
 	const applyText = useCallback((v: string) => {
-		textRef.current = v;
+		textRef.current = v; composerEditRevision.current++;
 		setComposerDraftRevision((revision) => revision + 1);
 	}, []);
 	const recordComposerText = useCallback((v: string) => {
-		textRef.current = v;
+		textRef.current = v; composerEditRevision.current++;
 	}, []);
 	// Saved slot completeness is live, but the session's selected route
 	// comes from its own ordinary model control, never today's Strong pin.
@@ -677,6 +741,7 @@ export function Chat({
 	const catalogRef = useRef(catalog);
 	catalogRef.current = catalog;
 	const [selectedModel, setSelectedModel] = useState<string | undefined>();
+	const recordSelectedModel = useCallback((model: string | undefined) => { submissionModel.observe(model); setSelectedModel(model); }, [submissionModel]);
 	const [setupOpen, setSetupOpen] = useState(false);
 	// Session context attachments: the record's list (the one Add context
 	// control uploads straight into it) + the composer's image draft.
@@ -745,7 +810,7 @@ export function Chat({
 				applyText(prompt);
 			}
 		});
-	}, [chatId, send, applyText]);
+	};
 
 	const sentInitial = useRef(false);
 	useEffect(() => {
@@ -821,11 +886,8 @@ export function Chat({
 		// record refetch (the honest truth minus the refused send).
 		let cancelled = false;
 		void (async () => {
-			const res = await fetch(`/api/chats/${encodeURIComponent(chatId)}`);
-			if (!cancelled && res.ok) {
-				const record = (await res.json().catch(() => null)) as { messages?: LhMessage[] } | null;
-				if (Array.isArray(record?.messages)) setMessages(record.messages);
-			}
+			try { await readRecord({ isCurrent: () => !cancelled }); }
+			catch { /* refusal handling still restores the draft on a failed read */ }
 			if (cancelled) return;
 			if (draftRef.current) {
 				applyText(draftRef.current.text);
@@ -839,9 +901,9 @@ export function Chat({
 		return () => {
 			cancelled = true;
 		};
-		// (setMessages/clearError are stable per useChat instance — the
+		// (readRecord/clearError are stable per useChat instance — the
 		//  dep pair [error, chatId] is what the flow actually keys on.)
-	}, [error, chatId]);
+	}, [error, chatId, readRecord]);
 	// Voice dictation (STT wave, 2026-09-17): finals append at the end of
 	// the current text (the page owns the separator, dictate-flush style);
 	// interims ghost in the stats bar's middle slot next to the meter.
@@ -861,11 +923,18 @@ export function Chat({
 		];
 	}, []);
 	useFieldCycle(cycleChatFields);
-	const dictation = useDictation({
+	const recording = useDictation({
 		// Ref-first (see textRef): the join is computed from the mirror so a
 		// send resuming after `await finish()` reads the dictated tail.
-		append: (t) => applyText(joinDictation(textRef.current, t)),
+		append: (t) => { if (!pluginOwnsDock) applyText(joinDictation(textRef.current, t)); },
+		disabled: pluginOwnsDock && !pluginMicAvailable,
 	});
+	const dictation: Dictation = { ...recording,
+		phase: recording.destinationId === "main" ? recording.phase : "idle",
+		active: recording.destinationId === "main" && recording.active,
+		error: recording.destinationId === "main" ? recording.error : null,
+		blocked: recording.destinationId !== "main" && recording.active,
+	};
 	/* When a dictation run ends, the bare composer takes focus (owner
 	 * 2026-10-01) — the hands are already on the keyboard from the stop.
 	 * Falling edge of `active` only (idle→idle never focuses), and ONLY the
@@ -873,14 +942,123 @@ export function Chat({
 	 * is null, and the thinking field is left alone by design. */
 	const dictationWasActiveRef = useRef(false);
 	const composerInputRef = useRef<HTMLDivElement>(null);
+
+	// CITE (2026-10-31): selected tutor text → a citation chip in the
+	// composer, then its comment popover. The transcript's scroll element
+	// arrives late (StickToBottom attaches it), so it is reported up.
+	const [transcriptElement, setTranscriptElement] = useState<HTMLElement | null>(null);
+	const [citationEdit, setCitationEdit] = useState<CitationEditTarget | null>(null);
+	const lastCiteInputRef = useRef<HTMLElement | null>(null);
+	const citeInput = useCallback(() => {
+		const fields = cycleChatFields();
+		return fields.find((field) => field === lastCiteInputRef.current) ?? fields[0] ?? composerInputRef.current;
+	}, [cycleChatFields]);
+	useEffect(() => {
+		const remember = (event: FocusEvent) => {
+			const input = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-file-path-input]") : null;
+			if (input && cycleChatFields().includes(input)) lastCiteInputRef.current = input;
+		};
+		document.addEventListener("focusin", remember);
+		return () => document.removeEventListener("focusin", remember);
+	}, [cycleChatFields]);
+	const citeAction = useMemo(
+		() => createCiteAction({ chatId, composer: citeInput, openEditor: setCitationEdit }),
+		[chatId, citeInput],
+	);
+	// One durable companion per explanation/check, in teaching AND practice.
+	// Main requests append new raw exchanges from every thread; closing only hides the UI.
+	const workingRef = useRef("");
+	const sideThread = useSideThread(chatId, nativeMessages, () => {
+		// Plugin editors own opaque answer/submission values. Only host Thinking
+		// is safe helper context; read its live draft without introspecting the renderer.
+		if (pendingPlugin) return pendingPlugin.showThinking ? pluginQuestionDraft(pendingPlugin).thinking : "";
+		if (activeProblem?.pluginProblem) return pluginProblemDraft(activeProblem.pluginProblem).thinking;
+		return workingRef.current;
+	});
+	const sideNavigation = useRef(0);
+	const closeSideThread = useCallback(() => {
+		const id = sideThread.state?.threadId;
+		if (!id) return;
+		const navigation = ++sideNavigation.current;
+		void recording.finishFor(`side:${id}`).then(() => {
+			if (navigation === sideNavigation.current) sideThread.close(id);
+		});
+	}, [recording.finishFor, sideThread.state?.threadId, sideThread.close]);
+	const openSideThread = useCallback((args: SideThreadOpenArgs) => {
+		const navigation = ++sideNavigation.current;
+		const current = sideThread.state;
+		const source = args.sourceMessageId ?? args.passage?.sourceMessageId ?? (args.questionCallId ? nativeMessages.find((message) => message.role === "assistant" &&
+			message.content.some((block) => block.type === "toolCall" && block.id === args.questionCallId))?.id : undefined);
+		if (current && current.segmentId !== sideSegmentId(nativeMessages, source) && recording.active && recording.destinationId === `side:${current.threadId}`) {
+			void recording.finishFor(`side:${current.threadId}`).then(() => {
+				if (navigation === sideNavigation.current) sideThread.open(args);
+			});
+		} else sideThread.open(args);
+	}, [nativeMessages, recording.active, recording.destinationId, recording.finishFor, sideThread.open, sideThread.state]);
+	const goToCurrentSideStep = sideThread.state && sideThread.currentSegmentId && sideThread.state.segmentId !== sideThread.currentSegmentId
+		? () => openSideThread({ sourceMessageId: sideThread.currentSegmentId!, anchor: sideThread.state!.anchor }) : undefined;
+	const sideDictationFor = (id: string) => {
+		const destinationId = `side:${id}`;
+		const owns = recording.destinationId === destinationId;
+		return { phase: owns ? recording.phase : "idle" as const, active: owns && recording.active,
+			blocked: !owns && recording.active, error: owns ? recording.error : null, levelRef: recording.levelRef,
+			toggle: () => recording.toggleFor({ id: destinationId, append: (text) => sideThread.saveDraft(id, joinDictation(sideThread.draftFor(id), text), true) }),
+			finish: () => recording.finishFor(destinationId) };
+	};
+	const renderSideEntry = (sourceMessageId?: string) => {
+		if (!sourceMessageId) return null;
+		const hasHistory = sideThread.threads.some((thread) => thread.anchor.messageId === sourceMessageId && thread.messages.length > 0);
+		return <div className="mt-1 flex justify-end">
+			<Button type="button" variant="ghost" size="icon-xs" data-testid="side-conversation-button" data-side-segment-id={sourceMessageId}
+				data-has-history={hasHistory} aria-label={hasHistory ? "Open side conversation" : "Ask a side question"}
+				title={hasHistory ? "Open side conversation" : "Ask a side question"}
+				className={hasHistory ? "border border-border/60 text-muted-foreground" : "text-muted-foreground/40 hover:text-muted-foreground"}
+				onClick={(event) => openSideThread({ sourceMessageId, anchor: { kind: "element", element: event.currentTarget } })}>
+				<MessageCircleQuestionIcon aria-hidden className="size-3.5" fill="currentColor" fillOpacity={hasHistory ? 0.12 : 0} />
+			</Button>
+		</div>;
+	};
+	const sideThreadOpenRef = useRef(false);
+	sideThreadOpenRef.current = sideThread.state !== null;
+	const closeSideThreadRef = useRef(closeSideThread);
+	closeSideThreadRef.current = closeSideThread;
+	const toggleQuestionThread = useCallback(() => {
+		if (!isInteractionScopeEligible(sessionFindScopeRef.current, controller)) return;
+		if (sideThreadOpenRef.current) closeSideThreadRef.current();
+		else openSideThread({ anchor: { kind: "composer" }, questionCallId: pendingRef.current?.toolCallId });
+	}, [controller, openSideThread]);
+	useEffect(() => {
+		window.addEventListener(kbdEventForChat("toggle-question-thread"), toggleQuestionThread);
+		return () => window.removeEventListener(kbdEventForChat("toggle-question-thread"), toggleQuestionThread);
+	}, [toggleQuestionThread]);
+	// Advancing the lesson does not close or disable an old conversation.
+	const sideActions = useMemo(() => createSideQuestionActions({ open: openSideThread }), [openSideThread]);
+	const selectionActions = useMemo(() => [citeAction, ...sideActions], [citeAction, sideActions]);
+	const router = useRouter();
+	const transcriptElementRef = useRef<HTMLElement | null>(null);
+	transcriptElementRef.current = transcriptElement;
+	const citationActions = useMemo<CitationActions>(() => ({
+		editComment: (citation, source) => setCitationEdit({ citation, link: source.link, start: source.start, host: source.host, input: source.host.closest<HTMLElement>("[data-file-path-input]") ?? undefined }),
+		openSource: (citation) => {
+			const context = scrollContextRef.current;
+			revealCitationSource({
+				transcript: transcriptElementRef.current,
+				scroll: context ? { scrollRef: context.scrollRef, stopScroll: context.stopScroll } : null,
+				citation,
+				currentChatId: chatId,
+				navigate: (href) => router.push(href),
+			});
+		},
+	}), [chatId, router]);
 	useEffect(() => {
 		if (dictation.active) {
 			dictationWasActiveRef.current = true;
 		} else if (dictationWasActiveRef.current) {
 			dictationWasActiveRef.current = false;
-			composerInputRef.current?.focus();
+			// Do not steal focus from a helper or a newer interaction owner.
+			if (!document.activeElement?.closest('[data-testid="side-thread"]') && isInteractionScopeEligible(composerInputRef.current, controller)) composerInputRef.current!.focus();
 		}
-	}, [dictation.active]);
+	}, [dictation.active, controller]);
 
 	// Jobs never gate the composer (contracts.ts "THE ASYNC PROTOCOL" §4): job
 	// tools resolve with an ack mid-turn, so the learner can interject while
@@ -906,7 +1084,7 @@ export function Chat({
 	// and completed work, without another learner message. Offered from
 	// "error" too: a dropped stream leaves the model there, and send()
 	// recovers from it. Later compaction requires new input instead.
-	const retryable = (status === "ready" || status === "error") && !busy && !compacting && endsInFailedTurn(nativeMessages);
+	const retryable = !pluginOwnsDock && (status === "ready" || status === "error") && !busy && !compacting && endsInFailedTurn(nativeMessages);
 	const retryFailedTurn = () => retryFailedResponse(send, draftRef);
 	const sendAllowed = !pending && !activeProblem && !compacting && !uploading;
 
@@ -931,9 +1109,10 @@ export function Chat({
 		[kind, pending, activeProblem, compacting, busy, nativeMessages],
 	);
 	const sendNext = useCallback(() => {
-		if (!nextReady) return;
+		if (!nextReady || submissionRunner.occupied) return;
+		if (pendingTextInput) { void prepareText(); return; }
 		void send({ type: "next" });
-	}, [nextReady, send]);
+	}, [nextReady, send, submissionRunner, pendingTextInput]);
 
 	/* ENTER FROM ANYWHERE (owner round 16 refinement, 2026-10-06 —
 	 * keyboard-first): the move-on must not require composer focus. The
@@ -943,7 +1122,7 @@ export function Chat({
 	 * self-guards on nextReady, so the listener is inert outside the
 	 * pause — the dock-mounted listeners are gone by then (docks unmount
 	 * when nothing is active; the two never overlap). */
-	useEnterSubmits(sendNext);
+	useEnterSubmits(sendNext, sessionFindScopeRef);
 
 	const syncSeq = useRef(0);
 	const syncFromServer = useCallback(async () => {
@@ -1025,15 +1204,11 @@ export function Chat({
 	// full syncFromServer stays the net at idle (reorder, plan blocks, turns).
 	const adoptAppendOnly = useCallback(async () => {
 		try {
-			const res = await fetch(`/api/chats/${chatId}`);
-			if (!res.ok) return;
-			const record = (await res.json()) as { messages?: LhMessage[] };
-			if (!Array.isArray(record.messages)) return;
-			adoptRecord(record.messages);
+			await readRecord({ adoption: "append" });
 		} catch {
 			/* transient — the idle full sync is the net */
 		}
-	}, [chatId, adoptRecord]);
+	}, [readRecord]);
 
 	// Turn-start window: the server inserts claimed steers right after our
 	// outgoing message, BEFORE the stream produces anything — so a bounded,
@@ -1124,7 +1299,7 @@ export function Chat({
 	// Figure focus (2026-10-07): the figure card's fullscreen button — same
 	// overlay shell as mermaid, but carrying the raw svg + the card's invert
 	// state so the fullscreen view stays faithful to the toggled card.
-	const [figureFocus, setFigureFocus] = useState<{ svg: string; inverted: boolean } | null>(null);
+	const [figureFocus, setFigureFocus] = useState<{ svg: string; inverted: boolean } | { image: SessionImage } | null>(null);
 
 	// Overlay mirrors for the layered-Esc gate (owner 2026-10-04): the
 	// lh:kbd-abort-turn handler reads these at EVENT time — declared here
@@ -1168,15 +1343,14 @@ export function Chat({
 	const [dockReserve, setDockReserve] = useState(208);
 	const syncTurns = useCallback(async () => {
 		try {
-			const res = await fetch(`/api/chats/${chatId}`);
-			if (!res.ok) return;
-			const record = (await res.json()) as { turns?: TurnUsage[]; pricing?: SessionPricing };
+			const record = await readRecord({ adoption: "none" });
+			if (!record) return;
 			if (Array.isArray(record.turns)) setTurns(record.turns);
 			setPricing(record.pricing);
 		} catch {
 			// transient blip: stats stay on the last known figures
 		}
-	}, [chatId]);
+	}, [readRecord]);
 	useEffect(() => {
 		void syncTurns();
 	}, [syncTurns]);
@@ -1238,10 +1412,8 @@ export function Chat({
 		let cancelled = false;
 		void (async () => {
 			try {
-				const res = await fetch(`/api/chats/${chatId}`);
-				if (!res.ok || cancelled) return;
-				const record = (await res.json()) as { turnInFlight?: boolean };
-				if (cancelled) return;
+				const record = await readRecord({ adoption: "none", isCurrent: () => !cancelled });
+				if (!record) return;
 				if (record.turnInFlight === true) setTurnInFlight(true);
 				else void syncFromServer();
 			} catch {
@@ -1251,7 +1423,7 @@ export function Chat({
 		return () => {
 			cancelled = true;
 		};
-	}, [status, chatId, syncFromServer]);
+	}, [status, readRecord, syncFromServer]);
 
 	// ── Central job observability (contracts.ts "THE ASYNC PROTOCOL" §4) ──
 	// ONE fetch of /api/jobs drives every job surface (transcript dispatch
@@ -1541,6 +1713,24 @@ export function Chat({
 		}
 		doSend();
 	};
+	const actionContext = () => surfaceTarget ? createPluginSessionActionContext({ placement: "top-bar", surface: "session", sessionId: chatId, kind: kind === "practice" ? "practice" : "teaching", surfaceTarget }, () => {
+		if (!submissionMounted.current || submissionLive.current.surfaceTarget !== surfaceTarget) throw new Error("This session view is no longer active.");
+		return {
+			sessionId: chatId, kind: kind === "practice" ? "practice" : "teaching", title: titleText,
+			messages: nativeMessages, transcript: messages, status, reconciliation, busy, compacting,
+			phase: kind === "practice" ? "practice" : phases.at(-1) ?? "probe", contextTokens,
+			queuedSteers: visibleQueuedSteers(steerQueue, nativeMessages), composer: { text: textRef.current },
+			input: readViewInput(),
+		};
+	}) : undefined;
+	const captureActionContext = () => {
+		if (!submissionMounted.current || !surfaceTarget || !findSurfaceBoundary(surfaceTarget)) return;
+		const captured = actionContext();
+		if (captured) void captured.view; // Detach once at invocation, not after plugin awaits.
+		return captured;
+	};
+
+	usePluginShortcutPage(`/chat/${encodeURIComponent(chatId)}`, captureActionContext);
 
 	return (
 		<MistakesContext.Provider value={sessionMistakes}>
@@ -1550,9 +1740,7 @@ export function Chat({
 			value={{
 				chatId,
 				syncFromServer,
-				sendText: (t: string) => {
-					void send({ type: "text", text: t });
-				},
+				sendText: (t: string) => { void prepareText(t); },
 				openSetup: () => setSetupOpen(true),
 			}}
 		>
@@ -1604,16 +1792,19 @@ export function Chat({
 								value={titleDraft}
 								onChange={(e) => setTitleDraft(e.target.value)}
 								onKeyDown={(e) => {
+									if (!isInteractionScopeEligible(e.currentTarget, controller)) return;
 									if (e.key === "Enter") void commitRename(titleDraft);
 									// stopPropagation claims the Esc (keyboard wave A):
 									// closing rename must not also abort a turn.
 									else if (e.key === "Escape") {
+										controller?.claimEscape(e);
 										e.stopPropagation();
 										setRenaming(false);
 									}
 								}}
 								onBlur={() => void commitRename(titleDraft)}
 								spellCheck={false}
+								data-plugin-chrome-title
 								aria-label="Session title"
 								title="Rename this session"
 								className="lh-no-drag min-w-[8ch] max-w-[70%] shrink-0 bg-transparent font-title text-3xl tracking-tight caret-current outline-none [field-sizing:content]"
@@ -1637,6 +1828,7 @@ export function Chat({
 								setTitleDraft(titleText);
 								setRenaming(true);
 							}}
+							data-plugin-chrome-title
 							className="lh-no-drag -mx-1.5 min-w-4 shrink cursor-text truncate rounded-md px-1.5 text-left font-title text-3xl tracking-tight transition-colors hover:bg-accent"
 						>
 							{titleText}
@@ -1721,6 +1913,7 @@ export function Chat({
 					) : (
 						<PhaseChip phase={phases.at(-1) ?? "probe"} />
 					)}
+					<PluginSessionTopBarActions readContext={actionContext} captureContext={captureActionContext} refreshRef={refreshPluginActions} />
 				</TopBar>
 
 				<SessionFind scopeRef={sessionFindScopeRef} scrollContextRef={scrollContextRef} />
@@ -1736,6 +1929,7 @@ export function Chat({
 				<div ref={sessionFindScopeRef} className="relative flex min-h-0 flex-1">
 				<Conversation className="h-full min-w-0 flex-1" initial="instant" contextRef={scrollContextRef}>
 					<SessionMessageNavigation />
+					<TranscriptElementReporter onElement={setTranscriptElement} />
 					<ConversationContent className="min-h-full gap-0 p-0">
 						<div data-session-find-root="" className={`${COLUMN} flex flex-1 flex-col gap-4 pt-4`}>
 							{messages.length === 0 && !busy && (
@@ -1780,6 +1974,10 @@ export function Chat({
 												return <CompactionMomentDivider key={pi} data={part.data as CompactionDividerData} />;
 											case "data-compaction-cut":
 												return <CompactionCutDivider key={pi} data={part.data as CompactionDividerData} />;
+											case "data-plugin-problem-submission": {
+												const submitted = readPluginProblemSubmission(part.data);
+												return <PluginProblemSubmitted key={pi} data={part.data} snapshot={submitted ? pluginProblemById(nativeMessages, submitted.problemId) : null} chatId={chatId} />;
+											}
 											case "data-practice-thinking":
 												return <ThinkingCard key={pi} data={part.data as PracticeThinkingData} />;
 											case "data-reading-discussion":
@@ -1892,6 +2090,8 @@ export function Chat({
 									<Message from="assistant" className="max-w-full">
 									<MessageContent className="w-full">
 											{m.parts.map((part, pi) => {
+												if (part.pluginProblem) return <ProblemCard key={pi} part={{ ...part, state: part.state ?? "input-available", toolCallId: part.toolCallId ?? "" }} />;
+												if (part.pluginQuestion) return <PluginQuestionPart key={pi} part={part} chatId={chatId} />;
 												const isLastPart = mi === messages.length - 1 && pi === m.parts.length - 1;
 												// The step boundary where teaching begins (round 8): when
 												// the teach flip happens in a LATER step, its PhaseDivider
@@ -1951,9 +2151,10 @@ export function Chat({
 															</Reasoning>
 														);
 													case "step-start":
-														if (teachBoundary)
-															return <PhaseDivider key={`teach-step-${pi}`} phase="teach" />;
-														return pi > 0 ? <Separator key={pi} className="my-3" /> : null;
+														return <Fragment key={`step-${pi}`}>
+															{renderSideEntry(sideEntries.get(m.id)?.get(pi))}
+															{teachBoundary ? <PhaseDivider phase="teach" /> : pi > 0 ? <Separator className="my-3" /> : null}
+														</Fragment>;
 													case "data-plan-block":
 														// The plan in the chat (wave 4): a frozen snapshot
 														// block — rendered as carried, never re-derived.
@@ -1992,26 +2193,15 @@ export function Chat({
 														return null;
 													}
 													default: {
-														// A tool call being WRITTEN (owner, streaming round 2026-10-01):
-														// input-streaming spans the whole execution, and the live card —
-														// spinner + shimmered activity label, the input watchable on expand
-														// — replaces the retired transcript bottom line. On settling, the
-														// registry's card takes over below.
-														if (part.type.startsWith("tool-") && part.state === "input-streaming") {
-															return <LiveToolCard key={pi} part={part as ArtifactPartProps["part"]} />;
-														}
-														// Artifact extension point (contracts.ts): job
-														// parts and future artifacts render via the
-														// registry — add renderers there, not here.
-														if (part.type.startsWith("tool-")) {
-															const Renderer = artifactRenderers[part.type.slice("tool-".length)];
-															if (Renderer) return <Renderer key={pi} part={part as ArtifactPartProps["part"]} />;
-														}
+														// Built-in presentation stays authoritative; plugin renderers
+														// extend only the generic native-tool fallback slot.
+														if (part.type.startsWith("tool-")) return <ToolPartRenderer key={pi} part={part} />;
 														return null;
 													}
 												}
 											})}
 										</MessageContent>
+										{m.role === "assistant" && renderSideEntry(sideEntries.get(m.id)?.get(m.parts.length))}
 									</Message>
 									)}
 								</Fragment>
@@ -2029,7 +2219,10 @@ export function Chat({
 							    rendered row, mutually exclusive by construction.
 							    Protocol events (agent_start) apply nothing and release
 							    nothing — the placeholder covers the whole
-							    provider-connect gap. turnInFlight: the same state
+							    provider-connect gap. Optional plugin grading/processing
+							    uses EVALUATING… until its POST acknowledges; this changes
+							    only the wording, never the action or stream gates.
+							    turnInFlight: the same state
 							    entered by external discovery (wake) / the poll
 							    fallback. Never collapsible itself. */}
 							{/* Compaction (owner round 15): the same register as the
@@ -2044,12 +2237,7 @@ export function Chat({
 								</span>
 							)}
 							{(status === "submitted" || turnInFlight) && (
-								<span className="flex items-center gap-2 font-ui text-xs font-medium uppercase tracking-wide text-muted-foreground">
-									<BrailleSpinner label="Thinking" />
-									<Shimmer duration={1}>
-										THINKING…
-									</Shimmer>
-								</span>
+								<PendingTurnIndicator evaluating={evaluating} />
 							)}
 							{openingError && <p role="alert" className="text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
 							{error && (
@@ -2083,27 +2271,56 @@ export function Chat({
 				    height morph (typing, a question growing the band, the
 				    fold) and NEVER overlaps the composer. */}
 				<DockOverlay
+					viewReader={inputViewReader}
+					viewTargets={surfaceTarget ? { text: textTarget()!, answer: builtinTarget, thinking: thinkingTarget(), pluginQuestion: pluginQuestionTarget(), pluginProblem: pluginProblemTarget() } : undefined}
 					pending={pending}
+					onPrepareBuiltin={prepareBuiltin}
+					onBuiltinPendingInput={question => { const target = builtinTarget(question); return !!target && !!pluginManager?.hasPendingSubmissionInput(target); }}
+					onPrepareThinking={prepareThinking}
+					pendingThinkingInput={pendingThinkingInput}
+					onPreparePluginQuestion={preparePluginQuestion}
+					preparing={submissionRunner.occupied}
+					preparationStatus={<>
+						{preparationError && <p role="alert" className="px-4 py-2 text-sm text-destructive">{preparationError}</p>}
+					</>}
+					pluginQuestion={pendingPlugin}
+					pluginDraft={pendingPlugin ? pluginQuestionDraft(pendingPlugin) : undefined}
+					pluginAvailable={!!pendingPlugin && pluginQuestionAvailability?.questionId === pendingPlugin.questionId && pluginQuestionAvailability.status === "available"}
+					pluginReady={!busy && !compacting && reconciliation === "ready"}
+					onPluginMicAvailable={setPluginMicAvailable}
+					onPluginSend={send}
+					onPluginDismiss={() => pendingPlugin ? dismissPluginQuestion(pendingPlugin.occurrence, pendingPlugin.questionId) : unreadablePlugin ? dismissPluginQuestion(unreadablePlugin.occurrence, unreadablePlugin.annotation.status === "unreadable" ? unreadablePlugin.annotation.identity?.questionId : undefined) : Promise.resolve()}
+					unreadablePlugin={!!unreadablePlugin}
+					unavailableOccurrence={unreadablePlugin?.occurrence}
+					reconciliation={reconciliation}
+					onRetrySync={() => { void reconcile(); }}
 					initialQuestionDraft={pending ? questionDraft(pending.key)?.form : undefined}
 					onSaveQuestionDraft={(form) => { if (pending) saveQuestionDraft(pending.key, { form }); }}
+					workingRef={workingRef}
 					practice={activeProblem}
+					pluginPractice={activeProblem?.pluginProblem && activeProblemOccurrence ? {
+						snapshot: activeProblem.pluginProblem, occurrence: activeProblemOccurrence, chatId, draft: pluginProblemDraft(activeProblem.pluginProblem),
+						available: pluginProblemAvailability?.problemId === activeProblem.pluginProblem.problemId && pluginProblemAvailability.status === "available",
+						ready: !busy && !compacting && reconciliation === "ready", reconciliation: activeProblemOf(canonicalMessages)?.pluginProblem?.problemId === activeProblem.pluginProblem.problemId ? reconciliation : "syncing",
+						prepareSubmission: preparePluginProblem, send, preparing: submissionRunner.occupied, compactionRunning: compacting, onEscape: dictation.cancel,
+					} : undefined}
 					compactionRunning={compacting}
 					onSubmitThinking={submitThinking}
 					chatId={chatId}
-					onModelChange={setSelectedModel}
+					onModelChange={recordSelectedModel}
 					plan={hasPlan ? <PlanMarginalia messages={messages} /> : undefined}
 					onOpenPlan={() => setPlanOpen(true)}
 					requiresReveal={requiresReveal}
 					readingThinking={readingThinkingSeed.value}
 					readingThinkingRevision={readingThinkingSeed.revision}
-					onReadingThinking={applyReadingThinking}
+					onReadingThinking={(value) => { applyReadingThinking(value); if (pendingPlugin) pluginQuestionDraft(pendingPlugin).readingThinking = value; }}
 					phase={phases.at(-1) ?? "probe"}
 					turns={turns}
 					contextTokens={contextTokens}
 					cliContextWindow={cliContextWindowOf(nativeMessages)}
 					pricing={pricing}
 					onReserve={setDockReserve}
-					dictationSlot={<DictationBar dictation={dictation} />}
+					dictationSlot={<DictationBar dictation={dictation} disabled={pluginOwnsDock && !pluginMicAvailable} />}
 					dictationCancel={dictation.cancel}
 					queuedSteers={visibleQueuedSteers(steerQueue, nativeMessages)}
 					onEditSteer={editSteer}
@@ -2152,6 +2369,7 @@ export function Chat({
 							// only detach our view.
 							busy={busy}
 							value={textRef.current}
+							pendingInput={pendingTextInput}
 							revision={composerDraftRevision}
 							onChange={recordComposerText}
 							inputRef={composerInputRef}
@@ -2193,18 +2411,55 @@ export function Chat({
 					}}
 				/>
 				</Conversation>
+				{sideThread.state?.mode === "panel" && (
+					<SideThreadPanel>
+						<SideThreadBody
+							key={sideThread.state.threadId}
+							state={sideThread.state}
+							chatId={chatId}
+							draft={sideThread.draftFor(sideThread.state.threadId)}
+							readDraft={sideThread.draftFor.bind(null, sideThread.state.threadId)}
+							dictation={sideDictationFor(sideThread.state.threadId)}
+							onDraftChange={sideThread.saveDraft.bind(null, sideThread.state.threadId)}
+							onAsk={(text, retry) => sideThread.ask(text, retry, sideThread.state!.threadId)}
+							onStop={sideThread.stop}
+							onExpand={sideThread.expand}
+							onFloat={sideThread.float}
+							onClose={closeSideThread}
+							onCurrentStep={goToCurrentSideStep}
+						/>
+					</SideThreadPanel>
+				)}
+
+				{sideThread.state?.mode === "popover" && (
+					<SideThreadPopover
+						state={sideThread.state}
+						chatId={chatId}
+						draft={sideThread.draftFor(sideThread.state.threadId)}
+						readDraft={sideThread.draftFor.bind(null, sideThread.state.threadId)}
+						dictation={sideDictationFor(sideThread.state.threadId)}
+						onDraftChange={sideThread.saveDraft.bind(null, sideThread.state.threadId)}
+						composer={() => composerInputRef.current}
+						onAsk={(text, retry) => sideThread.ask(text, retry, sideThread.state!.threadId)}
+						onStop={sideThread.stop}
+						onExpand={sideThread.expand}
+						onFloat={sideThread.float}
+						onClose={closeSideThread}
+						onCurrentStep={goToCurrentSideStep}
+					/>
+				)}
 
 				{/* The session-scoped focuses (chrome-melt wave, 2026-09-19): mounted
 				    INSIDE the session area — absolute inset-0 siblings of the scroller,
 				    so they own the area below the drag bar, right of the sidebar, and
 				    the top bar stays sharp + draggable while a focus is open. */}
+				<SurfaceRegion target={surfaceTarget}>
 				{mermaidFocus !== null && (
 					<MermaidOverlay chart={mermaidFocus} onClose={() => setMermaidFocus(null)} />
 				)}
 				{figureFocus !== null && (
 					<MermaidOverlay
-						svg={figureFocus.svg}
-						inverted={figureFocus.inverted}
+						{...figureFocus}
 						onClose={() => setFigureFocus(null)}
 					/>
 				)}
@@ -2304,7 +2559,7 @@ export function Chat({
  *  then the session overlays (mermaid paints above plan — later in DOM),
  *  then setup (self-closing — the gate only must not fire), then the
  *  2026-10-02 abort chain proper (question before turn). */
-export type EscAbortTarget = "mermaid" | "plan" | "setup" | "question" | "problem" | "turn" | null;
+export type EscAbortTarget = "side-thread" | "mermaid" | "plan" | "setup" | "question" | "problem" | "turn" | null;
 	/**
  * Does the opening topic still owe its first send? The topic is the
  * server's ?prompt= or the sessionStorage stash. The gate is "no real
@@ -2321,6 +2576,9 @@ export function initialPromptOwed(messages: readonly { role: string }[], prompt:
 
 export function escAbortTarget(s: {
 	abortAsk: boolean;
+	/** An open side thread (#16, F11): Esc closes (and commits) it before
+	 *  anything else on the ladder. */
+	sideThread?: boolean;
 	mermaidFocus: boolean;
 	planOpen: boolean;
 	setupOpen: boolean;
@@ -2334,6 +2592,7 @@ export function escAbortTarget(s: {
 	busy: boolean;
 }): EscAbortTarget {
 	if (s.abortAsk) return null; // the popup's own Esc — claimed by the dialog
+	if (s.sideThread) return "side-thread";
 	if (s.mermaidFocus) return "mermaid";
 	if (s.planOpen) return "plan";
 	if (s.setupOpen) return "setup";
@@ -2382,11 +2641,32 @@ export function shouldStampGeometryMute(nextH: number, prevH: number, pending: b
 	return pending && nextH > prevH + 1;
 }
 
-function DockOverlay({
+/** Reports the transcript's scroll element once StickToBottom attaches it
+ *  (its ref lands after first render, like SessionMessageNavigation's). */
+function TranscriptElementReporter({ onElement }: { onElement: (element: HTMLElement | null) => void }) {
+	const { scrollRef } = useStickToBottomContext();
+	useEffect(() => {
+		if (scrollRef.current) { onElement(scrollRef.current); return () => onElement(null); }
+		const id = window.setInterval(() => {
+			if (!scrollRef.current) return;
+			window.clearInterval(id);
+			onElement(scrollRef.current);
+		}, 50);
+		return () => { window.clearInterval(id); onElement(null); };
+	}, [scrollRef, onElement]);
+	return null;
+}
+
+/** Host-only composition/test seam; never part of the plugin SDK. */
+export function DockOverlay({
+	viewReader, viewTargets, unavailableOccurrence,
 	pending,
+	onPrepareBuiltin, onBuiltinPendingInput, onPrepareThinking, pendingThinkingInput, onPreparePluginQuestion, preparing, preparationStatus,
+	pluginQuestion, pluginDraft, pluginAvailable, pluginReady, onPluginMicAvailable, onPluginSend, onPluginDismiss, unreadablePlugin, reconciliation, onRetrySync,
 	initialQuestionDraft,
 	onSaveQuestionDraft,
-	practice,
+	workingRef,
+	practice, pluginPractice,
 	compactionRunning,
 	onSubmitThinking,
 	requiresReveal,
@@ -2412,9 +2692,31 @@ function DockOverlay({
 	queuedSteers,
 	onEditSteer,
 }: {
+	viewReader?: SessionInputViewReader;
+	viewTargets?: SessionViewTargets;
+	unavailableOccurrence?: import("@/src/core").PluginSubmissionOccurrence;
 	pending: ReturnType<typeof pendingQuestionOf>;
+	onPrepareBuiltin: PrepareBuiltinSubmission;
+	onBuiltinPendingInput: (question: QuestionData) => boolean;
+	onPrepareThinking: PrepareThinkingSubmission;
+	pendingThinkingInput: boolean;
+	onPreparePluginQuestion: PreparePluginQuestionSubmission;
+	preparing: boolean;
+	preparationStatus: React.ReactNode;
+	pluginQuestion?: PluginQuestionSnapshot;
+	pluginDraft?: PluginQuestionDraft;
+	pluginAvailable: boolean;
+	pluginReady: boolean;
+	onPluginMicAvailable(available: boolean): void;
+	onPluginSend(input: ChatInput): Promise<boolean>;
+	onPluginDismiss(): Promise<void>;
+	unreadablePlugin: boolean;
+	reconciliation: "ready" | "syncing" | "failed";
+	onRetrySync(): void;
 	initialQuestionDraft?: QuestionFormDraft;
 	onSaveQuestionDraft: (draft: QuestionFormDraft) => void;
+	/** The dock's current unsubmitted working, for the side thread. */
+	workingRef?: { current: string };
 	/** Compaction running for this chat (round 14) — the docks' submit
 	 *  affordance gate (the server's registry is the real one). */
 	compactionRunning: boolean;
@@ -2422,6 +2724,7 @@ function DockOverlay({
 	 *  {toolCallId, input} — dock ownership exactly like a pending
 	 *  question (the composer is replaced); null in teaching sessions. */
 	practice: { toolCallId: string; input: unknown } | null;
+	pluginPractice?: Omit<PluginProblemDockProps, "expanded" | "onExpand">;
 	/** (commit, text) — the practice dock's two submit lanes. */
 	onSubmitThinking: (text: string) => void;
 	/** Teach-phase pending question: arrives collapsed behind the reveal button (W5). */
@@ -2470,6 +2773,7 @@ function DockOverlay({
 	 *  problem owns the composer. */
 	composerActions?: React.ReactNode;
 }) {
+	const controller = useOptionalInteractionLayers();
 	const { isAtBottom, scrollToBottom, scrollRef } = useStickToBottomContext();
 	// Render-fresh bottom state (flicker round): the arrival block below reads
 	// it DURING RENDER — the same value the after-paint effect used to read a
@@ -2486,8 +2790,14 @@ function DockOverlay({
 	const [revealed, setRevealed] = useState(false);
 	const revealPending = requiresReveal && !revealed;
 
-	const pendingId = pending?.key ?? null;
+	const pendingId = pluginQuestion ? pluginQuestionOccurrenceKey(pluginQuestion.occurrence) : unreadablePlugin ? "unreadable-plugin-question" : pending?.key ?? null;
+	const readingInputRef = useRef<HTMLDivElement>(null);
+	const ownsDock = !!pending || !!pluginQuestion || unreadablePlugin || !!practice;
 	const initialPendingRef = useRef(pendingId);
+	const nativeViewReader = useRef<(() => NativeQuestionViewState) | null>(null) as ViewReaderRef<NativeQuestionViewState>;
+	const practiceViewReader = useRef<(() => string) | null>(null) as ViewReaderRef<string>;
+	const customViewReader = useRef<(() => { available: boolean }) | null>(null) as ViewReaderRef<{ available: boolean }>;
+	nativeViewReader.changed = practiceViewReader.changed = customViewReader.changed = viewReader?.changed;
 
 	// Teach-question ARRIVAL state, applied during render — BEFORE the
 	// first paint (owner, scroll-honesty round 2026-09-25). Until now the
@@ -2536,8 +2846,8 @@ function DockOverlay({
 	// Dock ownership (the fold machine, the reserve immunity, the arrival
 	// states): a pending question OR an active practice problem — either
 	// replaces the composer and owns the band.
-	const pendingRef = useRef(!!pending || !!practice);
-	pendingRef.current = !!pending || !!practice;
+	const pendingRef = useRef(ownsDock);
+	pendingRef.current = ownsDock;
 	const requiresRevealRef = useRef(requiresReveal);
 	requiresRevealRef.current = requiresReveal;
 	const revealedRef = useRef(revealed);
@@ -2548,11 +2858,34 @@ function DockOverlay({
 	const bodyRef = useRef<HTMLDivElement>(null);
 	const shellRef = useRef<HTMLDivElement>(null);
 	const contentRef = useRef<HTMLDivElement>(null);
-	const mode = pending
+	const mode = pluginQuestion ? `plugin-question:${pendingId}` : unreadablePlugin ? "unreadable-plugin-question" : pending
 		? `question:${pending.key}`
 		: practice
-			? `practice:${practice.toolCallId}`
+			? `practice:${pluginPractice?.snapshot.problemId ?? practice.toolCallId}`
 			: "chat";
+
+	useLayoutEffect(() => {
+		if (!viewReader || !viewTargets) return;
+		const read = (): PluginSessionViewInput => {
+			if (pluginQuestion && pluginDraft && viewTargets.pluginQuestion) return { ...viewTargets.pluginQuestion, input: pluginQuestion.input, expanded, revealed: !revealPending,
+				available: customViewReader.current?.().available ?? false, draft: pluginDraft };
+			if (unreadablePlugin) return { type: "unavailable", ...(unavailableOccurrence ? { occurrence: unavailableOccurrence } : {}), expanded, revealed: !revealPending };
+			if (pending) {
+				const state = nativeViewReader.current?.();
+				const target = state && state.question.id === pending.toolCallId ? viewTargets.answer(state.question) : undefined;
+				return target && state ? { ...target, expanded, revealed: !revealPending, available: true, draft: { ...state.draft, readingThinking } }
+					: { type: "unavailable", occurrence: { messageId: pending.messageId, contentIndex: pending.contentIndex, toolCallId: pending.toolCallId, toolName: pending.tool }, expanded, revealed: !revealPending };
+			}
+			if (pluginPractice && viewTargets.pluginProblem) return { ...viewTargets.pluginProblem, input: pluginPractice.snapshot.input, expanded,
+				available: customViewReader.current?.().available ?? false, draft: pluginPractice.draft };
+			if (practice && viewTargets.thinking) return { ...viewTargets.thinking, expanded, draft: { thinking: practiceViewReader.current?.() ?? "" } };
+			return viewTargets.text;
+		};
+		viewReader.current = read;
+		return () => { if (viewReader.current === read) viewReader.current = null; };
+	});
+	const unavailableViewKey = unavailableOccurrence ? pluginQuestionOccurrenceKey(unavailableOccurrence) : "";
+	useLayoutEffect(() => { viewReader?.changed?.(); }, [viewReader, mode, expanded, revealPending, readingThinking, unavailableViewKey]);
 
 	// The plan marginalia's flank width (owner, plan-placement round): from
 	// the DOCK container's right edge to the block's right edge — the bare
@@ -2615,9 +2948,15 @@ function DockOverlay({
 	// effect below. Short windows scroll the reading/question/answer body;
 	// the stats/model toolbar remains outside that overflow viewport.
 	const [sbInset, setSbInset] = useState(0);
+	const stateKey = dockStateKey(mode, ownsDock, expanded);
+	const heightMorphRef = useRef<ReturnType<typeof createDockMorph> | null>(null);
+	if (!heightMorphRef.current) heightMorphRef.current = createDockMorph();
+	const retargetOpening = useCallback(() => heightMorphRef.current?.retarget(stateKey), [stateKey]);
+	useIsoLayoutEffect(() => () => heightMorphRef.current?.dispose(), []);
 	useDockHeight({
 		scrollRef, blockRef, viewportRef, bodyRef, shellRef, contentRef,
-		expanded, enabled: !!pending || !!practice, mode, onScrollbarInset: setSbInset, onHeight: offer,
+		expanded, enabled: ownsDock, mode, onScrollbarInset: setSbInset, onHeight: offer,
+		onLayout: retargetOpening,
 	});
 
 	// GROWTH MUTE (owner round, 2026-10-05 — the generation churn): during a
@@ -2698,9 +3037,9 @@ function DockOverlay({
 	// a focused button activates natively) — this listener claims only
 	// the dead case: plain focus with Enter doing nothing.
 	useEffect(() => {
-		if (!pending || expanded) return;
+		if ((!pending && !pluginQuestion && !unreadablePlugin) || expanded) return;
 		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key !== "Enter" || e.altKey) return;
+			if (e.key !== "Enter" || e.altKey || e.defaultPrevented || pluginQuestionKeySuppressed(e) || composingQuestionKey(e) || !isInteractionScopeEligible(blockRef.current, controller)) return;
 			if (e.shiftKey && !e.metaKey && !e.ctrlKey) return;
 			const t = e.target as HTMLElement | null;
 			if (
@@ -2718,7 +3057,7 @@ function DockOverlay({
 		};
 		document.addEventListener("keydown", onKeyDown);
 		return () => document.removeEventListener("keydown", onKeyDown);
-	}, [pending, expanded]);
+	}, [pending, pluginQuestion, unreadablePlugin, expanded, controller]);
 
 	useEffect(() => {
 		const el = scrollRef.current;
@@ -2783,35 +3122,13 @@ function DockOverlay({
 	// term (the fold) belongs to EVERY docked variant — question AND
 	// practice (owner fix, 2026-10-06). Typing growth keeps the key and
 	// never animates; the fold/unfold morphs like teaching always has.
-	const stateKey = dockStateKey(mode, !!pending || !!practice, expanded);
-	const prevRef = useRef<{ key: string; height: number } | null>(null);
 	useIsoLayoutEffect(() => {
 		const el = shellRef.current;
 		if (!el) return;
-		const p = prevRef.current;
-		if (p && p.key === stateKey) {
-			// Same variant: keep the settled height fresh, but never measure while
-			// a morph is in flight — getBoundingClientRect would read the ANIMATED
-			// value and corrupt the start height of the next morph.
-			if (el.getAnimations().length === 0) {
-				const h = el.getBoundingClientRect().height;
-				p.height = h;
-				measureBlock(); // typing growth → the spacer grows with the box
-			}
-			return;
-		}
-		el.getAnimations().forEach((a) => a.cancel()); // flush to natural height before measuring
-		const h = el.getBoundingClientRect().height;
-		// Variant change → re-reserve. Growth applies instantly; a drop (the
-		// fold, or question → composer) is filtered by the offer policy.
-		measureBlock();
-		if (p && Math.abs(p.height - h) > 1) {
-			el.animate([{ height: `${p.height}px` }, { height: `${h}px` }], {
-				duration: 120,
-				easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
-			});
-		}
-		prevRef.current = { key: stateKey, height: h };
+		// The private controller owns only this shell's height animation. Late
+		// child layout can retarget an opening over its remaining original time;
+		// closing and ordinary typing retain their existing behavior.
+		heightMorphRef.current?.layout(el, stateKey, ownsDock && expanded, measureBlock);
 	});
 
 	return (
@@ -2834,8 +3151,9 @@ function DockOverlay({
 					    teach-phase check waits — the same cue that collapses it. It
 					    claims dictated speech until the learner reveals the check
 					    (the dock reclaims then). Rides the check answer on submit. */}
-					{pending && requiresReveal && (
+					{(pending || pluginQuestion) && requiresReveal && (
 						<ReadingThinkingField
+							inputRef={readingInputRef}
 							value={readingThinking}
 							revision={readingThinkingRevision}
 							onChange={onReadingThinking}
@@ -2853,6 +3171,7 @@ function DockOverlay({
 						/>
 					)}
 					<div ref={shellRef} data-attachment-composer="" className="pointer-events-auto overflow-hidden rounded-2xl border bg-card shadow-lg">
+						{preparationStatus}
 						{/* Include descendant margins (notably practice thinking's
 						    bottom margin) in the natural content measurement. */}
 						<div
@@ -2871,6 +3190,7 @@ function DockOverlay({
 								/>
 							) : pending ? (
 								<QuestionDock
+									viewReader={nativeViewReader}
 									toolName={pending.tool as "quiz" | "probe" | "ask_user_question" | "explain" | "recall"}
 									toolCallId={pending.toolCallId}
 									input={pending.input as never}
@@ -2879,14 +3199,21 @@ function DockOverlay({
 									phase={phase}
 									onExpand={expandAndReveal}
 									onSubmit={onSubmitAnswer}
+									onPrepareSubmission={onPrepareBuiltin}
+									hasPendingInput={onBuiltinPendingInput}
+									preparing={preparing}
 									initialDraft={initialQuestionDraft}
 									onSaveDraft={onSaveQuestionDraft}
+									workingRef={workingRef}
 									onEscape={dictationCancel}
 									dictationClaim={!revealPending}
 									compactionRunning={compactionRunning}
 								/>
+							) : pluginPractice ? (
+								<PluginProblemDock {...pluginPractice} viewReader={customViewReader} expanded={expanded} onExpand={() => { setExpanded(true); void suppressFoldDuringReveal(); }} />
 							) : practice ? (
 								<PracticeDock
+									viewReader={practiceViewReader}
 									problemCallId={practice.toolCallId}
 									input={practice.input as { statement: string }}
 									expanded={expanded}
@@ -2895,6 +3222,9 @@ function DockOverlay({
 										void suppressFoldDuringReveal();
 									}}
 									onSubmit={onSubmitThinking}
+									onPrepareSubmission={onPrepareThinking}
+									hasPendingInput={pendingThinkingInput}
+									preparing={preparing}
 									onEscape={dictationCancel}
 									compactionRunning={compactionRunning}
 								/>
@@ -2940,7 +3270,7 @@ function DockOverlay({
 				    the flank; below MARGIN_MIN_W it FADES (never pops away — no
 				    mid-question unmount), and widening past the floor fades it
 				    back in. */}
-				{pending && plan && (
+				{(pending || pluginQuestion) && plan && (
 					<Hint label="Open the full plan" side="bottom">
 <button
 						type="button"

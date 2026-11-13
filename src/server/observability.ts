@@ -44,6 +44,12 @@ export interface ActivityJob extends JobRecord {
 	contextLimit: number | null;
 }
 
+/** Standalone plugin task; deliberately has no session identity or result payload. */
+export interface ActivityPluginWorker extends PluginWorkerActivity {
+	costUsd: number | null;
+	contextLimit: number | null;
+}
+
 /** One extraction-pipeline JOB (title joined), oldest first. Per-chunk
  *  jobs (owner, 2026-09-28): a multi-chunk source owns SEVERAL rows — id
  *  is the unique job key (source id, or "src#i"), chatId stays the SOURCE
@@ -92,6 +98,7 @@ export interface ActivityDiscussion {
 
 export function activityFeed(): {
 	jobs: ActivityJob[];
+	pluginWorkers: ActivityPluginWorker[];
 	extractions: ActivityExtraction[];
 	readings: ActivityReading[];
 	discussions: ActivityDiscussion[];
@@ -125,10 +132,21 @@ export function activityFeed(): {
 		phase: run.phase,
 		startedAt: run.startedAt,
 	}));
+	// A native createBackgroundTool job already owns its worker row and durable END.
+	// Acceptance and job linkage are synchronous, so the queued→running bridge
+	// cannot briefly expose both representations.
+	const linked = new Set(jobs.flatMap(job => job.kind === "plugin" && job.plugin?.taskId
+		? [`${job.plugin.pluginId}:${job.plugin.taskId}`] : []));
+	const pluginWorkers: ActivityPluginWorker[] = pluginWorkerActivities()
+		.filter(task => !linked.has(task.id))
+		.map(task => ({ ...task, costUsd: jobCost(task),
+			contextLimit: task.usage ? (limits.get(task.usage.model) ?? null) : null }))
+		.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 	// oldest-first on last activity: the stable blob order (ISO strings sort chronologically)
 	jobs.sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
 	return {
 		jobs,
+		pluginWorkers,
 		extractions: extractions.sort((a, b) => a.startedAt - b.startedAt),
 		readings: readingActivity(),
 		discussions: discussionActivity().map(({ id, readingId, title, chatId, startedAt, activity, costUsd }) => ({

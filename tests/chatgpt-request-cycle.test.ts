@@ -15,6 +15,7 @@ process.env.LH_DATA_DIR = path.join(scratch, "data");
 process.env.LH_AUTH_FILE = path.join(scratch, "auth.json");
 fs.writeFileSync(process.env.LH_AUTH_FILE, "{}");
 const { runPiTurn } = await import("../src/server/pi/ui-stream.ts");
+const { projectedContextTokens } = await import("../src/server/compaction.ts");
 import { newUserMessage, newNextMessage, newThinkingMessage, newAnswerResult, reconstructRequestCause, concludedByDismissalPair, type LhMessage } from "../src/core/native-messages.ts";
 
 const originalSend = Object.getOwnPropertyDescriptor(process, "send");
@@ -81,7 +82,10 @@ const automatic = (id = "auto") => ({ id, role: "custom" as const, customType: "
 async function nativeRun(where: typeof cut, staged: boolean, withLearner = true, commitThrows = false, lateAutomatic = false, withTool = false) {
  epoch++; revision++; background = true; cut = where; leases = []; fetches = 0; toolFirst = withTool; requestBodies = [];
  await refreshChatGPTModels([model]);
- const seed = newUserMessage("Initial learner"); const marker = automatic(); const learner = { ...newUserMessage("New learner"), id: "learner-late" };
+ const combined = localBudget?.startsWith("combined-");
+ const seed = newUserMessage("Initial learner"); const marker = automatic();
+ const learner = { ...newUserMessage(combined ? "L".repeat(2600) : "New learner"), id: "learner-late" };
+ const reference = { id: "side-combined", role: "custom", customType: "side-question", content: "S".repeat(2600), details: {}, display: false, timestamp: 2 } as AgentMessage;
  const messages = staged ? [seed, marker] : [seed];
  const purpose = { background: staged };
  let restored = 0, committed = 0, usage = 0, settled = 0, executed = 0, handedLate = false;
@@ -93,10 +97,29 @@ async function nativeRun(where: typeof cut, staged: boolean, withLearner = true,
  });
  const raw = piEngineForSpec({ provider: "chatgpt", id: model.id }, () => purpose.background, cycle);
  const engine = { ...raw, streamFn: (m: any, context: any, opts: any) => raw.streamFn(m, context, { ...opts, onPayload: async (payload: unknown) => { if (lateAutomatic && !handedLate) { handedLate = true; agent.steer(marker); } if (cut === "payload") { cut = "none"; await Promise.resolve(); revoke(); } return payload; } }) };
- const agent = createTeacherAgent(undefined, { engine, messages, chatId: "scratch-native-session", tools: withTool ? { again: { name: "again", label: "again", description: "scratch", parameters: Type.Object({}), execute: async () => { executed++; return { content: [{ type: "text" as const, text: "Done" }], details: {} }; } } } : {}, callPurpose: purpose, requestCycle: cycle, onUsage: () => usage++ });
+ const agent = createTeacherAgent(undefined, {
+  validateContext: (actual) => {
+   if (localBudget === "first" || (localBudget === "internal" && executed > 0)) throw new Error("Side-chat context budget exceeded; Retry or select a larger model.");
+   if (combined && actual.some((message) => (message as { id?: string }).id === "side-combined")) {
+    const live = actual.filter((message) => (message as { role: string }).role !== "system") as LhMessage[];
+    assert.ok(projectedContextTokens(live.filter((message) => message.id !== "side-combined"), 100) < 1000, "steer alone fits synthetic budget");
+    assert.ok(projectedContextTokens(live.filter((message) => message.id !== learner.id), 100) < 1000, "side alone fits synthetic budget");
+    assert.ok(projectedContextTokens(live, 100) > 1000, "actual combined request does not fit");
+    cycle.rejectLocalRequest(new Set(["side-combined"]));
+    throw new Error("Side-chat context budget exceeded; Retry or select a larger model.");
+   }
+  },
+  ...(localBudget === "combined-internal" ? { contextUpdates: () => executed > 0 ? [reference] : [] } : {}),
+  engine, messages, chatId: "scratch-native-session", tools: withTool ? { again: {
+   name: "again", label: "again", description: "scratch", parameters: Type.Object({}), execute: async () => {
+    executed++; if (localBudget === "combined-internal") agent.steer(learner);
+    return { content: [{ type: "text" as const, text: "Done" }], details: {} };
+   },
+  } } : {}, callPurpose: purpose, requestCycle: cycle, onUsage: () => usage++,
+ });
  if (!staged && !lateAutomatic) agent.steer(marker);
  if (withLearner) agent.steer(learner);
- const handle = runPiTurn({ agent, requestCycle: cycle, onFinish: (m) => { settled++; final = m; resolve(); } });
+ const handle = runPiTurn({ agent, requestCycle: cycle, beforeCycle: () => { if (localBudget === "combined-first") agent.steer(reference); }, onFinish: (m) => { settled++; final = m; resolve(); } });
  const firstView = new Response(handle.subscribe()).text();
  await finished;
  const wire = await firstView; const replay = await new Response(handle.subscribe()).text();

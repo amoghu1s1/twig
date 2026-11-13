@@ -9,9 +9,9 @@
  *   appearance edits restyle the chat LIVE behind the dialog). Escape,
  *   backdrop, and ✕ all close. Modal-only — /settings redirects, so
  *   nothing links into a dead surface.
- * - Left section nav in the app's mono chrome (text-only, session-list
- *   language — active = bg-accent), no icons, matching the minimal-color
- *   doctrine.
+ * - Left section nav in the app's mono chrome, with small decorative
+ *   Lucide icons for the built-in sections; active = bg-accent. Icons
+ *   inherit the row's color, without a separate palette.
  * - The dialog is surface-agnostic by construction: the sections talk to
  *   /api/settings* and localStorage only, so this shell can be re-mounted
  *   as a true OS window in the Electron round with near-zero churn.
@@ -26,11 +26,16 @@ import {
 	useCallback,
 	useContext,
 	useEffect,
+	useId,
 	useRef,
 	useState,
+	type ReactElement,
+	type ReactNode,
+	type RefObject,
 } from "react";
-import { createPortal } from "react-dom";
-import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { BotIcon, KeyIcon, KeyboardIcon, PaletteIcon, PlugIcon, PuzzleIcon, SettingsIcon, WaypointsIcon, type LucideIcon } from "lucide-react";
+import { HostDialog } from "@/components/host-dialog";
+import { useInteractionLayers, type CloseOutcome } from "@/components/interaction-layers";
 import {
 	CURRENT_SETTINGS_VERSION,
 	type AgentSettings,
@@ -50,6 +55,9 @@ import { KeysSection } from "./keys-section.tsx";
 import { Hint } from "@/components/ui/hint";
 import { AppearanceSection, GraphSection } from "./appearance-section.tsx";
 import { KeyboardSection } from "./keyboard-section.tsx";
+import { PluginsSection } from "./plugins-section.tsx";
+import { PluginSettingsPage } from "./plugin-settings-page.tsx";
+import { usePlugins } from "@/components/plugins";
 import { ChatGPTUIProvider } from "./chatgpt-connection.tsx";
 import { NativeSubscriptionUIProvider } from "./subscription-connections.tsx";
 
@@ -57,14 +65,14 @@ import { NativeSubscriptionUIProvider } from "./subscription-connections.tsx";
  *  prose is out; only the keyboard note stays (storage location is a
  *  real question users ask). */
 const SECTIONS = [
-	{ id: "keys", label: "Providers" },
-	{ id: "agent", label: "Agent" },
-	{ id: "appearance", label: "Appearance" },
-	{ id: "graph", label: "Graph" },
-	{ id: "keyboard", label: "Keyboard", hint: "Stored on this device" },
-	{ id: "general", label: "General" },
+	{ id: "keys", label: "Providers", icon: KeyIcon },
+	{ id: "agent", label: "Agent", icon: BotIcon },
+	{ id: "appearance", label: "Appearance", icon: PaletteIcon },
+	{ id: "graph", label: "Graph", icon: WaypointsIcon },
+	{ id: "keyboard", label: "Keyboard", icon: KeyboardIcon, hint: "Stored on this device" },
+	{ id: "general", label: "General", icon: SettingsIcon },
 ] as const;
-type SectionId = (typeof SECTIONS)[number]["id"];
+type SectionId = (typeof SECTIONS)[number]["id"] | "plugins" | "core-plugins" | `plugin:${string}`;
 
 /** `open(section?, row?)` — the optional ROW deep-links into the Keys
  *  section with that row unfolded (zero-keys wave: the dictation error's
@@ -72,6 +80,16 @@ type SectionId = (typeof SECTIONS)[number]["id"];
  *  name, e.g. DEEPGRAM_API_KEY — KeysSection's openRow state), not the
  *  row's testid. */
 const DialogContext = createContext<{ open: (section?: string, row?: string) => void }>({ open: () => {} });
+// Authority belongs to the persistent Settings host, not a particular field or
+// open/close lifetime: a delayed response must not roll back a newer ACK.
+interface SettingsWriteOrder {
+	issued: number;
+	acknowledged: number;
+	record?: UserSettings;
+	fileAccessError?: string | null;
+	listeners: Set<(record: UserSettings, fileAccessError: string | null) => void>;
+}
+const WriteOrderContext = createContext<RefObject<SettingsWriteOrder> | null>(null);
 
 /** AppShell-level mount: the sidebar row and the mod+, chord call this.
  *  `open(section)` lands the dialog on a specific section (the first-run
@@ -81,22 +99,40 @@ export function SettingsDialogProvider({
 }: {
 	children: React.ReactNode;
 }) {
+	const interactions = useInteractionLayers();
+	const layerId = useId();
+	const writeOrder = useRef<SettingsWriteOrder>({ issued: 0, acknowledged: 0, listeners: new Set() });
 	const [show, setShow] = useState(false);
 	const [landOn, setLandOn] = useState<SectionId>("keys");
 	const [landOnRow, setLandOnRow] = useState<string | null>(null);
+	const [navigationRequest, setNavigationRequest] = useState(0);
 	const open = useCallback((section?: string, row?: string) => {
+		// Returning to this singleton is a bounded request, not a forced pop.
+		// Controlled layers may accept closure before React commits it.
+		if (interactions.getLayer(layerId) && interactions.popTo(layerId) !== "closed") return;
+		interactions.invalidateOpening();
+		setNavigationRequest(request => request + 1);
 		setLandOn(section ? section as SectionId : "keys");
 		setLandOnRow(row ?? null);
 		setShow(true);
-	}, []);
+	}, [interactions, layerId]);
+	const close = useCallback((): CloseOutcome => { setShow(false); return "closed"; }, []);
 	useEffect(() => window.lh?.onOpenSettings?.((section) => open(section)), [open]);
+	useEffect(() => {
+		const onPluginSettings = (event: Event) => {
+			const pluginId: unknown = (event as CustomEvent<unknown>).detail;
+			if (typeof pluginId === "string") open(`plugin:${pluginId}`);
+		};
+		window.addEventListener("lh:open-plugin-settings", onPluginSettings);
+		return () => window.removeEventListener("lh:open-plugin-settings", onPluginSettings);
+	}, [open]);
 	return (
-		<ChatGPTUIProvider><NativeSubscriptionUIProvider><DialogContext.Provider value={{ open }}>
+		<ChatGPTUIProvider><NativeSubscriptionUIProvider><WriteOrderContext.Provider value={writeOrder}><DialogContext.Provider value={{ open }}>
 			{children}
 			{show && (
-				<SettingsDialog onClose={() => setShow(false)} initialSection={landOn} initialRow={landOnRow} />
+				<SettingsDialog onClose={close} initialSection={landOn} initialRow={landOnRow} navigationRequest={navigationRequest} layerId={layerId} />
 			)}
-		</DialogContext.Provider></NativeSubscriptionUIProvider></ChatGPTUIProvider>
+		</DialogContext.Provider></WriteOrderContext.Provider></NativeSubscriptionUIProvider></ChatGPTUIProvider>
 	);
 }
 
@@ -108,25 +144,26 @@ function SettingsDialog({
 	onClose,
 	initialSection,
 	initialRow,
+	navigationRequest,
+	layerId,
 }: {
-	onClose: () => void;
+	onClose: () => CloseOutcome;
 	initialSection: SectionId;
+	navigationRequest: number;
+	layerId: string;
 	/** The keys-section row to unfold (see DialogContext above). */
 	initialRow: string | null;
 }) {
-	const backdropDismiss = useBackdropDismiss(onClose);
-	// Plain dim backdrop (no blur — nothing decorative); a genuine
-	// backdrop click closes, the dialog body stops propagation.
-	return createPortal(
-		<div
-			className="fixed inset-0 z-50 flex items-center justify-center bg-background/80"
-			data-testid="settings-backdrop"
-			{...backdropDismiss}
-		>
-			<SettingsDialogBody onClose={onClose} initialSection={initialSection} initialRow={initialRow} />
-		</div>,
-		document.body,
-	);
+	// Keep the original visual frame and plain dim backdrop. The shared
+	// untransformed boundary also contains this modal's portaled menus.
+	return <SettingsDialogBody onClose={onClose} initialSection={initialSection}
+		initialRow={initialRow} navigationRequest={navigationRequest}
+		renderFrame={frame => <HostDialog open layerId={layerId} ownerId={null}
+			onClose={onClose} frame={frame} aria-label="Settings"
+			backdropProps={{
+				className: "fixed inset-0 z-50 flex items-center justify-center bg-background/80",
+				"data-testid": "settings-backdrop",
+			}}>{frame.props.children}</HostDialog>} />;
 }
 
 /** The dialog without the portal/backdrop — the SSR-testable frame
@@ -135,14 +172,24 @@ export function SettingsDialogBody({
 	onClose,
 	initialSection = "keys",
 	initialRow = null,
+	navigationRequest = 0,
+	renderFrame,
 }: {
 	onClose: () => void;
+	/** The runtime supplies the shared modal shell; standalone SSR retains the frame. */
+	renderFrame?: (frame: ReactElement<{ children: ReactNode }>) => ReactNode;
 	initialSection?: SectionId;
+	/** Repeated opens must retarget even when the requested section is unchanged. */
+	navigationRequest?: number;
 	/** The keys row to unfold on arrival (null = none). While-open
 	 *  retargets follow it exactly like initialSection below. */
 	initialRow?: string | null;
 }) {
 	const { onAppearanceChange } = useAppearance();
+	const inheritedWriteOrder = useContext(WriteOrderContext);
+	const standaloneWriteOrder = useRef<SettingsWriteOrder>({ issued: 0, acknowledged: 0, listeners: new Set() });
+	const writeOrder = inheritedWriteOrder ?? standaloneWriteOrder;
+	const { snapshot } = usePlugins();
 	const [record, setRecord] = useState<UserSettings | null | undefined>(
 		undefined,
 	);
@@ -233,7 +280,7 @@ export function SettingsDialogBody({
 	// nothing.
 	useEffect(() => {
 		setActive(initialSection);
-	}, [initialSection]);
+	}, [initialSection, navigationRequest]);
 
 	// Fetch once per dialog mount. 200 {settings: null} is FIRST BOOT
 	// (no record = factory everything), not a failure — the error state is
@@ -328,10 +375,10 @@ export function SettingsDialogBody({
 			writeQueue.current = task.catch(() => undefined);
 			return task;
 		},
-		[onAppearanceChange],
+		[onAppearanceChange, writeOrder],
 	);
 
-	return (
+	const frame = (
 		<div
 			ref={dialogRef}
 			role="dialog"
@@ -345,7 +392,7 @@ export function SettingsDialogBody({
 			<header className="flex h-15 shrink-0 items-center gap-3 border-b border-border px-5">
 				<h2 className="font-title text-2xl tracking-tight">Settings</h2>
 				<Hint
-						// Esc closes the dialog (its own listener) — surface it.
+						// Esc closes through the shared interaction owner.
 						label="Close"
 						binding="escape"
 						side="left"
@@ -371,28 +418,32 @@ export function SettingsDialogBody({
 			</header>
 
 			<div className="flex min-h-0 flex-1">
-				{/* Left nav — text-only, the session-list mono language,
+				{/* Left nav — mono labels and theme-inherited decorative icons,
 					    active = bg-accent. */}
 				<nav
 					aria-label="Settings sections"
 					data-testid="settings-nav"
-					className="flex w-44 shrink-0 flex-col gap-1 border-r border-border p-2"
+					className="flex min-h-0 w-48 shrink-0 flex-col gap-1 overflow-y-auto border-r border-border p-2"
 				>
-					{SECTIONS.map((s) => (
-						<button
-							key={s.id}
-							type="button"
-							data-testid={`settings-nav-${s.id}`}
-							aria-current={active === s.id}
-							className={`rounded-sm px-3 py-1.5 text-left font-ui text-sm transition-colors ${
-								active === s.id
-									? "bg-accent text-foreground"
-									: "text-muted-foreground hover:bg-accent hover:text-foreground"
-							}`}
-							onClick={() => setActive(s.id)}
-						>
-							{s.label}
-						</button>
+					{navSections.map((s, index) => (
+						<div key={s.id} className="shrink-0">
+							{index === SECTIONS.length && <hr className="my-2 border-border" />}
+							<button
+								type="button"
+								data-testid={`settings-nav-${s.id}`}
+								aria-current={selected === s.id}
+								className={`flex w-full items-center gap-2 break-words rounded-sm px-3 py-1.5 text-left font-ui text-sm transition-colors ${
+									selected === s.id
+										? "bg-accent text-foreground"
+										: "text-muted-foreground hover:bg-accent hover:text-foreground"
+								}`}
+								onClick={() => setActive(s.id)}
+							>
+								{s.icon && <s.icon aria-hidden="true" focusable="false" className="size-3.5 shrink-0" />}
+								<span className="min-w-0">{s.label}</span>
+							</button>
+							{s.id === "plugins" && <hr className="my-2 border-border" />}
+						</div>
 					))}
 				</nav>
 
@@ -407,7 +458,7 @@ export function SettingsDialogBody({
 					className="min-w-0 flex-1 overflow-y-auto"
 					data-testid="settings-content"
 				>
-					{error && (
+					{error && !activePluginId && selected !== "plugins" && selected !== "core-plugins" && (
 						<p
 							role="alert"
 							className="m-4 rounded-sm border border-error/40 px-3 py-2 text-xs text-error"
@@ -416,7 +467,10 @@ export function SettingsDialogBody({
 							{error}
 						</p>
 					)}
-					{record === undefined ? (
+					{selected === "plugins" || selected === "core-plugins" ? <PluginsSection origin={selected === "core-plugins" ? "core" : "community"} onOpenSettings={pluginId => setActive(`plugin:${pluginId}`)} />
+						: activePlugin ? <PluginSettingsPage key={`${activePlugin.info.id}/${activePlugin.info.revision}`} plugin={activePlugin} />
+							: activePluginId !== null ? <p role="status" className="px-6 py-5 text-xs text-muted-foreground">Loading plugins…</p>
+								: record === undefined ? (
 						<p className="px-6 py-5 text-xs text-muted-foreground/70">
 							Loading settings…
 						</p>
@@ -462,10 +516,10 @@ export function SettingsDialogBody({
 											void write("models", next)
 										}
 										onSectionChange={(next: AgentSettings) =>
-											void write("agent", next)
+											write("agent", next)
 										}
 										onCompactionChange={(next: CompactionSettings) =>
-											void write("compaction", next)
+											write("compaction", next)
 										}
 									/>
 								</SettingsSection>
@@ -478,7 +532,7 @@ export function SettingsDialogBody({
 									<AppearanceSection
 										appearance={record.appearance}
 										onSectionChange={(next: AppearanceSettings) =>
-											void write("appearance", next)
+											write("appearance", next)
 										}
 									/>
 								</SettingsSection>
@@ -491,7 +545,7 @@ export function SettingsDialogBody({
 									<GraphSection
 										graph={record.graph}
 										onSectionChange={(next: GraphSettings) =>
-											void write("graph", next)
+											write("graph", next)
 										}
 									/>
 								</SettingsSection>
@@ -511,4 +565,5 @@ export function SettingsDialogBody({
 			</div>
 		</div>
 	);
+	return renderFrame ? renderFrame(frame) : frame;
 }

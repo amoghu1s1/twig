@@ -32,7 +32,9 @@ import type { AnswerData } from "./answers.ts";
 import type { LhMessage } from "./native-messages.ts";
 import {
 	activeProblemOf,
+	activeProblemOccurrenceOf,
 	concludedByDismissalPair,
+	isSideQuestionMarker,
 	danglingQuestionOf,
 	newAnswerResult,
 	newNextMessage,
@@ -42,6 +44,7 @@ import {
 	newMessageId,
 	isEmptyAssistantCompletion,
 	questionCallsOf,
+	pluginQuestionCallsOf,
 	pendingProblemDismissalOf,
 } from "./native-messages.ts";
 import { QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
@@ -67,7 +70,7 @@ export type ChatInput =
 	 *  thinking on the ACTIVE problem — one lane (owner 2026-10-05):
 	 *  whether it claims an answer is read from the text. One
 	 *  problem may carry many submissions; each is its own turn. */
-	| { type: "thinking"; problemCallId: string; text: string }
+	| { type: "thinking"; problemCallId: string; text: string; images?: ImageContent[]; occurrence?: PluginSubmissionOccurrence }
 	/** The practice move-on signal (owner round 16): the learner's
 	 *  explicit go-ahead during the between-problems pause — the Next
 	 *  chip or Enter on an empty composer. Practice sessions only, and
@@ -101,6 +104,10 @@ export type DismissInput =
 export function parseDismissInput(input: unknown): DismissInput {
 	if (typeof input !== "object" || input === null) throw new ChatInputError("input must be an object");
 	const i = input as Record<string, unknown>;
+	if (i.type === "dismiss-plugin-question") {
+		if (i.questionId !== undefined && (typeof i.questionId !== "string" || !i.questionId)) throw new ChatInputError("dismiss-plugin-question requires a valid questionId");
+		return { type: "dismiss-plugin-question", ...(i.questionId !== undefined ? { questionId: i.questionId as string } : {}), occurrence: parsePluginQuestionOccurrence(i.occurrence) };
+	}
 	if (i.type === "dismiss-problem") {
 		if (typeof i.problemCallId !== "string" || i.problemCallId.length === 0) {
 			throw new ChatInputError("dismiss-problem input requires problemCallId");
@@ -128,7 +135,7 @@ export function parseDismissInput(input: unknown): DismissInput {
  *  (a send with no live turn is a plain text send, which already exists).
  *  The id is client-minted (steer_<localid>): the queued indicator keys on
  *  it, and the drain's message events upsert the real card by the same id. */
-export type UserSteerInput = { type: "steer"; id: string; text: string };
+export type UserSteerInput = { type: "steer"; id: string; text: string; images?: ImageContent[] };
 
 /** Parse and validate a steer event off a request body. */
 export function parseUserSteerInput(input: unknown): UserSteerInput {
@@ -138,10 +145,11 @@ export function parseUserSteerInput(input: unknown): UserSteerInput {
 	if (typeof i.id !== "string" || i.id.length === 0) {
 		throw new ChatInputError("steer input requires a client-minted id");
 	}
-	if (typeof i.text !== "string" || i.text.trim().length === 0) {
-		throw new ChatInputError("steer input requires non-empty text");
+	const images = parseImages(i.images);
+	if (typeof i.text !== "string" || (!i.text.trim() && !images)) {
+		throw new ChatInputError("steer input requires non-empty text or images");
 	}
-	return { type: "steer", id: i.id, text: i.text };
+	return { type: "steer", id: i.id, text: i.text, ...(images ? { images } : {}) };
 }
 
 /** An edit of a steer that is still queued (issue #321): the id of the
@@ -165,6 +173,8 @@ export function parseUserSteerEditInput(input: unknown): UserSteerEditInput {
  *  as answers: the call must be a DANGLING question call, or — the
  *  practice variant — the ACTIVE problem). */
 export function dismissAppends(record: { messages: LhMessage[] }, input: DismissInput): LhMessage[] {
+	assertPluginQuestionInputAllowed(record.messages, input);
+	if (input.type === "dismiss-plugin-question") throw new ChatInputError("Plugin question dismissal requires canonical server validation");
 	if (input.type === "dismiss-problem") {
 		const active = activeProblemOf(record.messages);
 		if (!active || active.toolCallId !== input.problemCallId) {
@@ -183,6 +193,44 @@ export function dismissAppends(record: { messages: LhMessage[] }, input: Dismiss
 }
 
 /** A malformed input event (the honest 400 — the orphan-trap discipline). */
+
+/** New-question gate only: builtin semantics/settings are unchanged. Call
+ * before effects and again against saved truth. New protocol requests still
+ * require canonical server validation; this guard is not answer validation. */
+export function assertPluginQuestionInputAllowed(messages: readonly LhMessage[], input: unknown): void {
+	const type = input && typeof input === "object" ? (input as { type?: unknown }).type : undefined;
+	if (type === "plugin-question-answer" || type === "dismiss-plugin-question") return;
+	if (pluginQuestionCallsOf(messages).some(call => call.status === "answerable" || call.status === "unreadable")) {
+		throw new ChatInputError("Answer or dismiss the pending plugin question first");
+	}
+}
+
+function parsePluginQuestionOccurrence(value: unknown): PluginQuestionOccurrence {
+	if (!value || typeof value !== "object") throw new ChatInputError("Plugin question input requires an exact occurrence");
+	const o = value as Record<string, unknown>;
+	if (typeof o.messageId !== "string" || !o.messageId || typeof o.toolCallId !== "string" || !o.toolCallId || typeof o.toolName !== "string" || !o.toolName || typeof o.contentIndex !== "number" || !Number.isSafeInteger(o.contentIndex) || o.contentIndex < 0) throw new ChatInputError("Plugin question input requires an exact occurrence");
+	return { messageId: o.messageId, contentIndex: o.contentIndex, toolCallId: o.toolCallId, toolName: o.toolName };
+}
+
+function parseImages(value: unknown): ImageContent[] | undefined {
+	if (value === undefined) return undefined;
+	try {
+		const images = validatePluginSubmissionImageArray(value);
+		return images.length ? images : undefined;
+	} catch (error) { throw new ChatInputError(error instanceof Error ? error.message : "Invalid submission images"); }
+}
+function parseImageChannels(value: unknown): PluginSubmissionImages | undefined {
+	if (value === undefined) return undefined;
+	try {
+		const images = validatePluginSubmissionImages(value);
+		return Object.keys(images).length ? images : undefined;
+	} catch (error) { throw new ChatInputError(error instanceof Error ? error.message : "Invalid submission image channels"); }
+}
+function parseOptionalOccurrence(value: unknown, images: unknown): PluginSubmissionOccurrence | undefined {
+	if (value !== undefined) return parsePluginQuestionOccurrence(value);
+	if (images) throw new ChatInputError("Image-bearing submissions require an exact occurrence");
+	return undefined;
+}
 
 /** Parse and validate an input event off a request body. */
 export function parseChatInput(input: unknown): ChatInput {
@@ -225,14 +273,17 @@ export function parseChatInput(input: unknown): ChatInput {
 				throw new ChatInputError("retry-question input requires an exact question occurrence");
 			}
 			return { type: "retry-question", messageId: i.messageId, contentIndex: i.contentIndex, toolCallId: i.toolCallId };
-		case "thinking":
+		case "thinking": {
 			if (typeof i.problemCallId !== "string" || i.problemCallId.length === 0) {
 				throw new ChatInputError("thinking input requires problemCallId");
 			}
-			if (typeof i.text !== "string" || i.text.trim().length === 0) {
-				throw new ChatInputError("thinking input requires non-empty text");
+			const images = parseImages(i.images);
+			const occurrence = parseOptionalOccurrence(i.occurrence, images);
+			if (typeof i.text !== "string" || (!i.text.trim() && !images)) {
+				throw new ChatInputError("thinking input requires non-empty text or images");
 			}
-			return { type: "thinking", problemCallId: i.problemCallId, text: i.text };
+			return { type: "thinking", problemCallId: i.problemCallId, text: i.text, ...(images ? { images } : {}), ...(occurrence ? { occurrence } : {}) };
+		}
 		case "next":
 			return { type: "next" };
 		default:
@@ -253,6 +304,8 @@ export function inputAppends(
 	record: { messages: LhMessage[]; kind?: string; attachments?: readonly { id: string }[] },
 	input: ChatInput,
 ): LhMessage[] {
+	assertPluginQuestionInputAllowed(record.messages, input);
+	assertNativeSubmissionTarget(record.messages, input);
 	switch (input.type) {
 		case "text": {
 			const unknown = input.attachmentIds?.filter((id) => !record.attachments?.some((a) => a.id === id)) ?? [];
@@ -279,7 +332,8 @@ export function inputAppends(
 			if (!active || active.toolCallId !== input.problemCallId) {
 				throw new ChatInputError("thinking input targets no active problem");
 			}
-			return [...dismissalConclusion(record), newThinkingMessage(input.problemCallId, input.text)];
+			if (active.pluginProblem) throw new ChatInputError("This problem requires its registered submission editor");
+			return [...dismissalConclusion(record), newThinkingMessage(input.problemCallId, input.text, input.images)];
 		}
 		case "next": {
 			// Honest 400s, the thinking gate's discipline: the signal is a
@@ -297,6 +351,32 @@ export function inputAppends(
 	}
 }
 
+/** Reusable post-await guard against canonical saved truth. Legacy text-only
+ * callers retain their existing ID-based contract; fresh images require binding. */
+export function assertNativeSubmissionTarget(messages: readonly LhMessage[], input: ChatInput): void {
+	if (input.type !== "answer" && input.type !== "thinking") return;
+	const hasImages = input.type === "answer"
+		? Object.values(input.answer.images ?? {}).some(images => images?.length)
+		: !!input.images?.length;
+	if (!input.occurrence) {
+		if (hasImages) throw new ChatInputError("Image-bearing submissions require an exact occurrence");
+		return;
+	}
+	let occurrence: PluginSubmissionOccurrence | undefined;
+	if (input.type === "answer") {
+		const pending = questionCallsOf(messages).find(call => call.status === "answerable");
+		if (pending && pending.toolCallId === input.toolCallId) occurrence = {
+			messageId: pending.messageId, contentIndex: pending.contentIndex, toolCallId: pending.toolCallId, toolName: pending.tool,
+		};
+	} else {
+		const active = activeProblemOccurrenceOf(messages);
+		if (active?.toolCallId === input.problemCallId) occurrence = active;
+	}
+	if (!occurrence || occurrence.messageId !== input.occurrence.messageId || occurrence.contentIndex !== input.occurrence.contentIndex || occurrence.toolCallId !== input.occurrence.toolCallId || occurrence.toolName !== input.occurrence.toolName) {
+		throw new ChatInputError("Submission target is no longer active. Refresh the session.");
+	}
+}
+
 /** Validate before any turn effects, then again against current saved truth.
  * Never accepts a failed/aborted generation (the existing Retry/new-message
  * paths own those), a stale occurrence, or an answerable sibling. */
@@ -304,6 +384,7 @@ export function questionRecoveryAppends(
 	messages: readonly LhMessage[],
 	input: Extract<ChatInput, { type: "retry-question" }>,
 ): LhMessage[] {
+	assertPluginQuestionInputAllowed(messages, input);
 	const calls = questionCallsOf(messages);
 	const target = calls.find(call => call.messageId === input.messageId && call.contentIndex === input.contentIndex && call.toolCallId === input.toolCallId);
 	if (!target || target.status !== "malformed") throw new ChatInputError("This malformed question is no longer available to retry. Refresh the session.");
@@ -321,7 +402,7 @@ export function questionRecoveryAppends(
 export function failedResponseAtEnd(messages: readonly LhMessage[]): Extract<LhMessage, { role: "assistant" }> | undefined {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const m = messages[i]!;
-		if (m.role === "custom" && (m.customType === "plan-block" || m.customType === "compaction")) continue;
+		if (m.role === "custom" && (m.customType === "plan-block" || m.customType === "compaction" || isSideQuestionMarker(m))) continue;
 		return m.role === "assistant" && m.stopReason === "error" ? m : undefined;
 	}
 	return undefined;

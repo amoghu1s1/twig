@@ -21,6 +21,7 @@ import type {
 	GraphNode,
 	JobKind,
 	JobRecord,
+	PluginJobMetadata,
 	ExtractionRunUsage,
 	PlanTree,
 	Position,
@@ -180,6 +181,8 @@ export interface CreateJobInit {
 	toolCallId: string;
 	/** First activity line (defaults to "starting"). */
 	activity?: string;
+	/** Host-owned plugin worker linkage, not model-selected routing. */
+	plugin?: PluginJobMetadata;
 	/** Saved on the job before its worker is spawned. */
 	input?: unknown;
 }

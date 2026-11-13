@@ -64,6 +64,9 @@ export * from "./compaction.ts";
 export * from "./input-events.ts";
 export { parseFilePaths, quoteFilePath, filePathLabel, isDirectoryReference, directoryReferencePath } from "./file-paths.ts";
 export type { FilePathPart } from "./file-paths.ts";
+export * from "./citations.ts";
+export { parseComposerTokens } from "./composer-tokens.ts";
+export type { ComposerToken } from "./composer-tokens.ts";
 // Wave D (owner-approved 2026-09-26): the client view model — the grouping
 // canon (one continuous assistant document, step separators) ported from
 // the deleted server projection to the client side. Pure, browser-safe.
@@ -112,6 +115,7 @@ export * from "./session-navigation.ts";
 export * from "./auth-keys.ts";
 // keyboard.ts: the shortcut registry + binding normalization (pure, browser-safe).
 export * from "./keyboard.ts";
+export * from "./plugin-shortcuts.ts";
 export * from "./coverage.ts";
 // session-markdown.ts (2026-09-27 engine; first consumer 2026-10-06): the
 // ONE session→markdown formatter — the extractor's view and the user-facing

@@ -148,6 +148,7 @@ export function Composer({
 	/** The pasted-image draft (composer paste): parent-held. */
 	imageDraft?: ImageDraftProps;
 }) {
+	const controller = useOptionalInteractionLayers();
 	const act = () => {
 		const action = enterAction({ busy, canSend, nextProblem });
 		if (action === "stop") onStop();
@@ -175,11 +176,13 @@ export function Composer({
 				defaultDropTarget
 				onImagePaste={imageDraft?.onPaste}
 				onKeyDown={(e) => {
+					if (!isInteractionScopeEligible(e.currentTarget, controller)) return;
 					// Esc ends dictation before anything else Esc might someday mean
 					// here (the dictate decisions: click-again or Esc to stop).
 					// stopPropagation claims the Esc (keyboard wave A): the
 					// window-level chain must not also abort a turn under us.
 					if (e.key === "Escape" && onEscape) {
+						controller?.claimEscape(e);
 						e.preventDefault();
 						e.stopPropagation();
 						onEscape();

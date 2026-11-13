@@ -64,7 +64,7 @@ export type PlanNodeStatus = "current" | "visited" | "upcoming";
 /** Minimal structural message slice — anything with typed parts (mirrors
  * phases.ts: pure, no runtime deps, safe on server, client, and in tests). */
 interface PartsCarrier {
-	parts: Array<{ type: string; state?: string; input?: unknown; output?: unknown }>;
+	parts: Array<{ type: string; state?: string; input?: unknown; output?: unknown; pluginQuestion?: unknown }>;
 }
 
 export interface DerivedPlanStatuses {
@@ -129,6 +129,8 @@ export interface PlanToolResult {
 // ─── the native fold (Wave D: derivePlanStatuses over LhMessage[]) ───────────
 
 import type { LhMessage } from "../native-messages.ts";
+import { posedPluginQuestionOfPart } from "../tool-parts.ts";
+import { readPluginQuestionMessageAnnotation } from "../plugin-questions.ts";
 
 /** The same derivation over the NATIVE record: quiz CALLS only (any state —
  *  a dangling call still moves position; results feed nothing). */

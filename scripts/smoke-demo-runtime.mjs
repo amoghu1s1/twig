@@ -9,6 +9,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
+import http from "node:http";
 import { createRequire, registerHooks } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -253,9 +254,8 @@ async function main() {
 	const args = process.argv.slice(2);
 	if (args[0] === "--probe") {
 		const { puppeteer, hooks } = await importPayload(args[1]);
-		try {
-			if (args.includes("--browser")) await browserProbe(puppeteer);
-		} finally { hooks.deregister(); }
+		hooks.deregister();
+		if (args.includes("--browser")) await browserProbe(puppeteer);
 		return;
 	}
 	const value = (name, fallback) => {

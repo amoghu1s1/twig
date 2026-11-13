@@ -5,6 +5,8 @@ import { MistakesContext } from "@/components/mistakes-context";
 import { ERROR_TYPE_LABELS } from "@/src/core";
 import { ConfidenceRail } from "@/components/confidence-rail";
 import { GlyphMark } from "@/components/ui/glyph-mark";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { SubmittedImages } from "./submitted-images";
 import { ThinkingBlock } from "@/components/thinking-block";
 import { PathText } from "@/components/file-path-chip";
 import { cn } from "@/lib/utils";
@@ -70,8 +72,8 @@ export function AnsweredCard({
 		    rendered as its own user-side block ABOVE the card, the unified
 		    ThinkingBlock, instead of an inset inside the answer. Same muted
 		    rail as before; the label is now plain "Your thinking". */}
-		{answer.readingThinking && (
-			<ThinkingBlock testId="reading-thinking-block" label="YOUR THINKING" text={answer.readingThinking} defaultOpen />
+		{(answer.readingThinking || answer.images?.readingThinking?.length) && (
+			<ThinkingBlock testId="reading-thinking-block" label="YOUR THINKING" text={answer.readingThinking ?? ""} images={answer.images?.readingThinking} defaultOpen />
 		)}
 		{/* [&>*:last-child]:mb-0 (owner round, 2026-10-07): on ask cards the
 		    thinking row is the last child — its my-3 stacked with the card's

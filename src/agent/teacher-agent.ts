@@ -31,6 +31,7 @@ import { QUESTION_TOOLS, type EnabledTools } from "../core/pending.ts";
 import { toLlmMessages, nativeInputCause, needsContinuation, isEmptyAssistantCompletion, PRACTICE_PROBLEM_TOOL, type LhMessage } from "../core/native-messages.ts";
 import type { ChatGPTRequestCycle } from "./chatgpt-request-cycle.ts";
 import { usageWasAdmitted } from "./subscription-request-cycle.ts";
+import { PluginQuestionLedger, type NativePluginQuestionContribution } from "./plugin-question-tools.ts";
 
 /**
  * The two teaching-side agents (docs/archive/probe-teach-split.md): the PROBER and
@@ -59,6 +60,13 @@ import { usageWasAdmitted } from "./subscription-request-cycle.ts";
 /** Which agent's prompt directory to compose. Practice (2026-10-04)
  *  composes ONLY its own directory — see prompt-segments.ts. */
 export type AgentKind = "prober" | "teacher" | "practice" | "capstone";
+
+/** Reserve conversation builtins even when role/mechanics/settings gates hide them.
+ * New builtin names must join this catalog; actual turn tools are reserved too. */
+export const CONVERSATION_TOOL_NAMES = Object.freeze([
+	...QUESTION_TOOLS, ...TOGGLEABLE_TOOLS, "probe_done", "read", "ls", "find", "grep",
+	"plan_init", "list_sessions", "list_propositions", "problem", "conclude", sendToUserTool.name,
+] as const);
 
 // P2 (2026-09-19): segment discovery + override resolution live in ONE
 // canonical place now — src/store/prompt-overrides.ts (listSourceSegments
@@ -128,9 +136,24 @@ export interface AgentBuildOptions {
 	messages?: AgentMessage[];
 	/** Money channel: one call per model request. */
 	onUsage?: StepUsageCollector;
+	/** Append-only reference updates before each already-scheduled internal
+	 * model call. Does not schedule an extra call or interrupt live output. */
+	contextUpdates?: (messages: readonly AgentMessage[]) => AgentMessage[];
+	/** Validate the actual selected context after prepared/queued messages
+	 * join, before dispatch. Throws through the SDK's normal failed-response
+	 * lifecycle, never through the conversion seam. */
+	validateContext?: (messages: readonly AgentMessage[]) => void;
 	/** Tests may pass a bare tool registry to drive deterministic flows.
 	 *  An explicit registry is NEVER toggle-filtered — the caller owns it. */
 	tools?: Record<string, AgentTool<any>>;
+	/** Server-owned per-turn resolver. Additive only; explicit tools test overrides
+	 * bypass contributions entirely. No conversation identity means no factory call. */
+	pluginContributions?: (context: PluginToolContext, reservedToolNames: readonly string[]) => {
+		instructions: readonly string[];
+		tools: readonly AgentTool<any>[];
+		questionTypes?: readonly NativePluginQuestionContribution[];
+		problemTypes?: readonly NativePluginProblemContribution[];
+	};
 	/** The resolved per-user tool toggles (core/pending EnabledTools — the
 	 *  2026-09-19 P2 bridge: Platform's chat-handler passes
 	 *  effective.agent.tools; the factories drop any tool explicitly false.
@@ -201,7 +224,8 @@ function makeQuestionStopper(kind: AgentKind) {
 	};
 }
 
-function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: AgentTool<any, any>[]) {
+function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: AgentTool<any, any>[], nodeExists?: (nodeId: string) => boolean,
+	practice?: { gate: PracticeGate; graphNodes: PracticeToolContext["graphNodes"] }) {
 	// Practice never reaches the role fallback (the handler ALWAYS injects
 	// the session's conversation engine — practice rides the same
 	// conversation-spec resolution as teaching); the cast keeps AgentKind
@@ -249,9 +273,17 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 		},
 		streamFn: engine.streamFn,
 		...(providerEvents ? { onProviderStreamEvent: providerEvents } : {}),
-		// Narration-marked thinking is not learner-facing delivery. The
-		// paired hooks track successful output before allowing its question.
-		...(narrationGuard ? makeNarrationGuard() : {}),
+		// Both policies share the SDK hook: preserve delivered-prose tracking
+		// and exact plugin occurrence binding rather than overwriting either.
+		...(questionLedger || narrationHooks ? {
+			...narrationHooks,
+			beforeToolCall: async (context: import("@earendil-works/pi-agent-core").BeforeToolCallContext) => {
+				const guarded = await narrationHooks?.beforeToolCall?.(context);
+				if (guarded?.block) return guarded;
+				questionLedger?.validatedCall(context);
+				return undefined;
+			},
+		} : {}),
 		// 0.87.1: shouldStopAfterTurn → finishTurn. Same call point (after
 		// tool results attach, before turn_end) and `{ action: "end" }` still
 		// exits BEFORE the steering poll — the parked-marker stranding our
@@ -316,6 +348,11 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 				else if (learner) opts.callPurpose.background = false;
 			}
 			opts.requestCycle?.prepare(request);
+			try { opts.validateContext?.(request.context.messages); }
+			catch (error) {
+				opts.requestCycle?.rejectLocalRequest();
+				throw error;
+			}
 		},
 	});
 	// Classify a second blank completion before the native loop and every
@@ -365,7 +402,9 @@ export function createTeacherAgent(
 	opts: AgentBuildOptions = {},
 ) {
 	const tools = opts.tools ?? (ctx ? createTeacherTools(ctx, opts.toolToggles) : bareQuestionTools());
-	return baseAgentOptions("teacher", opts, Object.values(tools));
+	return baseAgentOptions("teacher", opts, Object.values(tools), ctx
+		? nodeId => ctx.chatStore.getChat(ctx.chatId)?.tree?.nodes.some(node => node.id === nodeId) ?? false
+		: undefined);
 }
 
 /** The bare teach question set (tests, bare agents): quiz with the shared
@@ -409,8 +448,10 @@ export function bareQuestionTools(): Record<string, AgentTool<any>> {
  * Practice uses ordinary final prose, not the explicit output tool.
  */
 export function createPracticeAgent(ctx: PracticeToolContext, opts: AgentBuildOptions = {}) {
-	const tools = opts.tools ?? practiceTools(ctx);
-	return baseAgentOptions("practice", opts, Object.values(tools));
+	// Explicit test registries bypass all builtin construction and contributions.
+	if (opts.tools !== undefined) return baseAgentOptions("practice", opts, Object.values(opts.tools));
+	const gate = createPracticeGate(ctx);
+	return baseAgentOptions("practice", opts, Object.values(practiceTools(ctx, gate)), undefined, { gate, graphNodes: ctx.graphNodes });
 }
 
 /**

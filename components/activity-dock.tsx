@@ -91,6 +91,8 @@ export interface FeedDiscussion {
 
 export interface ActivityFeed {
 	jobs: FeedJob[];
+	/** Optional for older payloads and consumers; current server always sends it. */
+	pluginWorkers?: FeedPluginWorker[];
 	extractions: FeedExtraction[];
 	/** Optional on the wire: older payloads (and tests) carry none. */
 	readings?: FeedReading[];
@@ -248,7 +250,7 @@ export function toBlobs(feed: ActivityFeed): ActivityBlob[] {
 			id: job.id,
 			process: "job",
 			jobKind: job.kind,
-			title: job.title,
+			title: job.kind === "plugin" ? job.plugin?.label || job.plugin?.toolName || "Plugin worker" : job.title,
 			chatId: job.chatId,
 			startedAt: Date.parse(job.createdAt) || 0,
 			cost: job.costUsd ?? null,
@@ -268,6 +270,20 @@ export function toBlobs(feed: ActivityFeed): ActivityBlob[] {
 			steps: usage?.steps,
 		};
 	});
+	for (const task of feed.pluginWorkers ?? []) {
+		const last = task.usage?.lastStep;
+		blobs.push({
+			id: task.id, process: "plugin-worker", jobKind: "plugin", title: task.title,
+			startedAt: Date.parse(task.createdAt) || 0,
+			cost: task.costUsd ?? null,
+			context: task.contextLimit !== null && last?.inputTokens !== undefined
+				? { used: last.inputTokens + (last.outputTokens ?? 0) + (last.cacheReadTokens ?? 0) + (last.cacheWriteTokens ?? 0), limit: task.contextLimit }
+				: null,
+			activity: task.activity ?? task.status,
+			model: task.usage?.model ?? `${task.model.provider}:${task.model.id}`,
+			steps: task.usage?.steps,
+		});
+	}
 	for (const run of feed.extractions) {
 		blobs.push({
 			id: run.id,
@@ -337,6 +353,7 @@ const KIND_ICON: Record<JobKind, typeof SearchIcon> = {
 	demo: PlayIcon,
 	visual: PenToolIcon,
 	pdf: FileTextIcon, // sources v0 — type-forced entry (JobKind grew "pdf")
+	plugin: BotIcon,
 };
 
 /** Abort states per blob id: pending (fired) / failed (backend absent). */
@@ -466,10 +483,13 @@ function ActivityBlobRow({
 						? "Figure maker"
 						: blob.jobKind === "pdf"
 							? "PDF reader"
-							: "Sub-agent";
+							: blob.jobKind === "plugin"
+								? "Plugin worker"
+								: "Sub-agent";
 	return (
 		<div
 			data-testid={`activity-blob-${blob.process}`}
+			data-activity-id={blob.id}
 			className="relative rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-accent"
 		>
 			<button

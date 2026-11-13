@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import { DumbbellIcon } from "lucide-react";
 
 /** The pick pill's empty label for a capstone: picks are required. */
@@ -29,12 +29,16 @@ export function NodePickerControl({ count, onOpen, onClear, emptyLabel = "Pick n
 	emptyLabel?: string;
 	onOpen?: () => void;
 	onClear?: () => void;
+	disabled?: boolean;
+	triggerRef?: Ref<HTMLButtonElement>;
 }) {
 	return (
 		<div className="flex items-center gap-1.5">
 			<button
 				type="button"
 				data-testid="practice-props-chip"
+				ref={triggerRef}
+				disabled={disabled}
 				onClick={onOpen}
 				className={
 					"flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 font-ui text-xs transition-colors " +
@@ -50,6 +54,7 @@ export function NodePickerControl({ count, onOpen, onClear, emptyLabel = "Pick n
 				<button
 					type="button"
 					data-testid="practice-props-clear"
+					disabled={disabled}
 					onClick={onClear}
 					className="cursor-pointer rounded-full px-2 py-1 font-ui text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 				>

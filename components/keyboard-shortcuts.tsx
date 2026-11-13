@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * Keyboard shortcuts (shortcut wave A, 2026-09-17) — the single document-level
- * keydown listener. Owns the pieces that belong to no surface in particular:
+ * Keyboard shortcuts — window-bubble fallback and registry dispatch.
+ * Shared interaction layers own early event snapshots and dismissal:
  *
  * - Tab is DEAD: browser tab-focus navigation is abandoned by owner decision
  *   (2026-09-17). Tab is suppressed everywhere (preventDefault, no-op) and
@@ -26,8 +26,9 @@
  * event first and can claim it with stopPropagation.
  */
 
-import { useEffect, useRef, useState } from "react";
-import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { useEffect, useId, useRef, useState } from "react";
+import { HostDialog } from "@/components/host-dialog";
+import { useOptionalInteractionLayers } from "@/components/interaction-layers";
 import { useRouter } from "next/navigation";
 import {
 	actionForBinding,
@@ -40,8 +41,12 @@ import {
 	KEYBOARD_ACTIONS,
 	type SequenceState,
 } from "@/src/core";
+import { pluginQuestionKeySuppressed, composingQuestionKey } from "./plugin-question-keys";
 import { isDictationActive } from "@/components/dictation";
+import { dispatchFocusedPluginShortcut, hasLegacyInteractionForeground, isInteractionScopeEligible } from "@/components/plugin-input-focus";
 import { useSettingsDialog } from "@/components/settings/settings-dialog.tsx";
+import { usePlugins } from "./plugins";
+import { dispatchPluginActionShortcut, pluginShortcutScopeLabel, usePluginShortcutRows } from "./plugin-shortcuts";
 
 // Re-exported for the contract pin (tests/keyboard-toggle-sidebar.test.ts):
 // the dispatcher composes event names through the ONE helper — a second
@@ -52,6 +57,8 @@ export function KeyboardShortcuts() {
 	const router = useRouter();
 	const [cheatOpen, setCheatOpen] = useState(false);
 	const { open: openSettings } = useSettingsDialog();
+	const controller = useOptionalInteractionLayers();
+	const { manager } = usePlugins();
 
 	// Router + cheat + settings state inside a ref so the keydown listener
 	// (attached once) never goes stale.
@@ -142,7 +149,7 @@ export function KeyboardShortcuts() {
 
 			// ── Registry dispatch.
 			const action = actionForBinding(eventBinding(e));
-			if (!action) return;
+			if (!action) { dispatchPluginActionShortcut(e, manager, controller); return; }
 
 			// The input guard: inside a typing surface only mod/alt combos
 			// fire (they never type a character). Bare keys — "?" included —
@@ -166,6 +173,12 @@ export function KeyboardShortcuts() {
 				case "cheat-sheet":
 					handlersRef.current.setCheatOpen(true);
 					break;
+				case "toggle-question-thread":
+					// The chat view owns it (only while a question waits); claim the
+					// chord so a browser tab's own ⌘J (Downloads) never fires too.
+					e.preventDefault();
+					window.dispatchEvent(new CustomEvent(kbdEventForAction(action)));
+					break;
 				case "find":
 					// The mounted surface owns Find (session text / graph nodes).
 					// Claim Mod+F so Chromium's whole-window finder cannot open too.
@@ -179,12 +192,16 @@ export function KeyboardShortcuts() {
 					window.dispatchEvent(new CustomEvent(kbdEventForAction(action)));
 					break;
 				default:
+					if (dispatchFocusedPluginShortcut(action, controller)) break;
+					// Core dictation is a background-page service, not a modal
+					// command. A foreground plugin gets its focused claim above.
+					if (action === "toggle-dictation" && !isInteractionScopeEligible(document.body, controller)) break;
 					window.dispatchEvent(new CustomEvent(kbdEventForAction(action)));
 			}
 		};
 		window.addEventListener("keydown", onKeyDown);
 		return () => window.removeEventListener("keydown", onKeyDown);
-	}, [cheatOpen]);
+	}, [controller, manager]);
 
 	return <CheatSheet open={cheatOpen} onClose={() => setCheatOpen(false)} />;
 }
@@ -193,8 +210,8 @@ export function KeyboardShortcuts() {
  *  Until the settings milestone ships an editor, this is how shortcuts
  *  stay discoverable. */
 function CheatSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
-	const backdropDismiss = useBackdropDismiss(onClose);
-	if (!open) return null;
+	const headingId = useId();
+	const { rows: pluginRows } = usePluginShortcutRows();
 	const scopes = ["global", "chat", "graph"] as const;
 	const scopeLabels: Record<(typeof scopes)[number], string> = {
 		global: "Global",
@@ -210,9 +227,10 @@ function CheatSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
 			<div
 				className="max-h-[80vh] w-full max-w-[36rem] overflow-y-auto rounded-xl border bg-card p-5 shadow-2xl"
 				onClick={(e) => e.stopPropagation()}
-			>
+			/>}
+		>
 				<div className="mb-4 flex items-baseline justify-between">
-					<span className="text-sm font-medium text-card-foreground">Keyboard shortcuts</span>
+					<span id={headingId} role="heading" aria-level={2} className="text-sm font-medium text-card-foreground">Keyboard shortcuts</span>
 					<span className="text-xs text-muted-foreground">Esc to close</span>
 				</div>
 				{scopes.map((scope) => {
@@ -236,7 +254,13 @@ function CheatSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
 						</div>
 					);
 				})}
-			</div>
-		</div>
+				{[...new Set(pluginRows.map(row => row.pluginId))].map(pluginId => <div key={pluginId} className="mb-4" data-testid={`kbd-cheat-plugin-${pluginId}`}>
+					<div className="mb-1.5 text-xs uppercase tracking-widest text-muted-foreground/70">{pluginRows.find(row => row.pluginId === pluginId)!.pluginName}</div>
+					{pluginRows.filter(row => row.pluginId === pluginId).map(row => <div key={row.id} className="mb-1 text-sm">
+						<div className="flex items-center justify-between gap-4"><span className="text-muted-foreground">{row.name}</span><kbd className="rounded-md border border-border bg-background px-1.5 py-0.5 font-mono text-xs text-card-foreground">{row.binding ? formatBinding(row.binding) : "Unbound"}</kbd></div>
+						<div className="text-xs text-muted-foreground/70">{pluginShortcutScopeLabel(row)}{row.reason ? ` · Inactive: ${row.reason}` : ""}</div>
+					</div>)}
+				</div>)}
+		</HostDialog>
 	);
 }

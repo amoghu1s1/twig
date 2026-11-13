@@ -34,6 +34,14 @@ import { repairMathForDisplay } from "./math-delims.ts";
 import { healEncodedArguments } from "./argument-heal.ts";
 import { CODE_EXERCISE_TOOL, codeExerciseDisplayInputSchema, codeExerciseInputProblems, type CodeExerciseDisplayInput } from "./code-exercise.ts";
 import { probeDoneInputSchema, type ProbeDoneInput } from "./contracts/probe.ts";
+import { readPluginQuestionSnapshot, type PluginQuestionSnapshot } from "./plugin-questions.ts";
+
+/** View metadata, not model arguments, owns plugin question role/position. */
+export function posedPluginQuestionOfPart(part: { pluginQuestion?: unknown }): PluginQuestionSnapshot | undefined {
+	const annotation = part.pluginQuestion;
+	if (!annotation || typeof annotation !== "object" || (annotation as { status?: unknown }).status !== "posed") return undefined;
+	return readPluginQuestionSnapshot((annotation as { snapshot?: unknown }).snapshot) ?? undefined;
+}
 
 /** The pi-boundary parse step, mirrored here (live-smoke fix, 2026-09-26):
  *  pi-ai's validateToolArguments runs TypeBox's Value.Convert on the model's

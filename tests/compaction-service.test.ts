@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { after, describe, it } from "node:test";
+import { after, describe, it, type TestContext } from "node:test";
 
 // ── the seam, BEFORE any config-loading import (the birth-stamp discipline) ─
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-compaction-"));
@@ -32,12 +32,14 @@ const {
 	projectedContextTokens,
 } = await import("../src/server/compaction.ts");
 import type { CompactionDeps } from "../src/server/compaction.ts";
-import { createFauxCore, fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { createFauxCore, fauxAssistantMessage, type ToolCall } from "@earendil-works/pi-ai";
 const { subscribe } = await import("../src/core/events.ts");
 const { activeCompactionOf, newCompactionMarker, newUserMessage, measuredContextTokens, toLlmMessages, COMPACTED_HISTORY_HEADER, activeProblemOf, buildSubagentSteer, danglingQuestionOf, dismissedAnswer, endsInDismissal, newMessageId } = await import("../src/core/index.ts");
 const dismissRoute = await import("../app/api/chats/[id]/dismiss/route.ts");
 const artifactUiRoute = await import("../app/api/chats/[id]/artifact-ui/route.ts");
 import type { LhMessage } from "../src/core/index.ts";
+const { claimPreparingTurn } = await import("../src/server/turn-preparation.ts");
+const { beginTurn, endTurn } = await import("../src/server/turn-liveness.ts");
 
 after(() => {
 	fs.rmSync(TMP_DATA, { recursive: true, force: true });
@@ -173,12 +175,140 @@ describe("the compaction service", () => {
 		assert.equal(activeCompactionOf(chatStore.getChat(chatId)!.messages), null);
 	});
 
+	it("includes prospective side cargo in the trigger but never records or summarizes that undelivered cargo", async () => {
+		const chat = chatStore.createChat("compact: prospective side exchanges");
+		chatStore.saveMessages(chat.id, [big("old lesson 1", 40), big("old lesson 2", 40), big("old lesson 3", 40), newUserMessage("recent lesson")]);
+		const original = chatStore.getChat(chat.id)!.messages;
+		const cargo = newUserMessage(`UNDELIVERED SIDE EXCHANGES ${"s".repeat(90 * 1024)}`);
+		const deps = depsOf(chat.id, 45_000);
+		assert.ok(projectedContextTokens(original, deps.systemPromptTokens) < deps.thresholdTokens);
+		let summarized = "";
+		await ensureCompacted({ ...deps,
+			projectMessages: (record) => [...record.messages, cargo],
+			summarize: async (prompt, engine) => { summarized = prompt; return deps.summarize!(prompt, engine); },
+		}, chat.id);
+		const saved = chatStore.getChat(chat.id)!.messages;
+		assert.deepEqual(saved.slice(0, original.length), original);
+		assert.ok(activeCompactionOf(saved)); assert.doesNotMatch(summarized, /UNDELIVERED SIDE EXCHANGES/);
+		assert.ok(!saved.some((message) => message.id === cargo.id));
+		assert.ok(projectedContextTokens([...saved, cargo], deps.systemPromptTokens) < deps.thresholdTokens);
+	});
+
+	it("composes reasoning options with prospective side cargo without cutting or summarizing the undelivered exchanges", async () => {
+		const responses = { provider: "openai", api: "openai-responses", id: "side-reasoning-fixture" };
+		for (const identity of ["matching", "wrong-provider", "wrong-model", "wrong-api", "openrouter"] as const) {
+			const target = identity === "wrong-provider" ? { ...responses, provider: "another-provider" }
+				: identity === "wrong-model" ? { ...responses, id: "another-model" }
+				: identity === "wrong-api" ? { ...responses, api: "openai-completions" }
+				: identity === "openrouter" ? { ...responses, provider: "openrouter", api: "openai-completions" } : responses;
+			const stored = identity === "openrouter" ? target : responses;
+			for (const includeReasoning of [undefined, false, true]) {
+				const label = `${identity}, includeReasoning=${includeReasoning}`;
+				const chat = chatStore.createChat(label);
+				const history = Array.from({ length: 6 }, (_, index) => ({
+					...fauxAssistantMessage("a".repeat(400)), id: `signed-${index}`, provider: stored.provider, api: stored.api, model: stored.id,
+					content: [{ type: "thinking", thinking: "", thinkingSignature: "opaque-only-not-a-token-count" }, { type: "text", text: "a".repeat(400) }],
+					usage: { input: 50_000, output: 10_000, reasoning: 9_000, cacheRead: 0, cacheWrite: 0, totalTokens: 60_000 },
+				}) as LhMessage);
+				const prior = newCompactionMarker("Prior summary", { firstKeptMessageId: history[0]!.id, tokensBefore: 100_000, at: "fixture" });
+				const original = [...history, prior]; chatStore.saveMessages(chat.id, original);
+				const cargo = newUserMessage(`UNDELIVERED SIDE EXCHANGES ${"s".repeat(40_000)}`);
+				const deps: CompactionDeps = { ...depsOf(chat.id, 65_000), engine: { model: target } as CompactionDeps["engine"], includeReasoning };
+				const estimateModel = includeReasoning ? deps.engine.model : undefined;
+				assert.ok(projectedContextTokens(original, 100, estimateModel) < deps.thresholdTokens, label);
+				const projected = projectedContextTokens([...original, cargo], 100, estimateModel);
+				const shouldCompact = includeReasoning === true && identity === "matching";
+				assert.equal(projected > deps.thresholdTokens, shouldCompact, "the post-marker reasoning floor plus new cargo—not a usage anchor—triggers this gate");
+				let summaries = 0, summaryInput = "";
+				await ensureCompacted({ ...deps, projectMessages: (record) => [...record.messages, cargo], summarize: async (prompt, engine) => {
+					summaries++; summaryInput = prompt; return deps.summarize!(prompt, engine);
+				} }, chat.id);
+				const after = chatStore.getChat(chat.id)!.messages;
+				assert.deepEqual(after.slice(0, original.length), original, label);
+				assert.equal(summaries, shouldCompact ? 1 : 0, label);
+				assert.ok(!after.some((message) => message.id === cargo.id));
+				assert.doesNotMatch(summaryInput, /UNDELIVERED SIDE EXCHANGES/);
+				if (shouldCompact) {
+					const marker = activeCompactionOf(after)!;
+					assert.equal(marker.details.tokensBefore, projected);
+					assert.equal(marker.details.firstKeptMessageId, "signed-4", "cut uses saved history and its selected-model floor, never cargo");
+					assert.ok(projectedContextTokens([...after, cargo], 100, estimateModel) < deps.thresholdTokens);
+				} else assert.deepEqual(after, original, label);
+			}
+		}
+	});
+
+	it("adds prospective side cargo once to a valid usage anchor regardless of reasoning opt-in", () => {
+		const model = { provider: "openai", api: "openai-responses", id: "anchored-side" } as CompactionDeps["engine"]["model"];
+		const assistant = { ...fauxAssistantMessage("answer"), id: "anchor", provider: model.provider, api: model.api, model: model.id,
+			content: [{ type: "thinking", thinking: "", thinkingSignature: "opaque" }, { type: "text", text: "answer" }],
+			usage: { input: 50_000, output: 10_000, reasoning: 9_000, cacheRead: 0, cacheWrite: 0, totalTokens: 60_000 },
+		} as LhMessage;
+		const cargo = newUserMessage("s".repeat(40_000));
+		for (const estimateModel of [undefined, model]) {
+			assert.equal(projectedContextTokens([assistant], 100, estimateModel), 60_000);
+			assert.equal(projectedContextTokens([assistant, cargo], 100, estimateModel), 70_000, "do not add output/reasoning/ciphertext again to already-counted usage");
+		}
+	});
+
+	for (const eligibility of ["eligible", "background disabled", "under threshold"] as const) {
+	it(`a concurrent fresh preflight (${eligibility}) waits for the summary started after its initial structural check`, async () => {
+		const chatId = overThresholdChat(`compact: fresh preflight wait race ${eligibility}`);
+		const deps = depsOf(chatId, 40_000);
+		let release!: () => void;
+		let entered!: () => void;
+		const gate = new Promise<void>((resolve) => { release = resolve; });
+		const started = new Promise<void>((resolve) => { entered = resolve; });
+		const first = ensureCompacted({ ...deps, summarize: async (prompt, engine) => {
+			entered();
+			await gate;
+			return deps.summarize!(prompt, engine);
+		} }, chatId);
+		// Both calls see no running compaction at the first structural check.
+		// Their await continuations resume in order: first starts the stalled
+		// summary; second must join it, not return to grading admission.
+		let secondReturned = false;
+		const secondDeps = {
+			...deps,
+			canStart: () => eligibility !== "background disabled",
+			thresholdTokens: eligibility === "under threshold" ? 10_000_000 : deps.thresholdTokens,
+		};
+		const second = ensureCompacted(secondDeps, chatId).then(() => { secondReturned = true; });
+		try {
+			await started;
+			await Promise.resolve();
+			assert.equal(compactionInFlight(chatId), true);
+			assert.equal(secondReturned, false, "competing ensureCompacted returned during the newly started summary");
+		} finally {
+			release();
+			await Promise.all([first, second]);
+		}
+		assert.equal(secondReturned, true);
+		assert.equal(compactionInFlight(chatId), false);
+	});
+	}
+
 	it("the registry is a mutex: concurrent ensureCompacted → ONE summary", async () => {
 		const chatId = overThresholdChat("compact: mutex");
 		const before = summarizeCalls;
 		const deps = depsOf(chatId, 40_000);
 		await Promise.all([ensureCompacted(deps, chatId), ensureCompacted(deps, chatId), ensureCompacted(deps, chatId)]);
 		assert.equal(summarizeCalls, before + 1, "exactly one summary however many gates race");
+	});
+
+	it("concurrent prospective gates both await the same summary rather than releasing a teacher early", async () => {
+		const chatId = overThresholdChat("compact: concurrent gate wait");
+		let release!: () => void, entered!: () => void;
+		const gate = new Promise<void>((done) => { release = done; });
+		const started = new Promise<void>((done) => { entered = done; });
+		const base = depsOf(chatId, 40_000);
+		const deps = { ...base, summarize: async (prompt: string) => { entered(); await gate; return base.summarize!(prompt, base.engine); } };
+		let firstDone = false, secondDone = false;
+		const first = ensureCompacted(deps, chatId).then(() => { firstDone = true; });
+		const second = ensureCompacted(deps, chatId).then(() => { secondDone = true; });
+		await started; await Promise.resolve(); await Promise.resolve();
+		assert.equal(firstDone, false); assert.equal(secondDone, false);
+		release(); await Promise.all([first, second]);
 	});
 
 	it("awaitCompaction: a later call rides the in-flight one (the structural gate)", async () => {

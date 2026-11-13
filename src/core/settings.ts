@@ -53,6 +53,10 @@ export const BACKGROUND_MODEL_ROLES = [
 	"visualMaker",
 	"extractor",
 	"auditor",
+	// Side questions (#16): listed here for the schema-level override only
+	// (agent.models.sideQuestion). The role itself runs in the foreground,
+	// despite the list's name.
+	"sideQuestion",
 ] as const;
 
 export type BackgroundModelRole = (typeof BACKGROUND_MODEL_ROLES)[number];
@@ -194,16 +198,15 @@ export class ProviderKeyMissingError extends Error {
 
 export const CACHE_RETENTIONS = ["none", "short", "long"] as const satisfies readonly CacheRetention[];
 
-/** One slot's stored state. BYOK (owner, 2026-09-22): the WRITE side
- *  requires model (a level alone can never run — no factory floor); the
- *  sanitizer keeps whatever is on disk, but RESOLUTION treats a slot
- *  without a model as unset (inert level, no phantom default). */
+/** Stored model-slot preferences. A slot is configured only when model is
+ * present; sanitized level-only records can be retained but resolve as unset.
+ * A thinking level alone does not select an implicit fallback model. */
 export interface ModelSlot {
 	/** Native Pi preference. Absent leaves Pi/environment behavior unchanged. */
 	cacheRetention?: CacheRetention;
-	/** The model swap: both coordinates or neither. */
+	/** Configured model coordinates; provider and id must be supplied together. */
 	model?: { provider: string; id: string };
-	/** The thinking budget swap. */
+	/** Optional thinking level used with this slot's configured model. */
 	thinkingLevel?: ThinkingLevel;
 }
 
@@ -352,6 +355,10 @@ export interface DictationSettings {
 
 /** Agent settings — everything about the non-conversation machinery. */
 export interface AgentSettings {
+	/** Maximum simultaneous background-worker model requests (default 8).
+	 *  Direct conversations bypass this limit. Positive safe integers only:
+	 *  no arbitrary ceiling, rounding, or clamping. */
+	workerRequestConcurrency?: number;
 	/** Background-role model/thinking overrides (absent role = config pin). */
 	models?: Partial<Record<BackgroundModelRole, RoleModelOverride>>;
 	/** Tool toggles keyed by tool id (absent key = enabled). User-level
@@ -440,6 +447,8 @@ export interface AppearanceSettings {
 	/** Reading font size in px (12–24, default 16). Headings render as
 	 *  multiples of this, so one knob scales the document coherently. */
 	proseFontSize?: number;
+	/** Permit normal font ligatures in code (including inline code and code editors). Default false; prose is unaffected. */
+	codeLigatures?: boolean;
 	/** Session names in CMU Serif (default true — today's look). */
 	sessionNameSerif?: boolean;
 	mdRendering?: MdRenderingSettings;
@@ -548,6 +557,7 @@ export interface UserSettings {
  *  prompts default off — hence their absence here. */
 export interface FactorySettings {
 	version: number;
+	agent: Required<Pick<AgentSettings, "workerRequestConcurrency">>;
 	general: Required<GeneralSettings>;
 	dictation: Required<DictationSettings>;
 	appearance: {
@@ -557,6 +567,7 @@ export interface FactorySettings {
 		colors: AppearanceColorOverrides;
 		fontFamily: string | null;
 		proseFontSize: number;
+		codeLigatures: boolean;
 		sessionNameSerif: boolean;
 		mdRendering: {
 			headingWeight: number;
@@ -570,6 +581,7 @@ export interface FactorySettings {
 
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
+	agent: { workerRequestConcurrency: 8 },
 	general: { autoUpdate: true },
 	dictation: { language: "en" },
 	appearance: {
@@ -579,6 +591,7 @@ export const FACTORY_SETTINGS: FactorySettings = {
 		colors: {}, // no overrides: every color is the theme's
 		fontFamily: null, // Source Sans 3
 		proseFontSize: 16,
+		codeLigatures: false,
 		sessionNameSerif: true,
 		mdRendering: { headingWeight: 900, boldColor: null, italicColor: null },
 	},
@@ -755,6 +768,10 @@ function sanitizeBooleanMap(raw: unknown): Record<string, boolean> | undefined {
 
 function sanitizeAgent(raw: Record<string, unknown>): AgentSettings {
 	const out: AgentSettings = {};
+	// Invalid disk values drop: absence resolves to 8, never a silent clamp.
+	if (typeof raw.workerRequestConcurrency === "number" && Number.isSafeInteger(raw.workerRequestConcurrency) && raw.workerRequestConcurrency > 0) {
+		out.workerRequestConcurrency = raw.workerRequestConcurrency;
+	}
 	if (raw.models !== null && typeof raw.models === "object" && !Array.isArray(raw.models)) {
 		const models: Partial<Record<BackgroundModelRole, RoleModelOverride>> = {};
 		for (const [role, override] of Object.entries(raw.models as Record<string, unknown>)) {
@@ -841,6 +858,8 @@ function sanitizeAppearance(raw: Record<string, unknown>): AppearanceSettings {
 	if (typeof raw.proseFontSize === "number" && Number.isFinite(raw.proseFontSize)) {
 		out.proseFontSize = clamp(Math.round(raw.proseFontSize), PROSE_FONT_MIN, PROSE_FONT_MAX);
 	}
+	const codeLigatures = boolOrDrop(raw.codeLigatures);
+	if (codeLigatures !== undefined) out.codeLigatures = codeLigatures;
 	const sessionNameSerif = boolOrDrop(raw.sessionNameSerif);
 	if (sessionNameSerif !== undefined) out.sessionNameSerif = sessionNameSerif;
 	if (raw.mdRendering !== undefined) out.mdRendering = sanitizeMdRendering(raw.mdRendering);

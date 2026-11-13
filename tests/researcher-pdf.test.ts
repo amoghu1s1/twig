@@ -7,7 +7,7 @@
  * status (the "ill-formed request" lesson: 200-served error bodies must be
  * distinguishable from real pages).
  *
- * Zero network: globalThis.fetch is stubbed with a REAL minimal PDF built
+ * Zero network: the safeFetch seam (safeFetchOverride) is stubbed with a REAL minimal PDF built
  * programmatically (correct xref offsets — pdfjs parses it like any
  * download). Rendering is out of scope here (no vision in the researcher).
  */
@@ -20,6 +20,7 @@ import { after, describe, it } from "node:test";
 import { netGuardTransport } from "../src/agent/tools/net-guard.ts";
 import { createPdfReadTools } from "../src/agent/tools/pdf-read.ts";
 import { createWebTools } from "../src/agent/tools/web.ts";
+import { safeFetchOverride } from "../src/agent/tools/safe-fetch.ts";
 
 /** Build a valid N-page PDF in memory — ASCII-only so string offsets ARE
  *  byte offsets; xref entries computed as we assemble. */

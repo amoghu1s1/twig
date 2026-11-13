@@ -22,6 +22,7 @@ describe("FACTORY_SETTINGS (the compiled factory layer)", () => {
 	it("pins the owner-decided defaults", () => {
 		assert.equal(CURRENT_SETTINGS_VERSION, 1);
 		assert.deepEqual(FACTORY_SETTINGS.general, { autoUpdate: true });
+		assert.deepEqual(FACTORY_SETTINGS.agent, { workerRequestConcurrency: 8 });
 		// wave 7 collapse: the master switch ONLY + the extraction-UX
 		// redesign's chunk budget (2026-09-24); doubled to 8192 with the
 		// digest-aware redesign (2026-09-30), then HALVED BACK to 4096
@@ -42,7 +43,7 @@ describe("FACTORY_SETTINGS (the compiled factory layer)", () => {
 
 	it("has NO factory model pin — chat defaults and role overrides start absent", () => {
 		assert.equal("chat" in FACTORY_SETTINGS, false);
-		assert.equal("agent" in FACTORY_SETTINGS, false);
+		assert.equal("models" in FACTORY_SETTINGS.agent, false);
 	});
 });
 
@@ -56,6 +57,17 @@ describe("isHexColor", () => {
 });
 
 describe("sanitizeUserSettings", () => {
+	it("worker concurrency keeps positive safe integers and drops invalid values without clamping", () => {
+		for (const value of [1, 8, 100_000, Number.MAX_SAFE_INTEGER]) {
+			const out = sanitizeUserSettings({ version: 1, agent: { workerRequestConcurrency: value, tools: { research: false } } });
+			assert.deepEqual(out?.agent, { workerRequestConcurrency: value, tools: { research: false } });
+		}
+		for (const value of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, -Infinity, "8", "", null, true, [], {}]) {
+			const out = sanitizeUserSettings({ version: 1, agent: { workerRequestConcurrency: value, tools: { research: false } } });
+			assert.deepEqual(out?.agent, { tools: { research: false } }, String(value));
+		}
+	});
+
 	it("round-trips a fully valid record field-for-field", () => {
 		const record = {
 			version: 1,
@@ -237,13 +249,14 @@ describe("sanitizeUserSettings", () => {
 		assert.deepEqual(out.agent?.tools, { quiz: false, demo: true });
 	});
 
-	it("BACKGROUND_MODEL_ROLES matches the five background roles (practice trio deleted 2026-10-04)", () => {
+	it("BACKGROUND_MODEL_ROLES matches the six override roles (practice trio deleted 2026-10-04, sideQuestion added)", () => {
 		assert.deepEqual([...BACKGROUND_MODEL_ROLES], [
 			"researcher",
 			"demoBuilder",
 			"visualMaker",
 			"extractor",
 			"auditor",
+			"sideQuestion",
 		]);
 	});
 

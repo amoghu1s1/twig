@@ -6,12 +6,14 @@
  * outside that the docs require us to copy: public/ and .next/static/.
  * This script finishes the job and sanity-checks the result — including
  * the exclusion that keeps the repo's real data/ OUT of the bundle
- * (see next.config.ts outputFileTracingExcludes). It also removes two
- * exact build-only paths the tracer sweeps in: old installers and the
- * development Electron runtime. Broad trace exclusions break externals.
+ * (see next.config.ts outputFileTracingExcludes). It also removes exact
+ * build-only paths the tracer sweeps in: plugin authoring projects,
+ * old installers and the development Electron runtime. Broad trace exclusions break externals.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { validateCorePackages } from "./build-core-plugins.mjs";
+import { buildPluginAuthoring } from "./build-plugin-authoring.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const STANDALONE = path.join(ROOT, ".next", "standalone");
@@ -70,14 +72,14 @@ if (!exists(path.join(STANDALONE, "public", "pyodide", "pyodide.asm.wasm"))) {
 }
 
 // 2c) Payload curation (2026-10-11): the trace sweep can copy repo-root
-// dist/ (previous installers, recursively) and the development Electron
+// plugins/ (authoring sources/tests), dist/ (previous installers), and the development Electron
 // runtime (the demo helper's dev-only require). Neither belongs in the
 // server: packaged helpers use process.execPath, the app's own binary.
 // Remove ONLY these standalone-root paths AFTER tracing — excluding a
 // generic dist/** earlier broke pi-ai / pi-agent-core's runtime dist/.
 // Never touch ROOT/dist or ROOT/node_modules/electron (the running app
 // and the build runtime); native canvas/resvg packages stay untouched.
-for (const extra of ["dist", path.join("node_modules", "electron")]) {
+for (const extra of ["plugins", "dist", path.join("node_modules", "electron")]) {
 	const target = path.join(STANDALONE, extra);
 	if (exists(target)) {
 		fs.rmSync(target, { recursive: true, force: true });
@@ -88,6 +90,8 @@ for (const extra of ["dist", path.join("node_modules", "electron")]) {
 // 3) Sanity: the runtime-read prompt assets must be present (the teacher
 //    agent reads them from disk at request time).
 for (const asset of [
+	path.join("scripts", "plugin-loader.cjs"),
+	path.join("public", "plugin-loader.js"),
 	path.join("src", "agent", "system-prompt.md"),
 	path.join("src", "agent", "prompts", "teacher", "20-teaching.md"),
 	// The readings writer (docs/readings.md) reads its own prompt tree.
