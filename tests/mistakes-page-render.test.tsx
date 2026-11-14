@@ -57,11 +57,13 @@ describe("Mistakes analysis code tokens", () => {
 });
 
 describe("Mistakes card Markdown and math", () => {
-	it("renders the question as KaTeX, never as raw dollar-TeX", () => {
+	it("renders the question as KaTeX, never as raw dollar-TeX, without corner-hook borders or unclipped fades", () => {
 		const html = render(false);
 		assert.match(html, /data-testid="mistake-card"/);
 		assert.match(html, /class="katex"/);
 		assert.doesNotMatch(html, /\$20\\,/, "the question's TeX is rendered, not printed");
+		assert.doesNotMatch(html, /border-l-2/, "card wrapper has uniform rounded corners");
+		assert.doesNotMatch(html, /bg-gradient-to-t/, "short previews are not dimmed");
 	});
 
 	it("expanded card renders answers, analysis, and the rule as Markdown/KaTeX", () => {

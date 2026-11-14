@@ -12,7 +12,6 @@ import {
 	TrashIcon,
 } from "lucide-react";
 import {
-	ERROR_TYPES,
 	ERROR_TYPE_LABELS,
 	filterMistakes,
 	groupMistakes,
@@ -48,10 +47,10 @@ interface Progress {
 }
 
 const KIND_LABEL: Record<MistakeKind, string> = { missed: "Missed", unanswered: "Unanswered", problem: "Problem" };
-const KIND_ACCENT: Record<MistakeKind, string> = {
-	missed: "border-l-destructive/60",
-	unanswered: "border-l-warning/60",
-	problem: "border-l-primary/60",
+const KIND_DOT: Record<MistakeKind, string> = {
+	missed: "bg-error",
+	unanswered: "bg-warning",
+	problem: "bg-primary",
 };
 const GROUPS: { by: MistakeGroupBy; label: string }[] = [
 	{ by: "type", label: "Error type" },
@@ -174,8 +173,8 @@ export function MistakesPage() {
 
 			<div className="min-h-0 flex-1 overflow-y-auto">
 				<div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-4 py-6 sm:px-6">
-					<div className="flex flex-wrap items-start justify-between gap-3">
-						<p className="max-w-xl text-sm text-muted-foreground">
+					<div className="flex flex-wrap items-center justify-between gap-3">
+						<p className="max-w-xl font-ui text-xs text-muted-foreground">
 							Every miss, with why. Read the pattern, then the rule that prevents it next time.
 						</p>
 						<div className="flex items-center gap-2">
@@ -207,14 +206,14 @@ export function MistakesPage() {
 					</div>
 
 					<div className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-testid="mistakes-summary">
-						<StatTile label="Total" value={summary.total} />
-						<StatTile label="Missed" value={summary.missed} />
-						<StatTile label="Unanswered" value={summary.unanswered} />
-						<StatTile label="Problems" value={summary.problems} />
+						<StatTile label="Total" value={summary.total} active={kind === ""} onClick={() => setKind("")} />
+						<StatTile label="Missed" value={summary.missed} active={kind === "missed"} onClick={() => setKind((cur) => (cur === "missed" ? "" : "missed"))} />
+						<StatTile label="Unanswered" value={summary.unanswered} active={kind === "unanswered"} onClick={() => setKind((cur) => (cur === "unanswered" ? "" : "unanswered"))} />
+						<StatTile label="Problems" value={summary.problems} active={kind === "problem"} onClick={() => setKind((cur) => (cur === "problem" ? "" : "problem"))} />
 					</div>
 
 					{scanNote && (
-						<div data-testid="mistakes-scan-note" className="flex flex-wrap items-center gap-3 rounded-xl border bg-card px-4 py-3 text-sm">
+						<div data-testid="mistakes-scan-note" className="flex flex-wrap items-center gap-3 rounded-xl border bg-card px-4 py-3 text-xs">
 							{scanNote.found === 0 && scanNote.retry === 0 ? (
 								<>
 									<span className="text-foreground">Nothing new — every miss in your sessions is already here.</span>
@@ -248,9 +247,9 @@ export function MistakesPage() {
 						</div>
 					)}
 
-					<div className="flex flex-col gap-2 rounded-xl border bg-card p-2.5">
+					<div className="flex flex-col gap-2.5 rounded-xl border bg-card p-3">
 						<div className="flex flex-wrap items-center gap-2">
-							<span className="relative min-w-44 flex-1">
+							<span className="relative min-w-48 flex-1">
 								<SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/70" />
 								<input
 									data-testid="mistakes-search"
@@ -258,7 +257,7 @@ export function MistakesPage() {
 									onChange={(e) => setQuery(e.target.value)}
 									placeholder="Search questions, topics, rules…"
 									aria-label="Search mistakes"
-									className="lh-input h-8 w-full rounded-md border bg-background pl-8 pr-2 text-xs outline-none placeholder:text-muted-foreground/60 focus:border-ring"
+									className="h-8 w-full rounded-md border bg-background pl-8 pr-2.5 font-ui text-xs outline-none placeholder:text-muted-foreground/60 focus:border-ring"
 								/>
 							</span>
 							<div
@@ -283,36 +282,10 @@ export function MistakesPage() {
 								))}
 							</div>
 							<select
-								aria-label="Filter by kind"
-								value={kind}
-								onChange={(e) => setKind(e.target.value as MistakeKind | "")}
-								className="h-8 rounded-md border bg-background px-2 text-xs"
-							>
-								<option value="">All kinds</option>
-								{(Object.keys(KIND_LABEL) as MistakeKind[]).map((k) => (
-									<option key={k} value={k}>
-										{KIND_LABEL[k]}
-									</option>
-								))}
-							</select>
-							<select
-								aria-label="Filter by error type"
-								value={errorType}
-								onChange={(e) => setErrorType(e.target.value as ErrorType | "")}
-								className="h-8 rounded-md border bg-background px-2 text-xs"
-							>
-								<option value="">All error types</option>
-								{ERROR_TYPES.map((t) => (
-									<option key={t} value={t}>
-										{ERROR_TYPE_LABELS[t]}
-									</option>
-								))}
-							</select>
-							<select
 								aria-label="Filter by session"
 								value={chatId}
 								onChange={(e) => setChatId(e.target.value)}
-								className="h-8 max-w-44 rounded-md border bg-background px-2 text-xs"
+								className="h-8 max-w-44 rounded-md border bg-background px-2 font-ui text-xs"
 							>
 								<option value="">All sessions</option>
 								{sessions.map(([id, title]) => (
@@ -325,7 +298,7 @@ export function MistakesPage() {
 								type="button"
 								data-testid="mistakes-expand-all"
 								onClick={() => setOpen(allVisibleOpen ? new Set() : new Set(filtered.map((r) => r.id)))}
-								className="ml-auto rounded-md px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+								className="ml-auto rounded-md px-2.5 py-1.5 font-ui text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 							>
 								{allVisibleOpen ? "Collapse all" : "Expand all"}
 							</button>
@@ -340,8 +313,8 @@ export function MistakesPage() {
 										aria-pressed={errorType === type}
 										onClick={() => setErrorType((cur) => (cur === type ? "" : type))}
 										className={cn(
-											"rounded-full border px-2 py-0.5 text-[11px] transition-colors hover:bg-accent",
-											errorType === type ? "border-primary bg-accent text-foreground" : "border-border/70 text-muted-foreground",
+											"rounded-full border px-2.5 py-0.5 font-ui text-[11px] transition-colors hover:bg-accent",
+											errorType === type ? "border-ring bg-accent text-foreground" : "border-border/70 text-muted-foreground",
 										)}
 									>
 										{ERROR_TYPE_LABELS[type]} <span className="tabular-nums opacity-70">{count}</span>
@@ -362,7 +335,7 @@ export function MistakesPage() {
 
 					<div className="min-h-0 pb-4" data-testid="mistakes-list">
 						{records === null && loadError ? (
-							<p className="text-sm text-muted-foreground">Couldn&rsquo;t load mistakes.</p>
+							<p className="text-xs text-muted-foreground">Couldn&rsquo;t load mistakes.</p>
 						) : records === null ? (
 							<div className="flex items-center gap-2 py-8 font-ui text-xs text-muted-foreground">
 								<BrailleSpinner label="Loading" /> Loading mistakes…
@@ -370,14 +343,14 @@ export function MistakesPage() {
 						) : records.length === 0 ? (
 							<div className="rounded-xl border border-dashed bg-card/50 px-6 py-10 text-center">
 								<CircleAlertIcon className="mx-auto size-6 text-muted-foreground/60" />
-								<p className="mt-3 font-title text-lg tracking-tight text-foreground">No mistakes yet</p>
-								<p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+								<p className="mt-3 font-sans text-base font-semibold tracking-tight text-foreground">No mistakes yet</p>
+								<p className="mx-auto mt-1 max-w-md font-ui text-xs text-muted-foreground">
 									Quiz misses, “I don’t know”, and practice problems you don’t solve cleanly land here with a short analysis.
 									Use <span className="text-foreground">Scan past sessions</span> to pull in ones from before.
 								</p>
 							</div>
 						) : filtered.length === 0 ? (
-							<div className="rounded-xl border border-dashed bg-card/50 px-6 py-8 text-center text-sm text-muted-foreground">
+							<div className="rounded-xl border border-dashed bg-card/50 px-6 py-8 text-center font-ui text-xs text-muted-foreground">
 								No mistakes match these filters.
 								<button
 									type="button"
@@ -406,13 +379,13 @@ export function MistakesPage() {
 													className="flex min-w-0 flex-1 items-center gap-2 text-left"
 												>
 													{collapsed ? <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" /> : <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground" />}
-													<span className="font-title text-lg tracking-tight text-foreground">{g.label}</span>
-													<span className="rounded-full border border-border/60 px-1.5 py-0.5 font-ui text-[10px] tabular-nums text-muted-foreground">{g.records.length}</span>
+													<span className="font-sans text-base font-semibold tracking-tight text-foreground">{g.label}</span>
+													<span className="rounded-full border border-border/60 px-2 py-0.5 font-ui text-[10px] tabular-nums text-muted-foreground">{g.records.length}</span>
 													{g.pattern && <span className="ml-1 hidden min-w-0 truncate font-ui text-[11px] text-muted-foreground/80 sm:block" data-testid="mistakes-pattern">{g.pattern}</span>}
 												</button>
 											</div>
 											{!collapsed && (
-												<div className="flex flex-col gap-2">
+												<div className="flex flex-col gap-2.5">
 													{g.records.map((r) => (
 														<MistakeCard key={r.id} record={r} open={open.has(r.id)} onToggle={() => toggle(r.id)} onDelete={() => void remove(r.id)} onRetry={() => void retry(r.id)} />
 													))}
@@ -430,12 +403,30 @@ export function MistakesPage() {
 	);
 }
 
-function StatTile({ label, value }: { label: string; value: number }) {
+function StatTile({
+	label,
+	value,
+	active,
+	onClick,
+}: {
+	label: string;
+	value: number;
+	active: boolean;
+	onClick: () => void;
+}) {
 	return (
-		<div className="rounded-xl border bg-card px-4 py-3">
-			<div className="font-title text-2xl leading-none tracking-tight text-foreground">{value}</div>
-			<div className="mt-1.5 font-ui text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
-		</div>
+		<button
+			type="button"
+			aria-pressed={active}
+			onClick={onClick}
+			className={cn(
+				"flex items-baseline justify-between gap-2 rounded-xl border bg-card px-4 py-2.5 text-left transition-colors hover:bg-accent/50",
+				active && "border-ring bg-accent",
+			)}
+		>
+			<span className={cn("font-ui text-[10px] uppercase tracking-wider", active ? "text-foreground" : "text-muted-foreground")}>{label}</span>
+			<span className="font-ui text-xl font-bold leading-none tabular-nums tracking-tight text-foreground">{value}</span>
+		</button>
 	);
 }
 
@@ -454,16 +445,27 @@ export function MistakeCard({
 	onRetry: () => void;
 }) {
 	const a = r.analysis;
+	const previewRef = useRef<HTMLDivElement>(null);
+	const [overflows, setOverflows] = useState(false);
+
+	useEffect(() => {
+		const el = previewRef.current;
+		if (open || !el) return;
+		const measure = () => setOverflows(el.scrollHeight > el.clientHeight + 2);
+		measure();
+		if (typeof ResizeObserver === "undefined") return;
+		const obs = new ResizeObserver(measure);
+		obs.observe(el);
+		return () => obs.disconnect();
+	}, [open, r.question]);
+
 	return (
 		<article
-			className={cn(
-				"overflow-hidden rounded-xl border border-l-2 bg-card transition-colors hover:border-border/80",
-				KIND_ACCENT[r.kind],
-			)}
+			className="overflow-hidden rounded-xl border bg-card transition-colors hover:border-border/80"
 			data-testid="mistake-card"
 		>
 			<div
-				className="flex cursor-pointer items-start gap-2 px-4 py-3.5"
+				className="flex cursor-pointer items-start gap-2.5 px-4 py-3.5"
 				onClick={(event) => {
 					// The question is Markdown (block HTML), so the header cannot
 					// be a <button>. Keep a real toggle button for the keyboard;
@@ -482,14 +484,17 @@ export function MistakeCard({
 					{open ? <ChevronDownIcon className="size-3.5" /> : <ChevronRightIcon className="size-3.5" />}
 				</button>
 				<div className="min-w-0 flex-1">
-					<div className={cn("relative", !open && "max-h-28 overflow-hidden [&_pre]:hidden [&_[data-testid=md-code]]:hidden")}>
+					<div ref={previewRef} className={cn("relative", !open && "max-h-28 overflow-hidden [&_pre]:hidden [&_[data-testid=md-code]]:hidden")}>
 						<ToolContentResponse className="text-(length:--lh-prose-size)">{r.question}</ToolContentResponse>
-						{!open && <div className="pointer-events-none absolute inset-x-0 bottom-0 h-7 bg-gradient-to-t from-card to-transparent" />}
+						{!open && overflows && <div className="pointer-events-none absolute inset-x-0 bottom-0 h-7 bg-gradient-to-t from-card to-transparent" />}
 					</div>
-					<div className="mt-2 flex flex-wrap items-center gap-1.5 font-ui text-[11px]">
-						<span className="rounded-full border border-border/70 px-2 py-0.5 text-muted-foreground">{KIND_LABEL[r.kind]}</span>
+					<div className="mt-2.5 flex flex-wrap items-center gap-1.5 font-ui text-[11px]">
+						<span className="inline-flex items-center gap-1.5 rounded-full border border-border/70 px-2 py-0.5 text-muted-foreground">
+							<span className={cn("size-1.5 rounded-full", KIND_DOT[r.kind])} aria-hidden />
+							{KIND_LABEL[r.kind]}
+						</span>
 						{a ? (
-							<span className="rounded-full bg-accent px-2 py-0.5 text-foreground">{ERROR_TYPE_LABELS[a.errorType]}</span>
+							<span className="rounded-full border border-border/60 bg-accent/60 px-2 py-0.5 text-foreground">{ERROR_TYPE_LABELS[a.errorType]}</span>
 						) : r.status === "pending" ? (
 							<span className="text-muted-foreground">Analyzing…</span>
 						) : (
