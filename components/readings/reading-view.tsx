@@ -20,10 +20,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	ArrowLeftIcon,
 	BookOpenIcon,
+	BookOpenTextIcon,
 	DownloadIcon,
 	DumbbellIcon,
 	ExternalLinkIcon,
@@ -31,9 +32,11 @@ import {
 	RotateCcwIcon,
 	SquareIcon,
 	Trash2Icon,
+	XIcon,
 } from "lucide-react";
 import {
 	discussionMarkdown,
+	kbdEventForAction,
 	READING_KIND_LABEL,
 	readingMarkdown,
 	subscriptionLabel,
@@ -44,6 +47,8 @@ import {
 import { MessageResponse } from "@/components/ai-elements/message";
 import { BrailleSpinner } from "@/components/braille-spinner";
 import { downloadFile, slugFilename } from "@/components/artifacts/download";
+import { SentenceReader } from "@/components/sentence-reader";
+import { sessionFindHasForegroundLayer } from "@/components/session-find";
 import { planCostLabel } from "@/components/usage-format";
 import {
 	ago,
@@ -110,11 +115,13 @@ export function ModeLabel({ mode }: { mode: ReadingMode }) {
 export function ReadingView({
 	id,
 	compact = false,
+	onClose,
 	onDeleted,
 	onOpenReading,
 }: {
 	id: string;
 	compact?: boolean;
+	onClose?: () => void;
 	onDeleted?: () => void;
 	/** A re-run opens the new version (tray: in place; page: navigate). */
 	onOpenReading?: (id: string) => void;
@@ -133,17 +140,19 @@ export function ReadingView({
 	if (reading === "missing") {
 		return <div className="p-4 text-sm text-muted-foreground">This reading no longer exists.</div>;
 	}
-	return <ReadingDocument reading={reading} compact={compact} onDeleted={onDeleted} onOpenReading={onOpenReading} />;
+	return <ReadingDocument reading={reading} compact={compact} onClose={onClose} onDeleted={onDeleted} onOpenReading={onOpenReading} />;
 }
 
 export function ReadingDocument({
 	reading: r,
 	compact,
+	onClose,
 	onDeleted,
 	onOpenReading,
 }: {
 	reading: FullReading;
 	compact?: boolean;
+	onClose?: () => void;
 	onDeleted?: () => void;
 	onOpenReading?: (id: string) => void;
 }) {
@@ -174,9 +183,32 @@ export function ReadingDocument({
 		[ready, r.body, r.sections, r.terms],
 	);
 	const [discussOpen, setDiscussOpen] = useState(false);
+	const [readerOpen, setReaderOpen] = useState(false);
 	const articleRef = useRef<HTMLElement>(null);
 	const contentRef = useRef<HTMLDivElement>(null);
 	const readingScroll = useRef(0);
+	const readableText = useMemo(() => {
+		if (!ready) return "";
+		const parts: string[] = [];
+		if (r.body?.trim()) parts.push(r.body.trim());
+		for (const sec of r.sections ?? []) {
+			const block = [`## ${sec.heading}`, sec.body?.trim()].filter(Boolean).join("\n\n");
+			if (block) parts.push(block);
+		}
+		for (const term of r.terms ?? []) {
+			parts.push(`**${term.term}** — ${term.definition}`);
+		}
+		return parts.join("\n\n");
+	}, [ready, r.body, r.sections, r.terms]);
+	useEffect(() => {
+		if (compact || !ready || !readableText) return;
+		const onRead = () => {
+			if (!sessionFindHasForegroundLayer(document)) setReaderOpen(true);
+		};
+		const ev = kbdEventForAction("read-by-sentence");
+		window.addEventListener(ev, onRead);
+		return () => window.removeEventListener(ev, onRead);
+	}, [compact, ready, readableText]);
 	// The tray swaps views inside one scroll container: remember where the
 	// reading was, and land back there.
 	const showDiscuss = (open: boolean) => {
@@ -232,6 +264,7 @@ export function ReadingDocument({
 	};
 
 	const askedCount = discussion ? discussion.side.exchanges.length + discussion.threads.reduce((n, t) => n + t.exchanges.length, 0) : 0;
+	const handleClose = onClose ?? (!compact && r.anchor.chatId ? () => router.push(`/chat/${r.anchor.chatId}`) : undefined);
 
 	const article = (
 		<article
@@ -250,21 +283,46 @@ export function ReadingDocument({
 					<ModeLabel mode={r.mode} />
 					<span className="text-muted-foreground/70">· {ago(r.createdAt)}</span>
 					{r.usage && <span className="tabular-nums text-muted-foreground/70">· {planCostLabel(r.costUsd, subscriptionLabel(r.usage.model))}</span>}
-					{ready && (
-						<button
-							type="button"
-							data-testid="reading-discuss"
-							aria-expanded={discussOpen}
-							onClick={() => (tray ? showDiscuss(true) : setDiscussOpen((v) => !v))}
-							className={`ml-auto flex items-center gap-1 rounded-full border px-2 py-0.5 transition-colors hover:bg-accent hover:text-foreground ${
-								!tray && discussOpen
-									? "border-primary/50 bg-accent text-foreground"
-									: "border-border/80 text-muted-foreground"
-							}`}
-						>
-							<MessagesSquareIcon className="size-3" aria-hidden /> Discuss
-							{askedCount > 0 && <span className="tabular-nums">· {askedCount}</span>}
-						</button>
+					{(ready || handleClose) && (
+						<div className="ml-auto flex items-center gap-1.5">
+							{ready && readableText.trim() !== "" && (
+								<button
+									type="button"
+									data-testid="reading-sentence-reader"
+									onClick={() => setReaderOpen(true)}
+									className="flex items-center gap-1 rounded-full border border-border/80 px-2 py-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+								>
+									<BookOpenTextIcon className="size-3" aria-hidden /> Read by sentence
+								</button>
+							)}
+							{ready && (
+								<button
+									type="button"
+									data-testid="reading-discuss"
+									aria-expanded={discussOpen}
+									onClick={() => (tray ? showDiscuss(true) : setDiscussOpen((v) => !v))}
+									className={`flex items-center gap-1 rounded-full border px-2 py-0.5 transition-colors hover:bg-accent hover:text-foreground ${
+										!tray && discussOpen
+											? "border-primary/50 bg-accent text-foreground"
+											: "border-border/80 text-muted-foreground"
+									}`}
+								>
+									<MessagesSquareIcon className="size-3" aria-hidden /> Discuss
+									{askedCount > 0 && <span className="tabular-nums">· {askedCount}</span>}
+								</button>
+							)}
+							{handleClose && (
+								<button
+									type="button"
+									data-testid="reading-close"
+									aria-label="Close reading"
+									onClick={handleClose}
+									className="flex items-center gap-1 rounded-full border border-border/80 px-2 py-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+								>
+									<XIcon className="size-3" aria-hidden /> Close
+								</button>
+							)}
+						</div>
 					)}
 				</div>
 				<h1 className={compact ? "text-lg font-semibold leading-snug" : "font-title text-3xl tracking-tight"}>{r.title}</h1>
@@ -481,6 +539,13 @@ export function ReadingDocument({
 				<div className="mx-auto w-full max-w-[var(--lh-prose-width,46rem)]">{article}</div>
 			)}
 			{ready && <PassageAsk rootRef={contentRef} />}
+			{ready && readerOpen && readableText.trim() !== "" && (
+				<SentenceReader
+					text={readableText}
+					passage={{ partId: `reading:${r.id}` }}
+					onClose={() => setReaderOpen(false)}
+				/>
+			)}
 		</DiscussProvider>
 	);
 }

@@ -164,4 +164,11 @@ describe("SessionRow practice badge (practice sessions, 2026-10-04)", () => {
 		const html = render(item({ kind: "practice", pendingProblem: true }));
 		assert.match(html, /Problem waiting ·/);
 	});
+
+	it("pinned sessions show the pin indicator while unpinned sessions omit it", () => {
+		const pinnedHtml = renderToStaticMarkup(<SessionRow chat={item({})} active={false} pinned onOpen={() => {}} />);
+		const unpinnedHtml = render(item({}));
+		assert.match(pinnedHtml, /aria-label="Pinned session"/);
+		assert.doesNotMatch(unpinnedHtml, /aria-label="Pinned session"/);
+	});
 });

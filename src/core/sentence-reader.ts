@@ -16,13 +16,26 @@ export interface ReaderUnit {
 }
 
 const FENCE = /^\s*(```|~~~)/;
-const BLOCK_MARKER = /^\s*(#{1,6}\s|[-*+]\s|\d+[.)]\s|>\s?|\|)/;
+const QUOTE_MARKER = /^\s*>/;
+const ITEM_MARKER = /^\s*(#{1,6}\s|[-*+]\s|\d+[.)]\s|\|)/;
+const BLOCK_MARKER = /^\s*(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|\|)/;
+
+function unquoteLine(line: string): string {
+	return line.replace(/^\s*(?:>\s*)*/, "").trim();
+}
+
+function detectMathOpen(trimmed: string): "$$" | "\\]" | null {
+	const dollars = trimmed.split("$$").length - 1;
+	if (trimmed.startsWith("$$") && dollars % 2 === 1) return "$$";
+	if (trimmed.startsWith("\\[") && !trimmed.includes("\\]")) return "\\]";
+	return null;
+}
 
 /** Replace spans a sentence break must never land in (math, code) with
  *  placeholders; returns the masked text and a restore function. */
 function maskSpans(text: string): { masked: string; restore: (s: string) => string } {
 	const spans: string[] = [];
-	const masked = text.replace(/\$\$[\s\S]+?\$\$|\$[^$\n]+?\$|\\\([\s\S]+?\\\)|`[^`\n]+`/g, (m) => {
+	const masked = text.replace(/\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\$[^$\n]+?\$|\\\([\s\S]+?\\\)|`[^`\n]+`/g, (m) => {
 		spans.push(m);
 		return `\u0000${spans.length - 1}\u0000`;
 	});
@@ -40,46 +53,55 @@ function segmentSentences(paragraph: string): string[] {
 	return out;
 }
 
-/** Split Markdown into blocks: fenced code and `$$` display math stay whole;
- *  everything else breaks at blank lines. */
+/** Split Markdown into blocks: fenced code and `$$` / `\[` display math stay
+ *  whole; everything else breaks at blank lines. Display math inside a
+ *  blockquote keeps its surrounding quote/callout lines intact. */
 function splitBlocks(markdown: string): { text: string; atomic: boolean }[] {
 	const blocks: { text: string; atomic: boolean }[] = [];
 	let buf: string[] = [];
 	let fence: string | null = null;
-	let inMath = false;
+	let fenceInQuote = false;
+	let inMath: "$$" | "\\]" | null = null;
+	let mathInQuote = false;
 	const flush = (atomic: boolean) => {
 		const text = buf.join("\n").trim();
 		if (text !== "") blocks.push({ text, atomic });
 		buf = [];
 	};
 	for (const line of markdown.split("\n")) {
+		const unquoted = unquoteLine(line);
 		if (fence !== null) {
 			buf.push(line);
-			if (line.trim().startsWith(fence)) {
+			if (unquoted.startsWith(fence)) {
 				fence = null;
-				flush(true);
+				if (!fenceInQuote) flush(true);
+				fenceInQuote = false;
 			}
 			continue;
 		}
-		if (inMath) {
+		if (inMath !== null) {
 			buf.push(line);
-			if (line.includes("$$")) {
-				inMath = false;
-				flush(true);
+			if (line.includes(inMath)) {
+				inMath = null;
+				if (!mathInQuote) flush(true);
+				mathInQuote = false;
 			}
 			continue;
 		}
-		const f = FENCE.exec(line);
+		const isQuote = QUOTE_MARKER.test(line);
+		const f = FENCE.exec(unquoted);
 		if (f) {
-			flush(false);
+			if (!isQuote) flush(false);
 			fence = f[1] ?? "```";
+			fenceInQuote = isQuote;
 			buf.push(line);
 			continue;
 		}
-		const dollars = line.split("$$").length - 1;
-		if (line.trim().startsWith("$$") && dollars % 2 === 1) {
-			flush(false);
-			inMath = true;
+		const mathOpen = detectMathOpen(unquoted);
+		if (mathOpen !== null) {
+			if (!isQuote) flush(false);
+			inMath = mathOpen;
+			mathInQuote = isQuote;
 			buf.push(line);
 			continue;
 		}
@@ -89,7 +111,7 @@ function splitBlocks(markdown: string): { text: string; atomic: boolean }[] {
 		}
 		buf.push(line);
 	}
-	flush(fence !== null || inMath);
+	flush((fence !== null && !fenceInQuote) || (inMath !== null && !mathInQuote));
 	return blocks;
 }
 
@@ -108,16 +130,42 @@ export function splitReaderUnits(markdown: string): ReaderUnit[] {
 		}
 		const lines = block.text.split("\n");
 		if (lines.some((l) => BLOCK_MARKER.test(l))) {
-			// Headings, list items, quotes: one step per line item (continuation
-			// lines stay with their item); items are not sentence-split further.
+			// Headings and list items become their own steps; contiguous `>`
+			// blockquote lines (including GitHub callout boxes and display
+			// math inside them) stay together as one unit so boxes never split.
 			let current: string[] = [];
+			let inQuote = false;
+			let inFence: string | null = null;
+			let inMath: "$$" | "\\]" | null = null;
 			const push = () => {
 				if (current.length > 0) units.push({ markdown: current.join("\n"), inline: false, startsBlock: true });
 				current = [];
 			};
 			for (const line of lines) {
-				if (BLOCK_MARKER.test(line)) push();
+				const unquoted = unquoteLine(line);
+				if (inFence !== null) {
+					current.push(line);
+					if (unquoted.startsWith(inFence)) inFence = null;
+					continue;
+				}
+				if (inMath !== null) {
+					current.push(line);
+					if (line.includes(inMath)) inMath = null;
+					continue;
+				}
+				const isQuote = QUOTE_MARKER.test(line);
+				const isItem = ITEM_MARKER.test(line);
+				if (isQuote) {
+					if (!inQuote) push();
+					inQuote = true;
+				} else if (isItem) {
+					push();
+					inQuote = false;
+				}
 				current.push(line);
+				const f = FENCE.exec(unquoted);
+				if (f) inFence = f[1] ?? "```";
+				else inMath = detectMathOpen(unquoted);
 			}
 			push();
 			continue;
@@ -133,12 +181,13 @@ export function splitReaderUnits(markdown: string): ReaderUnit[] {
 export function speechText(markdown: string): string {
 	return markdown
 		.replace(/```[\s\S]*?```/g, " code block ")
-		.replace(/\$\$[\s\S]+?\$\$/g, " formula ")
+		.replace(/\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]/g, " formula ")
 		.replace(/\$[^$\n]+?\$|\\\([\s\S]+?\\\)/g, " formula ")
 		.replace(/`([^`\n]+)`/g, "$1")
 		.replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
 		.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-		.replace(/^\s*(#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)/gm, "")
+		.replace(/^\s*(?:>\s*)?\[!(?:note|tip|important|warning|caution)\][ \t]*$/gim, "")
+		.replace(/^\s*(#{1,6}\s+|(?:>\s*)+|[-*+]\s+|\d+[.)]\s+)/gm, "")
 		.replace(/(\*\*|__|\*|_|~~)/g, "")
 		.replace(/\|/g, " ")
 		.replace(/\s+/g, " ")
@@ -189,13 +238,41 @@ export function parseReaderPrefs(raw: string | null): ReaderPrefs {
 	};
 }
 
+export interface ReaderPassageTarget {
+	text: string;
+	partId?: string;
+}
+
+function fnv1aHex(text: string): string {
+	let hash = 0x811c9dc5;
+	for (let i = 0; i < text.length; i++) {
+		hash ^= text.charCodeAt(i);
+		hash = Math.imul(hash, 0x01000193);
+	}
+	return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+/** Deterministic sessionStorage key for a passage's reading position. */
+export function readerPassageKey(text: string, partId?: string): string {
+	const id = partId?.trim();
+	return `lh-reader-pos:${id ? id : fnv1aHex(text)}`;
+}
+
+/** Clamp a restored step index against a passage's current step count. */
+export function clampReaderStep(saved: number | null | undefined, total: number): number {
+	if (total <= 0) return 0;
+	if (typeof saved !== "number" || !Number.isFinite(saved) || saved < 1) return 1;
+	return Math.min(total, Math.round(saved));
+}
+
 /**
- * The passage the reader shortcut opens (owner, 2026-10-29): the newest
- * teacher text that is non-empty and finished — the same rule that shows the
- * "Read by sentence" button. While a turn streams, the passage still being
- * written is not readable, and an older one is not offered in its place.
+ * The passage (with its part id, when settled) the reader shortcut opens
+ * (owner, 2026-10-29): the newest teacher text that is non-empty and
+ * finished — the same rule that shows the "Read by sentence" button. While
+ * a turn streams, the passage still being written is not readable, and an
+ * older one is not offered in its place.
  */
-export function latestReadablePassage(messages: readonly LhViewMessage[], streaming: boolean): string | null {
+export function latestReadablePassageTarget(messages: readonly LhViewMessage[], streaming: boolean): ReaderPassageTarget | null {
 	for (let mi = messages.length - 1; mi >= 0; mi--) {
 		const message = messages[mi]!;
 		if (message.role !== "assistant") continue;
@@ -203,8 +280,17 @@ export function latestReadablePassage(messages: readonly LhViewMessage[], stream
 			const part = message.parts[pi]!;
 			if (part.type !== "text" || (part.text ?? "").trim() === "") continue;
 			const stillWriting = streaming && mi === messages.length - 1 && pi === message.parts.length - 1;
-			return stillWriting ? null : (part.text ?? "");
+			if (stillWriting) return null;
+			return {
+				text: part.text ?? "",
+				...(typeof part.id === "string" && part.id !== "" ? { partId: part.id } : {}),
+			};
 		}
 	}
 	return null;
+}
+
+/** Plain text of the passage opened by the reader shortcut, or null. */
+export function latestReadablePassage(messages: readonly LhViewMessage[], streaming: boolean): string | null {
+	return latestReadablePassageTarget(messages, streaming)?.text ?? null;
 }

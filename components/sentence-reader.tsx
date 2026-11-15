@@ -9,25 +9,35 @@
  * transcript's DOM is touched); progress is not saved.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { CloudIcon } from "lucide-react";
-import { MessageResponse } from "@/components/ai-elements/message";
+import { parseMarkdownIntoBlocks } from "streamdown";
+import { BookOpenTextIcon, CloudIcon, MessageCircleQuestionIcon, MessagesSquareIcon, RotateCcwIcon, Volume2Icon, VolumeXIcon, XIcon } from "lucide-react";
+import { AssistantTextResponse } from "@/components/ai-elements/message";
+import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { ReaderSpeaker } from "@/components/reader-speaker";
+import { DiscussPanel, PassageAsk, useDiscuss } from "@/components/readings/discussion";
+import { SideChatWindow } from "@/components/side-chat";
+import { sideBlockKey, useSideChatStore, useSideWindows, type SideChatStore } from "@/components/side-chat-state";
 import {
+	clampReaderStep,
 	FONT_SIZE_MAX,
 	FONT_SIZE_MIN,
+	healOverescapedCommands,
 	parseReaderPrefs,
 	READER_PREFS_KEY,
+	readerPassageKey,
 	speechText,
 	splitReaderUnits,
+	transformMathDelimiters,
 	TTS_RATE_MAX,
 	TTS_RATE_MIN,
 	TTS_VOICES,
 	type ReaderPrefs,
+	type ReaderUnit,
 	type RevealStyle,
+	type SideChatAnchor,
 } from "@/src/core";
-import { BookOpenTextIcon, Volume2Icon, VolumeXIcon, XIcon } from "lucide-react";
 
 const STYLE_LABEL: Record<RevealStyle, string> = { blur: "Blur", hide: "Hide", dim: "Dim" };
 
@@ -52,6 +62,111 @@ export function readerFontStyle(fontSize: number): React.CSSProperties {
 	return { "--lh-prose-size": `${fontSize}px`, "--lh-prose-leading": "1.9" } as React.CSSProperties;
 }
 
+export interface SentenceReaderPassage {
+	messageId?: string;
+	partId?: string;
+	sideEnabled?: boolean;
+}
+
+const SIDE_WINDOW_FONT_STYLE = {
+	"--lh-prose-size": "1.0625rem",
+	"--lh-prose-leading": "1.65",
+} as React.CSSProperties;
+
+const EMPTY_BLOCK_SET = new Set<string>();
+
+function normalizeBlockText(s: string): string {
+	return s.replace(/\s+/g, " ").trim();
+}
+
+export function alignReaderGroupAnchors(
+	text: string,
+	messageId: string,
+	partId: string,
+	groups: readonly number[][],
+	units: readonly ReaderUnit[],
+): SideChatAnchor[] {
+	const blocks = parseMarkdownIntoBlocks(transformMathDelimiters(healOverescapedCommands(text)));
+	let cursor = 0;
+	return groups.map((group, groupIdx) => {
+		const raw = group.map((i) => units[i]!.markdown).join(units[group[0]!]!.inline ? " " : "\n");
+		const needle = normalizeBlockText(transformMathDelimiters(healOverescapedCommands(raw)));
+		for (let b = cursor; b < blocks.length; b++) {
+			const blk = blocks[b]!;
+			if (!blk.trim()) continue;
+			const haystack = normalizeBlockText(blk);
+			if (haystack === needle || haystack.includes(needle) || needle.includes(haystack)) {
+				cursor = b;
+				return { messageId, partId, blockIndex: b, blockText: blk };
+			}
+		}
+		return { messageId, partId, blockIndex: groupIdx, blockText: raw };
+	});
+}
+
+function ReaderChatGroup({
+	anchor,
+	revealedInGroup,
+	sideEnabled,
+	renderWindows,
+	store,
+	children,
+}: {
+	anchor: SideChatAnchor;
+	revealedInGroup: boolean;
+	sideEnabled: boolean;
+	renderWindows: boolean;
+	store: SideChatStore;
+	children: ReactNode;
+}) {
+	const blockKey = sideBlockKey(anchor.partId, anchor.blockIndex);
+	const windows = useSideWindows(blockKey);
+	useEffect(() => {
+		if (!sideEnabled) return;
+		const previous = store.blocks.get(blockKey);
+		store.blocks.set(blockKey, anchor);
+		return () => {
+			if (previous) store.blocks.set(blockKey, previous);
+			else if (store.blocks.get(blockKey) === anchor) store.blocks.delete(blockKey);
+		};
+	}, [store, blockKey, anchor, sideEnabled]);
+	return (
+		<div className="my-5">
+			<div
+				data-side-block={blockKey}
+				data-side-enabled={sideEnabled ? "" : undefined}
+				data-source-message-id={anchor.messageId}
+				className="group/sideblock relative"
+			>
+				{children}
+				{sideEnabled && revealedInGroup && (
+					<button
+						type="button"
+						data-testid="reader-side-ask"
+						aria-label="Ask a side question about this paragraph"
+						title="Ask a side question"
+						onClick={(e) => {
+							e.stopPropagation();
+							blurAfterPointerClick(e);
+							store.openAt(anchor);
+						}}
+						className="absolute right-0 top-0.5 z-10 flex size-6 items-center justify-center rounded-full bg-background/90 text-muted-foreground/80 opacity-0 shadow-xs transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/sideblock:opacity-100"
+					>
+						<MessageCircleQuestionIcon className="size-3.5" />
+					</button>
+				)}
+			</div>
+			{renderWindows && windows.length > 0 && (
+				<div data-side-ui="" className="my-3 flex flex-col gap-2 text-sm" style={SIDE_WINDOW_FONT_STYLE}>
+					{windows.map((view) => (
+						<SideChatWindow key={view.renderKey} view={view} store={store} />
+					))}
+				</div>
+			)}
+		</div>
+	);
+}
+
 /** The button beside a teacher passage that opens the reader. */
 export function SentenceReaderButton({ onOpen }: { onOpen: () => void }) {
 	return (
@@ -67,14 +182,31 @@ export function SentenceReaderButton({ onOpen }: { onOpen: () => void }) {
 	);
 }
 
-export function SentenceReader({ text, onClose }: { text: string; onClose: () => void }) {
+export function SentenceReader({
+	text,
+	passage,
+	onClose,
+}: {
+	text: string;
+	passage?: SentenceReaderPassage;
+	onClose: () => void;
+}) {
 	const units = useMemo(() => splitReaderUnits(text), [text]);
+	const total = units.length;
+	const posKey = useMemo(() => readerPassageKey(text, passage?.partId), [text, passage?.partId]);
 	const [prefs, setPrefs] = useState<ReaderPrefs>(() => parseReaderPrefs(null));
-	const [revealed, setRevealed] = useState(0);
+	const [revealed, setRevealed] = useState(() => Math.min(1, total));
+	const loadedKeyRef = useRef<string | null>(null);
 	const [fallbackNote, setFallbackNote] = useState<string | null>(null);
+	const [readerDiscussOpen, setReaderDiscussOpen] = useState(false);
+	const readerContentRef = useRef<HTMLDivElement | null>(null);
 	const speaker = useRef<ReaderSpeaker | null>(null);
 	const refs = useRef<(HTMLSpanElement | null)[]>([]);
-	const total = units.length;
+	const sideStore = useSideChatStore();
+	const readingDiscuss = useDiscuss();
+	const chatSideAvailable = Boolean(sideStore && passage?.messageId && passage?.partId && passage.sideEnabled);
+	const canAskSide = chatSideAvailable || readingDiscuss !== null;
+
 	// Steps of one paragraph share a wrapper so its sentences flow inline.
 	const groups = useMemo(() => {
 		const out: number[][] = [];
@@ -84,6 +216,56 @@ export function SentenceReader({ text, onClose }: { text: string; onClose: () =>
 		});
 		return out;
 	}, [units]);
+
+	const groupAnchors = useMemo(() => {
+		if (!sideStore || !passage?.messageId || !passage?.partId) return null;
+		return alignReaderGroupAnchors(text, passage.messageId, passage.partId, groups, units);
+	}, [sideStore, passage?.messageId, passage?.partId, text, groups, units]);
+
+	// When several reader groups share one Streamdown block (e.g. list items),
+	// render that block's side windows once right after its last revealed group.
+	const renderGroupForBlock = useMemo(() => {
+		const map = new Map<number, number>();
+		if (!groupAnchors) return map;
+		groupAnchors.forEach((anchor, gIdx) => {
+			const group = groups[gIdx]!;
+			const hasRevealed = group[0]! < revealed;
+			if (!map.has(anchor.blockIndex) || hasRevealed) {
+				map.set(anchor.blockIndex, gIdx);
+			}
+		});
+		return map;
+	}, [groupAnchors, groups, revealed]);
+
+	// Restore & persist reading progress per passage in sessionStorage.
+	useEffect(() => {
+		let restored = Math.min(1, total);
+		try {
+			const raw = sessionStorage.getItem(posKey);
+			if (raw !== null) restored = clampReaderStep(Number(raw), total);
+		} catch {
+			// Storage blocked: fall back to step 1.
+		}
+		loadedKeyRef.current = posKey;
+		setRevealed(restored);
+	}, [posKey, total]);
+
+	useEffect(() => {
+		if (loadedKeyRef.current !== posKey) return;
+		try {
+			sessionStorage.setItem(posKey, String(revealed));
+		} catch {
+			// Storage blocked: no-op.
+		}
+	}, [posKey, revealed]);
+
+	// Auto-open the Discuss drawer when a reading passage draft is triggered inside the reader.
+	const prevDraftRef = useRef(readingDiscuss?.draft ?? null);
+	useEffect(() => {
+		const draft = readingDiscuss?.draft ?? null;
+		if (draft && draft !== prevDraftRef.current) setReaderDiscussOpen(true);
+		prevDraftRef.current = draft;
+	}, [readingDiscuss?.draft]);
 
 	// Stored preferences load after mount (the overlay itself is client-only).
 	useEffect(() => setPrefs(loadPrefs()), []);
@@ -119,6 +301,29 @@ export function SentenceReader({ text, onClose }: { text: string; onClose: () =>
 		},
 		[total, prefs.autoRead, speakAt],
 	);
+
+	const restart = useCallback(() => {
+		speaker.current?.stop();
+		setRevealed(Math.min(1, total));
+	}, [total]);
+
+	const askAboutCurrent = useCallback(() => {
+		if (!canAskSide || total === 0) return;
+		const stepIdx = Math.max(0, Math.min(total - 1, revealed - 1));
+		const currentMarkdown = units[stepIdx]?.markdown ?? "";
+		if (chatSideAvailable && sideStore && groupAnchors) {
+			const gIdx = groups.findIndex((g) => g.includes(stepIdx));
+			const anchor = groupAnchors[Math.max(0, gIdx)] ?? groupAnchors[0];
+			if (anchor) {
+				sideStore.openAt(anchor, currentMarkdown);
+				return;
+			}
+		}
+		if (readingDiscuss) {
+			readingDiscuss.setDraft({ passage: currentMarkdown });
+			setReaderDiscussOpen(true);
+		}
+	}, [canAskSide, total, revealed, units, chatSideAvailable, sideStore, groupAnchors, groups, readingDiscuss]);
 
 	const nextParagraph = () => {
 		let j = revealed;
@@ -162,10 +367,12 @@ export function SentenceReader({ text, onClose }: { text: string; onClose: () =>
 			} else if (e.shiftKey && lower === "g") {
 				e.preventDefault();
 				goTo(total);
-			} else if (e.shiftKey && lower === "r") {
+			} else if ((e.shiftKey && lower === "r") || key === "0" || key === "Home") {
 				e.preventDefault();
-				speaker.current?.stop();
-				setRevealed(0);
+				restart();
+			} else if (canAskSide && (key === "?" || (!e.shiftKey && lower === "a"))) {
+				e.preventDefault();
+				askAboutCurrent();
 			} else if (e.shiftKey && lower === "s") {
 				e.preventDefault();
 				if (prefs.autoRead) speaker.current?.stop();
@@ -176,6 +383,12 @@ export function SentenceReader({ text, onClose }: { text: string; onClose: () =>
 			} else if (lower === "c") {
 				e.preventDefault();
 				updatePrefs({ cloud: !prefs.cloud });
+			} else if (key === "-" || key === "_") {
+				e.preventDefault();
+				updatePrefs({ fontSize: Math.max(FONT_SIZE_MIN, prefs.fontSize - 2) });
+			} else if (key === "=" || key === "+") {
+				e.preventDefault();
+				updatePrefs({ fontSize: Math.min(FONT_SIZE_MAX, prefs.fontSize + 2) });
 			}
 		};
 		window.addEventListener("keydown", onKey, true);
@@ -190,18 +403,33 @@ export function SentenceReader({ text, onClose }: { text: string; onClose: () =>
 	// Stop speaking when the overlay closes.
 	useEffect(() => () => speaker.current?.stop(), []);
 
+	const discussExchangeCount = readingDiscuss?.discussion
+		? readingDiscuss.discussion.side.exchanges.length + readingDiscuss.discussion.threads.reduce((n, t) => n + t.exchanges.length, 0)
+		: 0;
+
 	const content = (
-		<div role="dialog" aria-label="Sentence reader" data-testid="sentence-reader" className="fixed inset-0 z-[90] flex flex-col bg-background text-foreground">
-			<div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-2 text-xs text-muted-foreground">
+		<div role="dialog" aria-label="Sentence reader" data-testid="sentence-reader" className="lh-no-drag fixed inset-0 z-[90] flex flex-col bg-background text-foreground">
+			<div className="lh-no-drag lh-wco-gutter flex flex-wrap items-center gap-3 border-b border-border px-4 py-2 text-xs text-muted-foreground">
 				<span data-testid="sentence-reader-progress" className="tabular-nums">
 					{revealed} / {total}
 				</span>
-				<label className="flex items-center gap-1">
+				<button
+					type="button"
+					data-testid="reader-restart"
+					onClick={restart}
+					disabled={revealed <= Math.min(1, total)}
+					aria-label="Restart from first sentence"
+					title="Restart (0 / Home)"
+					className="lh-no-drag inline-flex items-center rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+				>
+					<RotateCcwIcon className="size-3.5" />
+				</button>
+				<label className="lh-no-drag flex items-center gap-1">
 					Reveal
 					<select
 						value={prefs.style}
 						onChange={(e) => updatePrefs({ style: e.target.value as RevealStyle })}
-						className="rounded border border-border bg-background px-1 py-0.5"
+						className="lh-no-drag rounded border border-border bg-background px-1 py-0.5"
 					>
 						{(Object.keys(STYLE_LABEL) as RevealStyle[]).map((s) => (
 							<option key={s} value={s}>
@@ -210,20 +438,52 @@ export function SentenceReader({ text, onClose }: { text: string; onClose: () =>
 						))}
 					</select>
 				</label>
-				<label className="flex items-center gap-1">
-					Size
-					<input
-						type="range"
-						data-testid="sentence-reader-size"
-						aria-label="Text size"
-						min={FONT_SIZE_MIN}
-						max={FONT_SIZE_MAX}
-						value={prefs.fontSize}
-						onChange={(e) => updatePrefs({ fontSize: Number(e.target.value) })}
-						className="accent-foreground"
-					/>
-					<span className="tabular-nums text-[11px] text-muted-foreground/80">{prefs.fontSize}px</span>
-				</label>
+				<div className="lh-no-drag flex items-center gap-1">
+					<button
+						type="button"
+						data-testid="sentence-reader-size-dec"
+						aria-label="Decrease text size"
+						title="Smaller text (-)"
+						disabled={prefs.fontSize <= FONT_SIZE_MIN}
+						onClick={(e) => {
+							blurAfterPointerClick(e);
+							updatePrefs({ fontSize: Math.max(FONT_SIZE_MIN, prefs.fontSize - 2) });
+						}}
+						className="lh-no-drag inline-flex size-5 items-center justify-center rounded border border-border/70 text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+					>
+						-
+					</button>
+					<label className="lh-no-drag flex items-center gap-1">
+						Size
+						<input
+							type="range"
+							data-testid="sentence-reader-size"
+							aria-label="Text size"
+							min={FONT_SIZE_MIN}
+							max={FONT_SIZE_MAX}
+							value={prefs.fontSize}
+							onPointerDown={(e) => e.stopPropagation()}
+							onMouseDown={(e) => e.stopPropagation()}
+							onChange={(e) => updatePrefs({ fontSize: Number(e.target.value) })}
+							className="lh-no-drag accent-foreground"
+						/>
+						<span className="tabular-nums text-[11px] text-muted-foreground/80">{prefs.fontSize}px</span>
+					</label>
+					<button
+						type="button"
+						data-testid="sentence-reader-size-inc"
+						aria-label="Increase text size"
+						title="Larger text (+)"
+						disabled={prefs.fontSize >= FONT_SIZE_MAX}
+						onClick={(e) => {
+							blurAfterPointerClick(e);
+							updatePrefs({ fontSize: Math.min(FONT_SIZE_MAX, prefs.fontSize + 2) });
+						}}
+						className="lh-no-drag inline-flex size-5 items-center justify-center rounded border border-border/70 text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+					>
+						+
+					</button>
+				</div>
 				<button
 					type="button"
 					onClick={() => {
@@ -231,16 +491,16 @@ export function SentenceReader({ text, onClose }: { text: string; onClose: () =>
 					}}
 					aria-pressed={prefs.cloud}
 					data-testid="sentence-reader-cloud"
-					className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent"
+					className="lh-no-drag inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent"
 				>
 					<CloudIcon className="size-3.5" />
 					Cloud voice {prefs.cloud ? "on" : "off"}
 				</button>
 				{prefs.cloud && (
 					<>
-						<label className="flex items-center gap-1">
+						<label className="lh-no-drag flex items-center gap-1">
 							Voice
-							<select value={prefs.voice} onChange={(e) => updatePrefs({ voice: e.target.value })} className="rounded border border-border bg-background px-1 py-0.5">
+							<select value={prefs.voice} onChange={(e) => updatePrefs({ voice: e.target.value })} className="lh-no-drag rounded border border-border bg-background px-1 py-0.5">
 								{TTS_VOICES.map(([id, label]) => (
 									<option key={id} value={id}>
 										{label}
@@ -248,9 +508,19 @@ export function SentenceReader({ text, onClose }: { text: string; onClose: () =>
 								))}
 							</select>
 						</label>
-						<label className="flex items-center gap-1">
+						<label className="lh-no-drag flex items-center gap-1">
 							Pace
-							<input type="range" min={TTS_RATE_MIN} max={TTS_RATE_MAX} step={0.1} value={prefs.rate} onChange={(e) => updatePrefs({ rate: Number(e.target.value) })} />
+							<input
+								type="range"
+								min={TTS_RATE_MIN}
+								max={TTS_RATE_MAX}
+								step={0.1}
+								value={prefs.rate}
+								onPointerDown={(e) => e.stopPropagation()}
+								onMouseDown={(e) => e.stopPropagation()}
+								onChange={(e) => updatePrefs({ rate: Number(e.target.value) })}
+								className="lh-no-drag accent-foreground"
+							/>
 						</label>
 					</>
 				)}
@@ -262,30 +532,78 @@ export function SentenceReader({ text, onClose }: { text: string; onClose: () =>
 					}}
 					aria-pressed={prefs.autoRead}
 					data-testid="sentence-reader-autoread"
-					className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent"
+					className="lh-no-drag inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent"
 				>
 					{prefs.autoRead ? <Volume2Icon className="size-3.5" /> : <VolumeXIcon className="size-3.5" />}
 					Read aloud {prefs.autoRead ? "on" : "off"}
 				</button>
+				{canAskSide && (
+					<button
+						type="button"
+						data-testid="reader-ask-button"
+						onClick={askAboutCurrent}
+						title="Ask a side question about the current sentence (A / ?)"
+						className="lh-no-drag inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
+					>
+						<MessageCircleQuestionIcon className="size-3.5" />
+						Ask
+					</button>
+				)}
+				{readingDiscuss !== null && (
+					<button
+						type="button"
+						data-testid="reader-discuss-toggle"
+						aria-expanded={readerDiscussOpen}
+						onClick={() => setReaderDiscussOpen((v) => !v)}
+						className={`lh-no-drag inline-flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors hover:bg-accent hover:text-foreground ${
+							readerDiscussOpen ? "bg-accent text-foreground" : ""
+						}`}
+					>
+						<MessagesSquareIcon className="size-3.5" />
+						Discuss
+						{discussExchangeCount > 0 && <span className="tabular-nums">· {discussExchangeCount}</span>}
+					</button>
+				)}
 				{prefs.cloud && fallbackNote !== null && (
 					<span className="text-warning" title={fallbackNote} data-testid="sentence-reader-fallback">
 						Using browser voice
 					</span>
 				)}
-				<button type="button" onClick={onClose} aria-label="Close reader" className="ml-auto rounded p-1 hover:bg-accent">
-					<XIcon className="size-4" />
+				<button
+					type="button"
+					data-testid="sentence-reader-close"
+					onClick={onClose}
+					aria-label="Close reader"
+					className="lh-no-drag ml-auto inline-flex items-center gap-1 rounded px-2 py-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+				>
+					<XIcon className="size-3.5" />
+					Close
 				</button>
 			</div>
-			<div className="min-h-0 flex-1 overflow-y-auto" onClick={() => goTo(revealed + 1)}>
-				{/* .lh-prose reads these variables, so the slider must set the
-				    TOKEN — a plain parent font-size is overridden by the class. */}
+			<div className="flex min-h-0 flex-1">
 				<div
-					className="mx-auto max-w-3xl px-6 py-[30vh]"
-					style={readerFontStyle(prefs.fontSize)}
+					className="min-h-0 flex-1 overflow-y-auto"
+					onClick={(e) => {
+						const el = e.target as HTMLElement | null;
+						if (el?.closest('[data-side-ui], [data-testid="reader-discuss-drawer"], [data-testid="discuss-thread"], [data-testid="discuss-draft"], button, a, input, textarea, select, form')) {
+							return;
+						}
+						const sel = window.getSelection();
+						if (sel && !sel.isCollapsed) return;
+						goTo(revealed + 1);
+					}}
 				>
-					{groups.map((group) => (
-						<div key={group[0]} className="my-5">
-							{group.map((i) => {
+					{/* .lh-prose reads these variables, so the slider must set the
+					    TOKEN — a plain parent font-size is overridden by the class. */}
+					<div
+						ref={readerContentRef}
+						className="mx-auto max-w-3xl px-6 py-[30vh]"
+						style={readerFontStyle(prefs.fontSize)}
+					>
+						{groups.map((group, groupIdx) => {
+							const revealedInGroup = group[0]! < revealed;
+							const groupMarkdown = group.map((i) => units[i]!.markdown).join(units[group[0]!]!.inline ? " " : "\n");
+							const body = group.map((i) => {
 								const u = units[i]!;
 								const shown = i < revealed;
 								const current = i === revealed - 1;
@@ -305,16 +623,79 @@ export function SentenceReader({ text, onClose }: { text: string; onClose: () =>
 										data-revealed={shown}
 										className={cls}
 									>
-										<MessageResponse className={u.inline ? "inline [&_p]:inline [&>div]:inline" : ""}>{u.markdown}</MessageResponse>
+										<AssistantTextResponse className={u.inline ? "inline [&_p]:inline [&>div]:inline" : ""}>{u.markdown}</AssistantTextResponse>
 									</span>
 								);
-							})}
-						</div>
-					))}
+							});
+
+							const chatAnchor = groupAnchors?.[groupIdx];
+							if (sideStore && chatAnchor) {
+								return (
+									<ReaderChatGroup
+										key={group[0]}
+										anchor={chatAnchor}
+										revealedInGroup={revealedInGroup}
+										sideEnabled={Boolean(passage?.sideEnabled)}
+										renderWindows={renderGroupForBlock.get(chatAnchor.blockIndex) === groupIdx}
+										store={sideStore}
+									>
+										{body}
+									</ReaderChatGroup>
+								);
+							}
+
+							return (
+								<div key={group[0]} className="group/sideblock relative my-5">
+									{body}
+									{readingDiscuss && revealedInGroup && (
+										<button
+											type="button"
+											data-testid="reader-side-ask"
+											aria-label="Ask a side question about this paragraph"
+											title="Ask a side question"
+											onClick={(e) => {
+												e.stopPropagation();
+												blurAfterPointerClick(e);
+												readingDiscuss.setDraft({ passage: groupMarkdown });
+												setReaderDiscussOpen(true);
+											}}
+											className="absolute right-0 top-0.5 z-10 flex size-6 items-center justify-center rounded-full bg-background/90 text-muted-foreground/80 opacity-0 shadow-xs transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/sideblock:opacity-100"
+										>
+											<MessageCircleQuestionIcon className="size-3.5" />
+										</button>
+									)}
+								</div>
+							);
+						})}
+					</div>
+					{readingDiscuss && <PassageAsk rootRef={readerContentRef} />}
 				</div>
+				{readingDiscuss && readerDiscussOpen && (
+					<aside
+						data-testid="reader-discuss-drawer"
+						aria-label="Discuss"
+						style={SIDE_WINDOW_FONT_STYLE}
+						className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-l border-border bg-background p-4 lg:w-96"
+					>
+						<div className="flex items-center justify-between gap-2">
+							<h2 className="flex items-center gap-1.5 font-ui text-xs uppercase tracking-widest text-muted-foreground">
+								<MessagesSquareIcon className="size-3.5" /> Discuss
+							</h2>
+							<button
+								type="button"
+								aria-label="Close discuss panel"
+								onClick={() => setReaderDiscussOpen(false)}
+								className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+							>
+								<XIcon className="size-3.5" />
+							</button>
+						</div>
+						<DiscussPanel renderedBlocks={EMPTY_BLOCK_SET} />
+					</aside>
+				)}
 			</div>
 			<div className="border-t border-border px-4 py-1.5 text-center text-[11px] text-muted-foreground">
-				Space / J / → next · K / ← back · Shift+J/K paragraph · C cloud voice · S speak · Shift+S auto-read · Shift+G reveal all · Shift+R restart · Esc close
+				Space / J / → next · K / ← back · Shift+J/K paragraph · +/- size · {canAskSide ? "A / ? side question · " : ""}C cloud voice · S speak · Shift+S auto-read · Shift+G reveal all · 0 / Shift+R restart · Esc close
 			</div>
 		</div>
 	);

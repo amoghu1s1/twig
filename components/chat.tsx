@@ -67,7 +67,7 @@ import {
 	buildAnswer,
 	firstSourceTextParts,
 	cliContextWindowOf,
-	latestReadablePassage,
+	latestReadablePassageTarget,
 	messageAnchorId,
 	pendingPluginQuestionOf,
 	pluginQuestionCallsOf,
@@ -107,7 +107,7 @@ import { CodeExerciseDockHost } from "@/components/code-exercise-dock-host";
 import { CodeExerciseAnsweredCard } from "@/components/code-exercise-answered-card";
 import { SessionFind, sessionFindHasForegroundLayer } from "@/components/session-find";
 import { scrollSessionToBottom, scrollSessionToTop, SessionMessageNavigation } from "@/components/session-navigation";
-import { SentenceReader, SentenceReaderButton } from "@/components/sentence-reader";
+import { SentenceReader, SentenceReaderButton, type SentenceReaderPassage } from "@/components/sentence-reader";
 import { PracticeDock } from "@/components/practice-dock";
 import { PluginProblemDock, type PluginProblemDockProps } from "./plugin-problem-dock";
 import { PluginProblemSubmitted } from "./plugin-problem-submitted";
@@ -1466,7 +1466,7 @@ export function Chat({
 	// The live plan popup (wave 4): opened by any transcript plan block, the
 	// top-bar plan chip, and the dock band's marginalia.
 	const [planOpen, setPlanOpen] = useState(false);
-	const [readerText, setReaderText] = useState<string | null>(null);
+	const [readerPassage, setReaderPassage] = useState<({ text: string } & SentenceReaderPassage) | null>(null);
 	// Reader + session-edge shortcuts (registry actions). The handlers read the
 	// live transcript at EVENT time, so they attach once. A surfaced layer —
 	// the reader itself, a dialog, a menu — outranks all three.
@@ -1476,8 +1476,16 @@ export function Chat({
 		const onRead = () => {
 			if (sessionFindHasForegroundLayer(document)) return;
 			const { messages: current, streaming } = passageSourceRef.current;
-			const passage = latestReadablePassage(current, streaming);
-			if (passage !== null) setReaderText(passage);
+			const target = latestReadablePassageTarget(current, streaming);
+			if (target !== null) {
+				const messageId = target.partId ? textPartMessageId(target.partId) ?? undefined : undefined;
+				setReaderPassage({
+					text: target.text,
+					...(messageId ? { messageId } : {}),
+					...(target.partId ? { partId: target.partId } : {}),
+					sideEnabled: Boolean(messageId && target.partId && !messageId.startsWith("c_")),
+				});
+			}
 		};
 		const onTop = () => {
 			if (!sessionFindHasForegroundLayer(document)) scrollSessionToTop(scrollContextRef.current);
@@ -2354,7 +2362,16 @@ export function Chat({
 														return (
 															<div key={part.id || pi} id={anchor} data-source-message-id={sourceId ?? undefined} className="lh-source-passage">
 																{!(status === "streaming" && isLastPart) && (part.text ?? "").trim() !== "" && (
-																	<SentenceReaderButton onOpen={() => setReaderText(part.text ?? "")} />
+																	<SentenceReaderButton
+																		onOpen={() =>
+																			setReaderPassage({
+																				text: part.text ?? "",
+																				...(sourceId ? { messageId: sourceId } : {}),
+																				...(part.id ? { partId: part.id } : {}),
+																				sideEnabled: Boolean(sourceId && part.id && !sourceId.startsWith("c_")),
+																			})
+																		}
+																	/>
 																)}
 																{sourceId && part.id ? (
 																	/* Side questions: every markdown block of
@@ -2699,7 +2716,9 @@ export function Chat({
 						}
 					/>
 				)}
-				{readerText !== null && <SentenceReader text={readerText} onClose={() => setReaderText(null)} />}
+				{readerPassage !== null && (
+					<SentenceReader text={readerPassage.text} passage={readerPassage} onClose={() => setReaderPassage(null)} />
+				)}
 				{lightbox.lightbox}
 				</SurfaceRegion>
 				<AbortTurnDialog mode={abortAsk} onClose={closeAbortAsk} onConfirm={confirmAbort} busy={busy} />

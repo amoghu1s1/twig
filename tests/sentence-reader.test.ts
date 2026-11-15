@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, it } from "node:test";
-import { DEFAULT_READER_PREFS, latestReadablePassage, parseReaderPrefs, speechText, splitReaderUnits } from "../src/core/sentence-reader.ts";
-import { readerFontStyle } from "../components/sentence-reader.tsx";
+import { AssistantTextResponse } from "../components/ai-elements/message.tsx";
+import {
+	clampReaderStep,
+	DEFAULT_READER_PREFS,
+	latestReadablePassage,
+	latestReadablePassageTarget,
+	parseReaderPrefs,
+	readerPassageKey,
+	speechText,
+	splitReaderUnits,
+} from "../src/core/sentence-reader.ts";
+import { alignReaderGroupAnchors, readerFontStyle } from "../components/sentence-reader.tsx";
 import type { LhViewMessage, LhViewPart } from "../src/core/view.ts";
 
 describe("readerFontStyle", () => {
@@ -46,12 +58,53 @@ describe("splitReaderUnits", () => {
 	it("empty input has no steps", () => {
 		assert.deepEqual(splitReaderUnits("  \n\n "), []);
 	});
+
+	it("keeps callout blockquotes with display math and \\boxed LaTeX intact as one unit", () => {
+		const md = [
+			"Intro.",
+			"",
+			"> [!IMPORTANT]",
+			"> **Cross product from determinants:**",
+			"> $$\\boxed{\\mathbf{u} \\times \\mathbf{v} = \\begin{vmatrix} \\mathbf{i} & \\mathbf{j} & \\mathbf{k} \\\\ u_1 & u_2 & u_3 \\\\ v_1 & v_2 & v_3 \\end{vmatrix}}$$",
+			"",
+			"> [!NOTE]",
+			"> $$",
+			"> \\boxed{x = 1.5}",
+			"> $$",
+			"",
+			"Look at \\[ \\boxed{y = 2.5} \\] too.",
+		].join("\n");
+		const u = splitReaderUnits(md);
+		assert.equal(u.length, 4);
+		assert.equal(u[0]!.markdown, "Intro.");
+		assert.match(u[1]!.markdown, /^> \[!IMPORTANT\]\n> \*\*Cross product/);
+		assert.equal(u[1]!.inline, false);
+		assert.match(u[2]!.markdown, /^> \[!NOTE\]\n> \$\$\n> \\boxed\{x = 1\.5\}\n> \$\$$/);
+		assert.equal(u[2]!.inline, false);
+		assert.equal(u[3]!.markdown, "Look at \\[ \\boxed{y = 2.5} \\] too.");
+
+		const calloutHtml = renderToStaticMarkup(React.createElement(AssistantTextResponse, null, u[1]!.markdown));
+		assert.match(calloutHtml, /data-testid="md-callout"/);
+		assert.match(calloutHtml, /class="[^"]*katex/);
+		assert.doesNotMatch(calloutHtml, /\[!IMPORTANT\]/);
+		assert.doesNotMatch(calloutHtml, /katex-error/);
+
+		const overescapedUnit = splitReaderUnits("$$\\\\boxed{\\\\frac{a}{b}}$$")[0]!;
+		const overescapedHtml = renderToStaticMarkup(React.createElement(AssistantTextResponse, null, overescapedUnit.markdown));
+		assert.match(overescapedHtml, /class="[^"]*katex/);
+		assert.doesNotMatch(overescapedHtml, /katex-error/);
+	});
 });
 
 describe("speechText", () => {
 	it("strips markdown and replaces math/code", () => {
 		assert.equal(speechText("## **Big** idea with $x^2$ and [a link](http://z)"), "Big idea with formula and a link");
 		assert.equal(speechText("- item `code`"), "item code");
+	});
+
+	it("strips GitHub callout markers and \\[...\\] display math", () => {
+		assert.equal(speechText("> [!IMPORTANT]\n> **Rule:**\n> $$x = 1$$"), "Rule: formula");
+		assert.equal(speechText("Look at \\[ \\boxed{x = 1} \\] now."), "Look at formula now.");
 	});
 });
 
@@ -79,14 +132,15 @@ describe("parseReaderPrefs", () => {
 });
 
 describe("latestReadablePassage — what the reader shortcut opens", () => {
-	const text = (t: string): LhViewPart => ({ type: "text", text: t });
+	const text = (t: string, id?: string): LhViewPart => ({ type: "text", text: t, ...(id ? { id } : {}) });
 	const tool: LhViewPart = { type: "tool-probe" };
 	const teacher = (id: string, ...parts: LhViewPart[]): LhViewMessage => ({ id, role: "assistant", parts });
 	const learner = (id: string, t: string): LhViewMessage => ({ id, role: "user", parts: [text(t)] });
 
 	it("takes the last text part of the newest teacher message", () => {
-		const messages = [teacher("a", text("old")), learner("u", "hi"), teacher("b", text("first"), tool, text("second"), tool)];
+		const messages = [teacher("a", text("old", "a-t0")), learner("u", "hi"), teacher("b", text("first", "b-t0"), tool, text("second", "b-t2"), tool)];
 		assert.equal(latestReadablePassage(messages, false), "second");
+		assert.deepEqual(latestReadablePassageTarget(messages, false), { text: "second", partId: "b-t2" });
 	});
 
 	it("looks past a newest message that only holds tool calls", () => {
@@ -113,5 +167,41 @@ describe("latestReadablePassage — what the reader shortcut opens", () => {
 	it("while streaming, a finished passage before the live tail is still readable", () => {
 		const messages = [teacher("a", text("done"), tool, text("")), learner("u", "x")];
 		assert.equal(latestReadablePassage(messages, true), "done");
+	});
+});
+
+describe("reader progress helpers and side-chat block alignment", () => {
+	it("readerPassageKey prefers partId when provided and hashes text deterministically otherwise", () => {
+		assert.equal(readerPassageKey("Hello.", "m1-t0"), "lh-reader-pos:m1-t0");
+		const a = readerPassageKey("First passage.");
+		const b = readerPassageKey("First passage.");
+		const c = readerPassageKey("Second passage.");
+		assert.match(a, /^lh-reader-pos:[0-9a-f]{8}$/);
+		assert.equal(a, b);
+		assert.notEqual(a, c);
+	});
+
+	it("clampReaderStep defaults to step 1 and clamps between 1 and total", () => {
+		assert.equal(clampReaderStep(null, 5), 1);
+		assert.equal(clampReaderStep(undefined, 5), 1);
+		assert.equal(clampReaderStep(0, 5), 1);
+		assert.equal(clampReaderStep(3, 5), 3);
+		assert.equal(clampReaderStep(12, 5), 5);
+		assert.equal(clampReaderStep(3, 0), 0);
+	});
+
+	it("alignReaderGroupAnchors aligns reader groups with Streamdown block indices", () => {
+		const md = "Intro. Second sentence.\n\n- Item one\n- Item two\n\nOutro.";
+		const units = splitReaderUnits(md);
+		const groups: number[][] = [];
+		units.forEach((u, i) => {
+			if (u.startsBlock || groups.length === 0) groups.push([i]);
+			else groups[groups.length - 1]!.push(i);
+		});
+		const anchors = alignReaderGroupAnchors(md, "msg_1", "msg_1-t0", groups, units);
+		assert.equal(anchors.length, 4);
+		assert.ok(anchors[0]!.blockIndex < anchors[1]!.blockIndex);
+		assert.equal(anchors[1]!.blockIndex, anchors[2]!.blockIndex, "list items share Streamdown list block index");
+		assert.ok(anchors[2]!.blockIndex < anchors[3]!.blockIndex);
 	});
 });

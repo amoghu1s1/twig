@@ -6,8 +6,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { AppearanceMode, ChatDeleteMode } from "@/src/core";
-import { BookOpenIcon, CircleXIcon, DumbbellIcon, HammerIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
-import { ActivitySection } from "@/components/activity-dock";
+import { BookOpenIcon, CircleXIcon, DumbbellIcon, HammerIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PinIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { ActivitySection, toBlobs, useActivity } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
 import { ReviewNavRow } from "@/components/review-nav-row";
@@ -212,11 +212,13 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
  *  no popping in either direction. */
 export function SidebarToggle() {
 	const { open, toggle } = useSidebar();
+	const { feed } = useActivity();
+	const activeCount = toBlobs(feed).length;
 	return (
 		<span
 			className={cn(
-				"sidebar-motion lh-no-drag relative flex h-9 shrink-0 overflow-hidden duration-200",
-				open ? "w-0 -mr-3" : "w-9 mr-0 lh-closed-toggle",
+				"sidebar-motion lh-no-drag relative inline-flex h-9 shrink-0 items-center gap-1.5 overflow-hidden duration-200",
+				open ? "w-0 -mr-3" : activeCount > 0 ? "w-auto mr-0 lh-closed-toggle" : "w-9 mr-0 lh-closed-toggle",
 			)}
 		>
 			<Hint label="Open sidebar" action="toggle-sidebar">
@@ -227,7 +229,7 @@ export function SidebarToggle() {
 				aria-hidden={open}
 				tabIndex={open ? -1 : 0}
 				onClick={toggle}
-				className={cn("sidebar-motion duration-200", open ? "pointer-events-none opacity-0" : "opacity-100")}
+				className={cn("sidebar-motion shrink-0 duration-200", open ? "pointer-events-none opacity-0" : "opacity-100")}
 			>
 				{/* Owner, round 6: size-4, SAME as the close glyph — the toggle
 				    must not grow when the sidebar is closed (it did: size-5 here).
@@ -235,6 +237,19 @@ export function SidebarToggle() {
 				<PanelLeftOpenIcon className="size-4" />
 			</Button>
 			</Hint>
+			{!open && activeCount > 0 && (
+				<button
+					type="button"
+					data-testid="closed-sidebar-activity"
+					onClick={toggle}
+					aria-label={`${activeCount} background ${activeCount === 1 ? "process" : "processes"} running — open sidebar`}
+					title={`${activeCount} background ${activeCount === 1 ? "process" : "processes"} running — click to open sidebar`}
+					className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-card/70 px-2 font-ui text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+				>
+					<BrailleSpinner />
+					<span className="tabular-nums">{activeCount}</span>
+				</button>
+			)}
 		</span>
 	);
 }
@@ -300,12 +315,14 @@ function sessionMeta(chat: ChatListItem): string {
 export function SessionRow({
 	chat,
 	active,
+	pinned = false,
 	onOpen,
 	kbdSelected = false,
 	onContextMenu,
 }: {
 	chat: ChatListItem;
 	active: boolean;
+	pinned?: boolean;
 	onOpen: () => void;
 	/** Keyboard-cycle highlight (shortcut wave A: Alt+↑/↓ + Alt+Enter) —
 	 *  visually distinct from the active session, which stays filled. */
@@ -333,11 +350,21 @@ export function SessionRow({
 				    rule, finally applied to the picker too (owner, typography
 				    round): mono = chrome, Source Sans = human words. */}
 				<span className="block truncate font-prose text-(length:--lh-prose-size)">{chat.title}</span>
-				<span className="block text-xs text-muted-foreground">{sessionMeta(chat)}</span>
+				<span
+					className={cn(
+						"block text-xs",
+						chat.pendingQuestion || ((chat.kind ?? "teach") === "practice" && chat.pendingProblem) || chat.busy || chat.compacting
+							? "text-foreground/80"
+							: "text-muted-foreground",
+					)}
+				>
+					{sessionMeta(chat)}
+				</span>
 			</span>
 			{/* The dumbbell rides the FAR RIGHT (owner round 6, 2026-10-05) —
 			    was left of the name; right-aligned keeps the titles flush with
 			    the teaching rows and reads cleaner. */}
+			{pinned && <PinIcon className="size-3 shrink-0 text-muted-foreground/70" aria-label="Pinned session" />}
 			{(chat.kind ?? "teach") === "practice" && (
 				<DumbbellIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-label="Practice session" />
 			)}
@@ -406,6 +433,7 @@ export function RenameRow({ chat, onCommit, onCancel }: { chat: ChatListItem; on
  *  same snapshot, persisted in localStorage, defaulting to All. */
 export type SessionKindFilter = "teach" | "all" | "practice" | "capstone";
 const KIND_FILTER_KEY = "lh:session-kind-filter";
+const PINNED_SESSIONS_KEY = "lh:pinned-sessions";
 
 function SessionsSidebar() {
 	const interactions = useInteractionLayers();
@@ -413,13 +441,34 @@ function SessionsSidebar() {
 	const [chats, setChats] = useState<ChatListItem[] | null>(null);
 	const [query, setQuery] = useState("");
 	const [kindFilter, setKindFilter] = useState<SessionKindFilter>("all");
+	const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => new Set());
 	useEffect(() => {
 		const stored = window.localStorage.getItem(KIND_FILTER_KEY);
 		if (stored === "teach" || stored === "all" || stored === "practice" || stored === "capstone") setKindFilter(stored);
+		try {
+			const rawPins = window.localStorage.getItem(PINNED_SESSIONS_KEY);
+			const parsed: unknown = rawPins ? JSON.parse(rawPins) : [];
+			if (Array.isArray(parsed)) setPinnedIds(new Set(parsed.filter((x): x is string => typeof x === "string")));
+		} catch {
+			// Ignore malformed storage.
+		}
 	}, []);
 	const setFilter = useCallback((f: SessionKindFilter) => {
 		setKindFilter(f);
 		window.localStorage.setItem(KIND_FILTER_KEY, f);
+	}, []);
+	const togglePin = useCallback((id: string) => {
+		setPinnedIds((prev) => {
+			const next = new Set(prev);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			try {
+				window.localStorage.setItem(PINNED_SESSIONS_KEY, JSON.stringify([...next]));
+			} catch {
+				// Storage blocked: pin stays for this session.
+			}
+			return next;
+		});
 	}, []);
 	const pathname = usePathname();
 	const router = useRouter();
@@ -435,7 +484,7 @@ function SessionsSidebar() {
 
 	/* FUZZY (owner round 8, 2026-10-05): subsequence match ranked by
 	 * fuzzyScore — prefix beats word-boundary beats scattered. Empty query
-	 * keeps the natural list order (scores are all 0, sort is stable). */
+	 * keeps pinned sessions first, then natural recency order. */
 	const shown = useMemo(() => {
 		const q = query.trim();
 		let list = chats;
@@ -443,13 +492,22 @@ function SessionsSidebar() {
 			list = list.filter((c) => (c.kind ?? "teach") === kindFilter);
 		}
 		if (!list) return list;
-		if (!q) return list;
+		if (!q) {
+			if (pinnedIds.size === 0) return list;
+			const pinned: typeof list = [];
+			const unpinned: typeof list = [];
+			for (const c of list) {
+				if (pinnedIds.has(c.id)) pinned.push(c);
+				else unpinned.push(c);
+			}
+			return pinned.length > 0 ? [...pinned, ...unpinned] : list;
+		}
 		return list
 			.map((c) => ({ c, score: fuzzyScore(q, c.title) }))
 			.filter((r): r is { c: (typeof list)[number]; score: number } => r.score !== null)
 			.sort((a, b) => b.score - a.score)
 			.map((r) => r.c);
-	}, [chats, query, kindFilter]);
+	}, [chats, query, kindFilter, pinnedIds]);
 
 	const refreshInFlightRef = useRef(false);
 	const refresh = useCallback(async () => {
@@ -863,28 +921,46 @@ function SessionsSidebar() {
 							{query.trim() ? "No sessions match." : "No sessions yet."}
 						</div>
 					) : (
-						shown.map((c, i) =>
-							renamingId === c.id ? (
-								<RenameRow
-									key={c.id}
-									chat={c}
-									onCommit={(next) => void commitRename(c.id, next)}
-									onCancel={() => setRenamingId(null)}
-								/>
-							) : (
-								<SessionRow
-									key={c.id}
-									chat={c}
-									active={pathname === `/chat/${c.id}`}
-									kbdSelected={i === kbdIndex}
-									onOpen={() => {
-										setKbdIndex(null);
-										router.push(`/chat/${c.id}`);
-									}}
-									onContextMenu={(e) => openContext(e, c)}
-								/>
-							),
-						)
+						shown.map((c, i) => {
+							const isPinned = pinnedIds.has(c.id);
+							const searching = query.trim() !== "";
+							const showPinnedHeading = !searching && i === 0 && isPinned;
+							const prevPinned = i > 0 && pinnedIds.has(shown[i - 1]!.id);
+							const showRecentHeading = !searching && !isPinned && i > 0 && prevPinned;
+							return (
+								<div key={c.id}>
+									{showPinnedHeading && (
+										<div data-testid="sidebar-pinned-header" className="px-3 pb-1 pt-0.5 text-[10px] uppercase tracking-widest text-muted-foreground/60">
+											Pinned
+										</div>
+									)}
+									{showRecentHeading && (
+										<div data-testid="sidebar-recent-header" className="px-3 pb-1 pt-2 text-[10px] uppercase tracking-widest text-muted-foreground/60">
+											Recent
+										</div>
+									)}
+									{renamingId === c.id ? (
+										<RenameRow
+											chat={c}
+											onCommit={(next) => void commitRename(c.id, next)}
+											onCancel={() => setRenamingId(null)}
+										/>
+									) : (
+										<SessionRow
+											chat={c}
+											active={pathname === `/chat/${c.id}`}
+											pinned={isPinned}
+											kbdSelected={i === kbdIndex}
+											onOpen={() => {
+												setKbdIndex(null);
+												router.push(`/chat/${c.id}`);
+											}}
+											onContextMenu={(e) => openContext(e, c)}
+										/>
+									)}
+								</div>
+							);
+						})
 					)}
 				</div>
 
@@ -930,6 +1006,17 @@ function SessionsSidebar() {
 						    hairline — the block is info + a stateful affordance, the
 						    actions above it. Fetched on menu open (the block mounts WITH
 						    the menu); 409 = benign. Renders nothing on a failed read. */}
+						<button
+							type="button"
+							data-testid="ctx-pin"
+							onClick={() => {
+								togglePin(ctxChatId);
+								setCtxChatId(null);
+							}}
+							className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent"
+						>
+							{pinnedIds.has(ctxChatId) ? "Unpin" : "Pin to top"}
+						</button>
 						<button
 							type="button"
 							data-testid="ctx-rename"

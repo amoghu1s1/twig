@@ -637,7 +637,7 @@ export function SideSelectionAsk({ notes, onQuote }: { notes?: NotesController |
 		setTarget(null);
 	};
 	return createPortal(
-		<div style={{ position: "fixed", left, top, width }} className="z-50 flex gap-1">
+		<div style={{ position: "fixed", left, top, width }} className="z-[100] flex gap-1">
 			{askable && (
 				<button
 					type="button"

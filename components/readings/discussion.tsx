@@ -100,7 +100,7 @@ export function DiscussProvider({
 	return <DiscussContext.Provider value={seam}>{children}</DiscussContext.Provider>;
 }
 
-function useDiscuss(): DiscussSeam | null {
+export function useDiscuss(): DiscussSeam | null {
 	return useContext(DiscussContext);
 }
 
@@ -487,7 +487,7 @@ export function PassageAsk({ rootRef }: { rootRef: RefObject<HTMLElement | null>
 	return (
 		<div
 			data-testid="discuss-passage-ask"
-			className="fixed z-50 -translate-x-1/2 -translate-y-full"
+			className="fixed z-[100] -translate-x-1/2 -translate-y-full"
 			style={{ left: pick.x, top: pick.y }}
 			// Keep the selection alive while clicking the action.
 			onMouseDown={(e) => e.preventDefault()}

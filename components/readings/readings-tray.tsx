@@ -87,13 +87,13 @@ export function ReadingsTray({
 			aria-label="Readings"
 			className="flex h-full w-[min(28rem,100vw)] shrink-0 flex-col border-l border-border bg-background max-lg:fixed max-lg:inset-y-0 max-lg:right-0 max-lg:z-50 max-lg:shadow-2xl"
 		>
-			<div className="flex h-11 shrink-0 items-center gap-2 border-b border-border/70 px-3">
+			<div className="lh-wco-gutter lh-no-drag flex h-11 shrink-0 items-center gap-2 border-b border-border/70 px-3">
 				{readingId ? (
 					<button
 						type="button"
 						data-testid="readings-back"
 						onClick={() => onOpenReading(null)}
-						className="flex items-center gap-1 rounded-md px-1.5 py-1 font-ui text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+						className="lh-no-drag flex items-center gap-1 rounded-md px-1.5 py-1 font-ui text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
 					>
 						<ArrowLeftIcon className="size-3.5" /> All readings
 					</button>
@@ -104,7 +104,7 @@ export function ReadingsTray({
 				)}
 				<span className="ml-auto" />
 				{readingId && (
-					<Link href={`/readings/${readingId}`} className="rounded-md px-1.5 py-1 font-ui text-xs text-muted-foreground hover:bg-accent hover:text-foreground">
+					<Link href={`/readings/${readingId}`} className="lh-no-drag rounded-md px-1.5 py-1 font-ui text-xs text-muted-foreground hover:bg-accent hover:text-foreground">
 						Open full page
 					</Link>
 				)}
@@ -113,15 +113,15 @@ export function ReadingsTray({
 					aria-label="Close readings"
 					data-testid="readings-close"
 					onClick={onClose}
-					className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+					className="lh-no-drag inline-flex items-center gap-1 rounded-md px-2 py-1 font-ui text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
 				>
-					<XIcon className="size-4" />
+					<XIcon className="size-3.5" /> Close
 				</button>
 			</div>
 			<div className="min-h-0 flex-1 overflow-y-auto">
 				{readingId ? (
 					<div className="pt-4">
-						<ReadingView id={readingId} compact onDeleted={() => onOpenReading(null)} onOpenReading={(id) => onOpenReading(id)} />
+						<ReadingView id={readingId} compact onClose={onClose} onDeleted={() => onOpenReading(null)} onOpenReading={(id) => onOpenReading(id)} />
 					</div>
 				) : (
 					<TrayList seam={seam} readings={readings} tree={tree} onOpenReading={onOpenReading} />

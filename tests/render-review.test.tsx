@@ -218,4 +218,11 @@ describe("ReviewDoor (the sidebar row)", () => {
 		assert.ok(!html.includes("nav-review-count"));
 		assert.ok(html.includes("open review, nothing due"));
 	});
+
+	it("a row with a statement over 120 characters offers Show full statement", () => {
+		const longStmt = "A".repeat(130);
+		const html = body(payload({ due: [item("long", NOW - DAY, "Long", { statement: longStmt }), item("short", NOW - DAY, "Short", { statement: "Short." })] }));
+		assert.match(html, /Show full statement/);
+		assert.equal((html.match(/Show full statement/g) ?? []).length, 1);
+	});
 });

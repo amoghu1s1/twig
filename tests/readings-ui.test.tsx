@@ -122,6 +122,40 @@ describe("an overview's sections", () => {
 		assert.match(html, /· Visited/);
 		assert.match(html, /data-status="gone"/);
 		assert.equal(html.match(/data-testid="reading-node-deeper"/g)?.length, 1);
+		assert.match(html, /data-testid="reading-sentence-reader"/);
+		assert.match(html, /data-testid="reading-close"/);
+	});
+
+	it("shows a close control whenever onClose is supplied", () => {
+		const router = { push: () => {}, replace: () => {}, refresh: () => {}, back: () => {}, forward: () => {}, prefetch: () => {} };
+		const compactReading: FullReading = {
+			...reading,
+			anchor: {},
+		};
+		const withClose = renderToStaticMarkup(
+			React.createElement(
+				ServerEventsProvider,
+				null,
+				React.createElement(
+					AppRouterContext.Provider,
+					{ value: router as never },
+					React.createElement(ReadingDocument, { reading: compactReading, compact: true, onClose: () => {} }),
+				),
+			),
+		);
+		const withoutClose = renderToStaticMarkup(
+			React.createElement(
+				ServerEventsProvider,
+				null,
+				React.createElement(
+					AppRouterContext.Provider,
+					{ value: router as never },
+					React.createElement(ReadingDocument, { reading: compactReading, compact: true }),
+				),
+			),
+		);
+		assert.match(withClose, /data-testid="reading-close"/);
+		assert.doesNotMatch(withoutClose, /data-testid="reading-close"/);
 	});
 
 	it("exports the sections with their nodes' titles", () => {

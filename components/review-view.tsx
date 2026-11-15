@@ -88,12 +88,26 @@ function ItemRow({
 	/** Present on due rows only; upcoming rows are not selectable. */
 	selection?: { checked: boolean; onToggle: (id: string) => void };
 }) {
+	const [expanded, setExpanded] = useState(false);
+	const longStatement = item.statement.length > 120;
 	return (
-		<li data-testid={`review-item-${item.id}`} className="flex items-start gap-3 py-2">
+		<li
+			data-testid={`review-item-${item.id}`}
+			onClick={(e) => {
+				if (!selection) return;
+				const target = e.target as HTMLElement | null;
+				if (target?.closest("input, button, a")) return;
+				const sel = typeof window !== "undefined" ? window.getSelection() : null;
+				if (sel && !sel.isCollapsed) return;
+				selection.onToggle(item.id);
+			}}
+			className={`-mx-2 flex items-start gap-3 rounded-md px-2 py-2 ${selection ? "cursor-pointer transition-colors hover:bg-accent/50" : ""}`}
+		>
 			{selection && (
 				<input
 					type="checkbox"
 					checked={selection.checked}
+					onClick={(e) => e.stopPropagation()}
 					onChange={() => selection.onToggle(item.id)}
 					aria-label={`Review ${item.name}`}
 					className="mt-1 size-3.5 shrink-0 accent-foreground"
@@ -101,7 +115,19 @@ function ItemRow({
 			)}
 			<div className="min-w-0 flex-1">
 				<p className="truncate text-sm">{item.name}</p>
-				<p className="line-clamp-2 text-xs text-muted-foreground">{item.statement}</p>
+				<p className={`${expanded ? "" : "line-clamp-2 "}text-xs text-muted-foreground`}>{item.statement}</p>
+				{longStatement && (
+					<button
+						type="button"
+						onClick={(e) => {
+							e.stopPropagation();
+							setExpanded((v) => !v);
+						}}
+						className="mt-0.5 text-[11px] text-muted-foreground/80 underline-offset-2 hover:text-foreground hover:underline"
+					>
+						{expanded ? "Show less" : "Show full statement"}
+					</button>
+				)}
 				<p data-testid={`review-why-${item.id}`} className="mt-0.5 text-[11px] text-muted-foreground/80">
 					{whyDue(item, now)}
 				</p>
