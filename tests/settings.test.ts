@@ -35,6 +35,8 @@ describe("FACTORY_SETTINGS (the compiled factory layer)", () => {
 		assert.deepEqual(a.colors, {});
 		assert.equal(a.fontFamily, null); // Source Sans 3
 		assert.equal(a.proseFontSize, 16);
+		assert.equal(a.proseWidth, 46);
+		assert.equal(a.proseLineHeight, 1.65);
 		assert.equal(a.sessionNameSerif, true);
 		assert.equal(a.mdRendering.headingWeight, 900);
 		assert.equal(a.mdRendering.boldColor, null); // white
@@ -142,16 +144,20 @@ describe("sanitizeUserSettings", () => {
 		}
 	});
 
-	it("out-of-range numbers CLAMP (proseFontSize, headingWeight)", () => {
+	it("out-of-range numbers CLAMP (proseFontSize, proseWidth, proseLineHeight, headingWeight)", () => {
 		const out = sanitizeUserSettings({
-			appearance: { proseFontSize: 99, mdRendering: { headingWeight: 999 } },
+			appearance: { proseFontSize: 99, proseWidth: 120, proseLineHeight: 5, mdRendering: { headingWeight: 999 } },
 		});
 		assert.ok(out);
 		assert.equal(out.appearance?.proseFontSize, 24);
+		assert.equal(out.appearance?.proseWidth, 72);
+		assert.equal(out.appearance?.proseLineHeight, 2.2);
 		assert.equal(out.appearance?.mdRendering?.headingWeight, 900);
-		const low = sanitizeUserSettings({ appearance: { proseFontSize: 4, mdRendering: { headingWeight: 5 } } });
+		const low = sanitizeUserSettings({ appearance: { proseFontSize: 4, proseWidth: 10, proseLineHeight: 0.5, mdRendering: { headingWeight: 5 } } });
 		assert.ok(low);
 		assert.equal(low.appearance?.proseFontSize, 12);
+		assert.equal(low.appearance?.proseWidth, 32);
+		assert.equal(low.appearance?.proseLineHeight, 1.2);
 		assert.equal(low.appearance?.mdRendering?.headingWeight, 100);
 	});
 

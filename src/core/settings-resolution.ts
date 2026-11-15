@@ -233,6 +233,8 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			colors: appearance.colors ?? factoryAppearance.colors,
 			fontFamily: appearance.fontFamily ?? factoryAppearance.fontFamily,
 			proseFontSize: appearance.proseFontSize ?? factoryAppearance.proseFontSize,
+			proseWidth: appearance.proseWidth ?? factoryAppearance.proseWidth,
+			proseLineHeight: appearance.proseLineHeight ?? factoryAppearance.proseLineHeight,
 			codeLigatures: appearance.codeLigatures ?? factoryAppearance.codeLigatures,
 			sessionNameSerif: appearance.sessionNameSerif ?? factoryAppearance.sessionNameSerif,
 			mdRendering: {

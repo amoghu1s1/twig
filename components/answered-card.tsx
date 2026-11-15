@@ -267,7 +267,7 @@ export function AnsweredCard({
 							</div>
 						)}
 						{whyOpen && !analysis && answer.explanation && (
-							<div className="mt-1.5 rounded-lg bg-muted py-2 text-sm text-foreground/50">
+							<div className="mt-1.5 rounded-lg bg-muted py-2 text-sm text-foreground/70">
 								<span className="font-medium text-muted-foreground">Why: </span>
 								{/* Keep the first paragraph beside the label, not every paragraph:
 								   later paragraphs must retain their recovered document structure. */}

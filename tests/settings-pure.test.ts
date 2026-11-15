@@ -37,6 +37,8 @@ describe("resolveAppearance — delta over factory", () => {
 		assert.deepEqual(a.colors, {});
 		assert.equal(a.fontFamily, null);
 		assert.equal(a.proseFontSize, 16);
+		assert.equal(a.proseWidth, 46);
+		assert.equal(a.proseLineHeight, 1.65);
 		assert.equal(a.sessionNameSerif, true);
 		assert.deepEqual(a.mdRendering, { headingWeight: 900, boldColor: null, italicColor: null });
 	});
@@ -56,8 +58,12 @@ describe("appearanceVars — the mapping the provider applies", () => {
 		const vars = appearanceVars(resolveAppearance(undefined), DEFAULT_THEME);
 		assert.equal(vars["--background"], "#141414");
 		assert.equal(vars["--accent"], "#2a2a2a", "the hover surface keeps its hand-picked value");
-		assert.equal(vars["--lh-ink-strong"], "#e6e6e6", "emphasis = text on Default");
+		assert.equal(vars["--lh-ink-strong"], "#ffffff", "bold = crisp white on Default");
+		assert.equal(vars["--lh-ink-italic"], "#b4c6ef", "italic = soft cool-slate on Default");
+		assert.equal(vars["--lh-ink-code"], "#e7c787", "code = warm amber on Default");
 		assert.equal(vars["--lh-prose-size"], "16px");
+		assert.equal(vars["--lh-prose-width"], "46rem");
+		assert.equal(vars["--lh-prose-leading"], "1.65");
 		assert.equal(vars["--lh-heading-weight"], "900");
 		assert.equal(vars["--font-prose"], undefined, "no font override at factory");
 		assert.equal(vars["--font-title"], undefined, "CMU stays");

@@ -140,6 +140,8 @@ describe("parseAppearanceSettingsBody", () => {
 			background: "#ffffff",
 			fontFamily: "Some Font",
 			proseFontSize: 20,
+			proseWidth: 52,
+			proseLineHeight: 1.75,
 			sessionNameSerif: false,
 			mdRendering: { headingWeight: 700, boldColor: "#ff8800", italicColor: null },
 		});
@@ -150,6 +152,8 @@ describe("parseAppearanceSettingsBody", () => {
 			background: "#ffffff",
 			fontFamily: "Some Font",
 			proseFontSize: 20,
+			proseWidth: 52,
+			proseLineHeight: 1.75,
 			sessionNameSerif: false,
 			mdRendering: { headingWeight: 700, boldColor: "#ff8800", italicColor: null },
 		});
@@ -165,6 +169,12 @@ describe("parseAppearanceSettingsBody", () => {
 			{ fontFamily: 12 },
 			{ proseFontSize: 30 },
 			{ proseFontSize: 64.5 },
+			{ proseWidth: 20 },
+			{ proseWidth: 46.5 },
+			{ proseWidth: 90 },
+			{ proseLineHeight: 1.1 },
+			{ proseLineHeight: 2.5 },
+			{ proseLineHeight: "1.65" },
 			{ sessionNameSerif: 1 },
 			{ mdRendering: { headingWeight: 1000 } },
 			{ mdRendering: { boldColor: "red" } },
@@ -172,9 +182,13 @@ describe("parseAppearanceSettingsBody", () => {
 		for (const body of cases) {
 			assert.equal(parseAppearanceSettingsBody(body).ok, false, JSON.stringify(body));
 		}
-		// boundary values that MUST pass: 12 and 24, 100 and 900, #fff
+		// boundary values that MUST pass: 12 and 24, 32 and 72, 1.2 and 2.2, 100 and 900, #fff
 		assert.ok(parseAppearanceSettingsBody({ proseFontSize: 12 }));
 		assert.ok(parseAppearanceSettingsBody({ proseFontSize: 24 }));
+		assert.ok(parseAppearanceSettingsBody({ proseWidth: 32 }));
+		assert.ok(parseAppearanceSettingsBody({ proseWidth: 72 }));
+		assert.ok(parseAppearanceSettingsBody({ proseLineHeight: 1.2 }));
+		assert.ok(parseAppearanceSettingsBody({ proseLineHeight: 2.2 }));
 		assert.ok(parseAppearanceSettingsBody({ mdRendering: { headingWeight: 100 } }));
 		assert.ok(parseAppearanceSettingsBody({ mdRendering: { headingWeight: 900 } }));
 		assert.ok(parseAppearanceSettingsBody({ background: "#abc" }));

@@ -64,9 +64,9 @@
 	--lh-line-strong: #e6e6e6;
 	/* Emphasis inks default to the REGULAR TEXT COLOR (owner ruling,
 	   appearance wave 2026-09-26); themes give them their own colors. */
-	--lh-ink-strong: #e6e6e6;
-	--lh-ink-italic: #e6e6e6;
-	--lh-ink-code: #e6e6e6;
+	--lh-ink-strong: #ffffff;
+	--lh-ink-italic: #b4c6ef;
+	--lh-ink-code: #e7c787;
 	/* Status inks (text-error, bg-success/15, border-warning/40, …). */
 	--lh-error: #ef4444;
 	--lh-success: #22c55e;
@@ -77,7 +77,8 @@
 	   change one, change both. (owner, typography round 4: snapped from
 	   the reskin's hand-tuned 16.5 to the ladder's 16.) */
 	--lh-prose-size: 16px;
-	--lh-prose-leading: 1.5;
+	--lh-prose-leading: 1.65;
+	--lh-prose-width: 46rem;
 	/* Markdown heading weight (appearance settings; 900 = the Black cut). */
 	--lh-heading-weight: 900;
 }

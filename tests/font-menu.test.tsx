@@ -139,23 +139,21 @@ describe("the emphasis-ink factory ruling (globals.css)", () => {
 		assert.ok(!css.includes("--lh-ink-italic: #6fa9d6"), "italic factory is not the old blue");
 	});
 
-	it("the Default theme's inks are the regular text color", () => {
+	it("the Default theme's inks provide subtle visual distinction for scanning", () => {
 		const css = fs.readFileSync("app/globals.css", "utf-8");
-		const text = css.match(/--foreground: (#[0-9a-f]{6});/)?.[1];
-		assert.ok(text, "the factory text color");
-		assert.ok(css.includes(`--lh-ink-strong: ${text};`), "bold ink = text");
-		assert.ok(css.includes(`--lh-ink-italic: ${text};`), "italic ink = text");
+		assert.ok(css.includes("--lh-ink-strong: #ffffff;"), "bold ink = #ffffff");
+		assert.ok(css.includes("--lh-ink-italic: #b4c6ef;"), "italic ink = #b4c6ef");
+		assert.ok(css.includes("--lh-ink-code: #e7c787;"), "code ink = #e7c787");
 	});
 
-	it("the bold and italic override rows' empty-state hints name the text color", () => {
+	it("the bold, italic, and code override rows' empty-state hints name the Default theme inks", () => {
 		const html = renderToStaticMarkup(
 			<AppearanceSection appearance={undefined} onSectionChange={() => true} />,
 		);
-		const text = html.match(/data-testid="row-color-text"[\s\S]*?Empty = (#[0-9a-f]{6})/)?.[1];
-		assert.ok(text, "the text row's hint");
-		for (const key of ["bold", "italic"]) {
+		const expected = { bold: "#ffffff", italic: "#b4c6ef", code: "#e7c787" } as const;
+		for (const [key, hex] of Object.entries(expected)) {
 			const hint = html.match(new RegExp(`data-testid="row-color-${key}"[\\s\\S]*?Empty = (#[0-9a-f]{6})`))?.[1];
-			assert.equal(hint, text, `${key} row`);
+			assert.equal(hint, hex, `${key} row`);
 		}
 		assert.ok(!html.includes("#ee928c"));
 		assert.ok(!html.includes("#6fa9d6"));

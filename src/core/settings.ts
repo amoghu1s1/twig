@@ -451,6 +451,10 @@ export interface AppearanceSettings {
 	/** Reading font size in px (12–24, default 16). Headings render as
 	 *  multiples of this, so one knob scales the document coherently. */
 	proseFontSize?: number;
+	/** Reading column max-width in rem (32–72, default 46). */
+	proseWidth?: number;
+	/** Reading prose line-height multiplier (1.2–2.2, default 1.65). */
+	proseLineHeight?: number;
 	/** Permit normal font ligatures in code (including inline code and code editors). Default false; prose is unaffected. */
 	codeLigatures?: boolean;
 	/** Session names in CMU Serif (default true — today's look). */
@@ -571,6 +575,8 @@ export interface FactorySettings {
 		colors: AppearanceColorOverrides;
 		fontFamily: string | null;
 		proseFontSize: number;
+		proseWidth: number;
+		proseLineHeight: number;
 		codeLigatures: boolean;
 		sessionNameSerif: boolean;
 		mdRendering: {
@@ -595,6 +601,8 @@ export const FACTORY_SETTINGS: FactorySettings = {
 		colors: {}, // no overrides: every color is the theme's
 		fontFamily: null, // Source Sans 3
 		proseFontSize: 16,
+		proseWidth: 46,
+		proseLineHeight: 1.65,
 		codeLigatures: false,
 		sessionNameSerif: true,
 		mdRendering: { headingWeight: 900, boldColor: null, italicColor: null },
@@ -612,6 +620,10 @@ export const EXTRACTION_CHUNK_TOKENS_FLOOR = 500;
 
 const PROSE_FONT_MIN = 12;
 const PROSE_FONT_MAX = 24;
+const PROSE_WIDTH_MIN = 32;
+const PROSE_WIDTH_MAX = 72;
+const PROSE_LINE_HEIGHT_MIN = 1.2;
+const PROSE_LINE_HEIGHT_MAX = 2.2;
 
 const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
 
@@ -861,6 +873,12 @@ function sanitizeAppearance(raw: Record<string, unknown>): AppearanceSettings {
 	}
 	if (typeof raw.proseFontSize === "number" && Number.isFinite(raw.proseFontSize)) {
 		out.proseFontSize = clamp(Math.round(raw.proseFontSize), PROSE_FONT_MIN, PROSE_FONT_MAX);
+	}
+	if (typeof raw.proseWidth === "number" && Number.isFinite(raw.proseWidth)) {
+		out.proseWidth = clamp(Math.round(raw.proseWidth), PROSE_WIDTH_MIN, PROSE_WIDTH_MAX);
+	}
+	if (typeof raw.proseLineHeight === "number" && Number.isFinite(raw.proseLineHeight)) {
+		out.proseLineHeight = clamp(Math.round(raw.proseLineHeight * 100) / 100, PROSE_LINE_HEIGHT_MIN, PROSE_LINE_HEIGHT_MAX);
 	}
 	const codeLigatures = boolOrDrop(raw.codeLigatures);
 	if (codeLigatures !== undefined) out.codeLigatures = codeLigatures;

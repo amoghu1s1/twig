@@ -56,6 +56,8 @@ describe("resolveSettings", () => {
 		assert.deepEqual(eff.appearance.colors, {});
 		assert.equal(eff.appearance.fontFamily, null);
 		assert.equal(eff.appearance.proseFontSize, 16);
+		assert.equal(eff.appearance.proseWidth, 46);
+		assert.equal(eff.appearance.proseLineHeight, 1.65);
 		assert.equal(eff.appearance.sessionNameSerif, true);
 		assert.equal(eff.appearance.mdRendering.headingWeight, 900);
 		// wave 7 collapse: the master switch ONLY + the redesign's chunk
@@ -74,7 +76,7 @@ describe("resolveSettings", () => {
 				prompts: { "system-prompt.md": true },
 				search: { engine: "tavily" },
 			},
-			appearance: { mode: "system", theme: "rose-pine-dawn", colors: { warning: "#eeeeee" }, proseFontSize: 20, mdRendering: { headingWeight: 600 } },
+			appearance: { mode: "system", theme: "rose-pine-dawn", colors: { warning: "#eeeeee" }, proseFontSize: 20, proseWidth: 54, proseLineHeight: 1.8, mdRendering: { headingWeight: 600 } },
 			graph: { enabled: false },
 		};
 		const eff = resolveSettings(record);
@@ -93,6 +95,8 @@ describe("resolveSettings", () => {
 		assert.equal(eff.appearance.theme, "rose-pine-dawn");
 		assert.deepEqual(eff.appearance.colors, { warning: "#eeeeee" });
 		assert.equal(eff.appearance.proseFontSize, 20);
+		assert.equal(eff.appearance.proseWidth, 54);
+		assert.equal(eff.appearance.proseLineHeight, 1.8);
 		assert.equal(eff.appearance.mdRendering.headingWeight, 600);
 		// wave 7 collapse: the section IS the master switch (absent budget
 		// field = factory 4096 — a pre-redesign record resolves cleanly).

@@ -60,6 +60,8 @@ export function resolveAppearance(delta: AppearanceSettings | undefined) {
 		colors: delta?.colors ?? f.colors,
 		fontFamily: delta?.fontFamily ?? f.fontFamily,
 		proseFontSize: delta?.proseFontSize ?? f.proseFontSize,
+		proseWidth: delta?.proseWidth ?? f.proseWidth,
+		proseLineHeight: delta?.proseLineHeight ?? f.proseLineHeight,
 		codeLigatures: delta?.codeLigatures ?? f.codeLigatures,
 		sessionNameSerif: delta?.sessionNameSerif ?? f.sessionNameSerif,
 		mdRendering: {
@@ -97,6 +99,8 @@ export function appearanceVars(
 	// The ONE documented reading-size variable (typography round 4): prose,
 	// inputs, and session titles all read it, so one setProperty moves them.
 	vars["--lh-prose-size"] = `${a.proseFontSize}px`;
+	vars["--lh-prose-width"] = `${a.proseWidth}rem`;
+	vars["--lh-prose-leading"] = String(a.proseLineHeight);
 	// Code surfaces opt in to this token; never change prose or UI shaping.
 	// "normal" permits the font's behavior rather than forcing glyph joining.
 	vars["--lh-code-ligatures"] = a.codeLigatures ? "normal" : "none";

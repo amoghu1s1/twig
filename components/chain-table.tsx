@@ -384,7 +384,7 @@ export function ChainTableBody({
 			    two-column steps — chains pl-12 aligned with the folder icon,
 			    statements pl-21 where a chain icon would sit).
 			    All three columns sort, small chevron on active. */}
-			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+			<div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col overflow-y-auto">
 				{/* The TOP rule (owner round 5: the table is framed — a line under
 			    the header, a line under the last group, lines between groups). */}
 				<TreeHeader sticky>
@@ -587,7 +587,7 @@ export function ChainTableBody({
 															/> : <TreeSelectionSpacer />}
 															<ToolContentResponse
 																mode="static"
-																className="min-w-0 flex-1 text-muted-foreground [--font-prose:var(--font-ui)] [--lh-prose-size:var(--text-xs)] [--lh-prose-leading:1.625] [&_[data-streamdown=inline-code]]:[font-size:inherit] [&_[data-streamdown=inline-code]]:[color:inherit]"
+																className="min-w-0 max-w-3xl flex-1 text-muted-foreground [--font-prose:var(--font-ui)] [--lh-prose-size:var(--text-xs)] [--lh-prose-leading:1.625] [&_[data-streamdown=inline-code]]:[font-size:inherit] [&_[data-streamdown=inline-code]]:[color:inherit]"
 															>
 																{node.statement}
 															</ToolContentResponse>

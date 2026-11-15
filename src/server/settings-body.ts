@@ -322,6 +322,28 @@ export function parseAppearanceSettingsBody(body: unknown): SettingsBodyResult<A
 		}
 		settings.proseFontSize = raw.proseFontSize;
 	}
+	if (raw.proseWidth !== undefined) {
+		if (
+			typeof raw.proseWidth !== "number" ||
+			!Number.isInteger(raw.proseWidth) ||
+			raw.proseWidth < 32 ||
+			raw.proseWidth > 72
+		) {
+			return { ok: false, error: "proseWidth must be an integer between 32 and 72" };
+		}
+		settings.proseWidth = raw.proseWidth;
+	}
+	if (raw.proseLineHeight !== undefined) {
+		if (
+			typeof raw.proseLineHeight !== "number" ||
+			!Number.isFinite(raw.proseLineHeight) ||
+			raw.proseLineHeight < 1.2 ||
+			raw.proseLineHeight > 2.2
+		) {
+			return { ok: false, error: "proseLineHeight must be a number between 1.2 and 2.2" };
+		}
+		settings.proseLineHeight = Math.round(raw.proseLineHeight * 100) / 100;
+	}
 	if (raw.codeLigatures !== undefined) {
 		if (typeof raw.codeLigatures !== "boolean") {
 			return { ok: false, error: "codeLigatures must be a boolean" };

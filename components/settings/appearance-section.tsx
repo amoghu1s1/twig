@@ -455,6 +455,43 @@ export function AppearanceSection({
 					}}
 				/>
 			</SettingsRow>
+			<SettingsRow label="Reading width" hint={`${resolved.proseWidth}rem`} testid="row-prose-width">
+				<CommitInput
+					type="number"
+					value={String(appearance?.proseWidth ?? "")}
+					placeholder="46"
+					ariaLabel="reading width"
+					testid="input-prose-width"
+					onCommit={(v) => {
+						if (v === "") {
+							return onSectionChange({ ...appearance, proseWidth: undefined });
+						}
+						const n = Number(v);
+						if (!Number.isFinite(n)) return false;
+						return onSectionChange({ ...appearance, proseWidth: Math.min(72, Math.max(32, Math.round(n))) });
+					}}
+				/>
+			</SettingsRow>
+			<SettingsRow label="Line spacing" hint={`${resolved.proseLineHeight}`} testid="row-prose-leading">
+				<CommitInput
+					type="number"
+					value={String(appearance?.proseLineHeight ?? "")}
+					placeholder="1.65"
+					ariaLabel="line spacing"
+					testid="input-prose-leading"
+					onCommit={(v) => {
+						if (v === "") {
+							return onSectionChange({ ...appearance, proseLineHeight: undefined });
+						}
+						const n = Number(v);
+						if (!Number.isFinite(n)) return false;
+						return onSectionChange({
+							...appearance,
+							proseLineHeight: Math.min(2.2, Math.max(1.2, Math.round(n * 100) / 100)),
+						});
+					}}
+				/>
+			</SettingsRow>
 			<SettingsRow label="Code ligatures" testid="row-code-ligatures">
 				<Toggle
 					checked={resolved.codeLigatures}

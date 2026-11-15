@@ -250,12 +250,17 @@ export function ReadingDocument({
 					<ModeLabel mode={r.mode} />
 					<span className="text-muted-foreground/70">· {ago(r.createdAt)}</span>
 					{r.usage && <span className="tabular-nums text-muted-foreground/70">· {planCostLabel(r.costUsd, subscriptionLabel(r.usage.model))}</span>}
-					{tray && ready && (
+					{ready && (
 						<button
 							type="button"
 							data-testid="reading-discuss"
-							onClick={() => showDiscuss(true)}
-							className="ml-auto flex items-center gap-1 rounded-full border border-border/80 px-2 py-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+							aria-expanded={discussOpen}
+							onClick={() => (tray ? showDiscuss(true) : setDiscussOpen((v) => !v))}
+							className={`ml-auto flex items-center gap-1 rounded-full border px-2 py-0.5 transition-colors hover:bg-accent hover:text-foreground ${
+								!tray && discussOpen
+									? "border-primary/50 bg-accent text-foreground"
+									: "border-border/80 text-muted-foreground"
+							}`}
 						>
 							<MessagesSquareIcon className="size-3" aria-hidden /> Discuss
 							{askedCount > 0 && <span className="tabular-nums">· {askedCount}</span>}
@@ -433,7 +438,7 @@ export function ReadingDocument({
 			readingMode={r.mode}
 			discussion={discussion}
 			renderedBlocks={renderedBlocks}
-			onDraftInSide={tray ? () => showDiscuss(true) : undefined}
+			onDraftInSide={() => (tray ? showDiscuss(true) : setDiscussOpen(true))}
 		>
 			{tray ? (
 				<>
@@ -458,8 +463,8 @@ export function ReadingDocument({
 						</div>
 					)}
 				</>
-			) : ready ? (
-				<div className="lg:grid lg:grid-cols-[minmax(0,1fr)_20rem] lg:gap-10">
+			) : ready && discussOpen ? (
+				<div className="mx-auto w-full max-w-6xl lg:grid lg:grid-cols-[minmax(0,var(--lh-prose-width,46rem))_20rem] lg:justify-center lg:gap-10">
 					{article}
 					<aside
 						data-testid="discuss-column"
@@ -473,7 +478,7 @@ export function ReadingDocument({
 					</aside>
 				</div>
 			) : (
-				<div className="mx-auto w-full max-w-3xl">{article}</div>
+				<div className="mx-auto w-full max-w-[var(--lh-prose-width,46rem)]">{article}</div>
 			)}
 			{ready && <PassageAsk rootRef={contentRef} />}
 		</DiscussProvider>
