@@ -50,7 +50,7 @@ it("the appearance mapping changes ONLY the shared code token, normal permits ra
 });
 
 it("native inline/fenced code and both CodeMirror modes opt in without changing prose or diagrams", () => {
-  const native = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  const native = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   const plugin = readFileSync(new URL("../plugins/coding-questions/src/styles.css", import.meta.url), "utf8");
   const rule = /([^{}]+)\{[^{}]*font-variant-ligatures:\s*var\(--lh-code-ligatures, none\);[^{}]*\}/g;
   const selectors = [...native.matchAll(rule)].map(match => match[1]!.replace(/\/\*[\s\S]*?\*\//g, "").trim());

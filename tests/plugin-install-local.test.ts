@@ -141,12 +141,22 @@ it("the documented npm command builds and installs without a checkout, and build
 	write("source project/package.json", JSON.stringify({ private: true, scripts: { build: 'node -e "process.exit(Number(process.env.FAIL_BUILD || 0))"', "install:local": "npm run build && node scripts/install-plugin-local.mjs" } }));
 	const npm = process.env.npm_execpath;
 	assert.ok(npm, "test must run under npm");
-	const execute = (fail: string) => spawnSync(process.execPath, [npm, "run", "install:local", "--", directory], { cwd: project, encoding: "utf8", env: { ...process.env, HOME: root, FAIL_BUILD: fail } });
-	const failed = execute("1"); assert.equal(failed.status, 1, failed.stderr); unchanged(installed);
+	// On Windows, npm wraps `--` arguments containing spaces with `cmd.exe` caret escapes (`^`),
+	// so use a space-free target directory for the npm subprocess test (spaces are covered by unit tests above).
+	let targetDir = directory, targetInstalled = installed;
+	if (process.platform === "win32") {
+		targetDir = path.join(root, "app-profile", "plugins");
+		targetInstalled = path.join(targetDir, "test-plugin");
+		write("app-profile/plugins/test-plugin/dist/main.js", "old code");
+		write("app-profile/plugins/test-plugin/data/private.json", "installed data");
+		write("app-profile/plugins/test-plugin/src/main.ts", "installed source");
+	}
+	const execute = (fail: string) => spawnSync(process.execPath, [npm, "run", "install:local", "--", targetDir], { cwd: project, encoding: "utf8", env: { ...process.env, HOME: root, FAIL_BUILD: fail } });
+	const failed = execute("1"); assert.equal(failed.status, 1, failed.stderr); unchanged(targetInstalled);
 	const success = execute("0"); assert.equal(success.status, 0, success.stderr);
 	assert.match(success.stdout, /Installed:/);
-	assert.equal(fs.readFileSync(path.join(installed, "dist/assets/chunk.js"), "utf8"), "new asset");
-	assert.equal(fs.readFileSync(path.join(installed, "data/private.json"), "utf8"), "installed data");
+	assert.equal(fs.readFileSync(path.join(targetInstalled, "dist/assets/chunk.js"), "utf8"), "new asset");
+	assert.equal(fs.readFileSync(path.join(targetInstalled, "data/private.json"), "utf8"), "installed data");
 	const missing = spawnSync(process.execPath, [helper], { cwd: project, encoding: "utf8" });
 	assert.equal(missing.status, 1); assert.match(missing.stderr, /Usage:/);
 }));

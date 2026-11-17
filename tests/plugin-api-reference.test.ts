@@ -81,6 +81,6 @@ it("the committed reference covers every real SDK public type/member and exactly
 	assert.equal(reference.inventory.reduce((n: number, entry: { exports: string[] }) => n + entry.exports.length, 0), count);
 	const committed = path.resolve("docs/plugin-api");
 	assert.deepEqual(fs.readdirSync(committed).sort(), [...reference.pages.keys()].sort());
-	for (const [filename, text] of reference.pages) assert.equal(fs.readFileSync(path.join(committed, filename), "utf8"), text, `Regenerate stale reference: ${filename}`);
+	for (const [filename, text] of reference.pages) assert.equal(fs.readFileSync(path.join(committed, filename), "utf8").replace(/\r\n/g, "\n"), text, `Regenerate stale reference: ${filename}`);
 	for (const entry of reference.inventory) for (const member of entry.members) assert.ok(reference.pages.get(entry.module + ".md")!.includes(member.signature), `${entry.name}.${member.key}`);
 }));

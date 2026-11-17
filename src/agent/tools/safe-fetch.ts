@@ -65,7 +65,7 @@ export function createAddressCheckedAgent(
 ): Agent {
 	// Optional connector settings let offline tests supply deterministic DNS and
 	// a synthetic TLS CA. Production uses the standard connector unchanged.
-	const connect = buildConnector(connectorOptions);
+	const connect = buildConnector({ autoSelectFamily: false, ...connectorOptions });
 	return new Agent({
 		connect: (options, callback) => {
 			connect(options, (error, socket) => {
