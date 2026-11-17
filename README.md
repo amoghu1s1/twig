@@ -1,10 +1,4 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/twig_logo_transparent.png">
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/twig_banner.png">
-    <img src="docs/assets/twig_banner.png" alt="Twig" width="640">
-  </picture>
-</p>
+<h1 align="center">Twig</h1>
 
 <p align="center"><strong>An agent harness for learning.</strong></p>
 
@@ -15,6 +9,14 @@
   <a href="https://github.com/amoghu1s1/twig/issues">Issues</a> ·
   <a href="https://discord.gg/5tCHHQEB2e">Discord</a>
 </p>
+
+<p align="center">
+  <img src="docs/assets/screenshot-teaching-diagram.jpg" alt="Twig teaching session with an inline geometric diagram and math rendering" width="840">
+</p>
+
+| Check & live plan graph | Deep-dive readings & Read by sentence |
+| :---: | :---: |
+| ![Twig understanding check with confidence slider, thinking field, and dependency plan](docs/assets/screenshot-check-plan.png) | ![Twig deep-dive reading with KaTeX math and Read by sentence controls](docs/assets/screenshot-readings.jpg) |
 
 > Twig is a fork of [LearnHarness](https://github.com/amosblomqvist/learnharness), renamed and packaged separately so both can run side by side. Original work © Amos Blomqvist, AGPL-3.0.
 
