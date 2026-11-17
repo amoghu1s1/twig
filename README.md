@@ -24,8 +24,6 @@ Twig uses AI agents to plan and teach lessons from your current understanding to
 
 Instead of just giving you an explanation, it uses your answers and thinking to decide what you need next. Teaching builds understanding one reasoning step at a time. Practice makes it usable. A persistent knowledge graph carries it across sessions.
 
-![Twig teaching session](docs/assets/teaching-session.png)
-
 ## What is different in Twig
 
 Twig keeps LearnHarness's teaching model and adds the parts that matter for daily personal use.
