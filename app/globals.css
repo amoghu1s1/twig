@@ -241,6 +241,28 @@ body {
 	padding-left: 1.5rem;
 }
 
+/* Sentence reader lists: hanging markers so wrapped bullet lines align cleanly,
+   with nested bullet shapes driven by list depth and task lists unbulleted. */
+[data-testid="sentence-reader"] [data-streamdown="unordered-list"],
+[data-testid="sentence-reader"] [data-streamdown="ordered-list"] {
+	list-style-position: outside;
+}
+[data-testid="sentence-reader"] [data-streamdown="ordered-list"] {
+	padding-left: 1.75rem;
+}
+[data-testid="sentence-reader"] [data-streamdown="unordered-list"].contains-task-list {
+	list-style-type: none;
+}
+[data-testid="sentence-reader"] [data-list-depth="1"] [data-streamdown="unordered-list"] {
+	list-style-type: circle;
+}
+[data-testid="sentence-reader"] [data-list-depth="2"] [data-streamdown="unordered-list"] {
+	list-style-type: square;
+}
+[data-testid="sentence-reader"] [data-streamdown="list-item"] {
+	padding-block: 0.125rem;
+}
+
 /* Markdown headings render at the font's BLACK weight (owner ask,
    2026-09-19) — 900, not streamdown's font-semibold 600. The variable
    Source Sans 3 axis spans 200–900 (next/font loads the full range), so

@@ -76,7 +76,12 @@ const SIDE_WINDOW_FONT_STYLE = {
 const EMPTY_BLOCK_SET = new Set<string>();
 
 function normalizeBlockText(s: string): string {
-	return s.replace(/\s+/g, " ").trim();
+	return s.replace(/(^|\n)([ \t]*)[•◦▪](?=\s)/g, "$1$2-").replace(/\s+/g, " ").trim();
+}
+
+function readerGroupMarginClass(unit: ReaderUnit): string {
+	if (unit.listDepth === undefined) return "my-5";
+	return unit.listContinuation ? "my-1.5" : "mt-5 mb-1.5";
 }
 
 export function alignReaderGroupAnchors(
@@ -110,6 +115,7 @@ function ReaderChatGroup({
 	sideEnabled,
 	renderWindows,
 	store,
+	className = "my-5",
 	children,
 }: {
 	anchor: SideChatAnchor;
@@ -117,6 +123,7 @@ function ReaderChatGroup({
 	sideEnabled: boolean;
 	renderWindows: boolean;
 	store: SideChatStore;
+	className?: string;
 	children: ReactNode;
 }) {
 	const blockKey = sideBlockKey(anchor.partId, anchor.blockIndex);
@@ -131,7 +138,7 @@ function ReaderChatGroup({
 		};
 	}, [store, blockKey, anchor, sideEnabled]);
 	return (
-		<div className="my-5">
+		<div className={className}>
 			<div
 				data-side-block={blockKey}
 				data-side-enabled={sideEnabled ? "" : undefined}
@@ -201,7 +208,7 @@ export function SentenceReader({
 	const [readerDiscussOpen, setReaderDiscussOpen] = useState(false);
 	const readerContentRef = useRef<HTMLDivElement | null>(null);
 	const speaker = useRef<ReaderSpeaker | null>(null);
-	const refs = useRef<(HTMLSpanElement | null)[]>([]);
+	const refs = useRef<(HTMLElement | null)[]>([]);
 	const sideStore = useSideChatStore();
 	const readingDiscuss = useDiscuss();
 	const chatSideAvailable = Boolean(sideStore && passage?.messageId && passage?.partId && passage.sideEnabled);
@@ -597,12 +604,14 @@ export function SentenceReader({
 					    TOKEN — a plain parent font-size is overridden by the class. */}
 					<div
 						ref={readerContentRef}
-						className="mx-auto max-w-3xl px-6 py-[30vh]"
+						className="mx-auto max-w-[var(--lh-prose-width,46rem)] px-6 py-[30vh]"
 						style={readerFontStyle(prefs.fontSize)}
 					>
 						{groups.map((group, groupIdx) => {
+							const firstUnit = units[group[0]!]!;
+							const groupClass = readerGroupMarginClass(firstUnit);
 							const revealedInGroup = group[0]! < revealed;
-							const groupMarkdown = group.map((i) => units[i]!.markdown).join(units[group[0]!]!.inline ? " " : "\n");
+							const groupMarkdown = group.map((i) => units[i]!.markdown).join(firstUnit.inline ? " " : "\n");
 							const body = group.map((i) => {
 								const u = units[i]!;
 								const shown = i < revealed;
@@ -614,17 +623,24 @@ export function SentenceReader({
 									shown ? "" : hiddenClass(prefs.style),
 									current ? "rounded bg-accent/60 px-0.5" : "",
 								].join(" ");
+								const depthAttr = u.listDepth !== undefined ? String(Math.min(u.listDepth, 2)) : undefined;
+								const listStyle = u.listDepth ? { paddingLeft: `${u.listDepth * 1.5}rem` } : undefined;
+								const Tag = u.inline ? "span" : "div";
 								return (
-									<span
+									<Tag
 										key={i}
 										ref={(el) => {
 											refs.current[i] = el;
 										}}
 										data-revealed={shown}
+										data-list-depth={depthAttr}
+										style={listStyle}
 										className={cls}
 									>
-										<AssistantTextResponse className={u.inline ? "inline [&_p]:inline [&>div]:inline" : ""}>{u.markdown}</AssistantTextResponse>
-									</span>
+										<AssistantTextResponse mode="static" className={u.inline ? "inline [&_p]:inline [&>div]:inline" : ""}>
+											{u.markdown}
+										</AssistantTextResponse>
+									</Tag>
 								);
 							});
 
@@ -638,6 +654,7 @@ export function SentenceReader({
 										sideEnabled={Boolean(passage?.sideEnabled)}
 										renderWindows={renderGroupForBlock.get(chatAnchor.blockIndex) === groupIdx}
 										store={sideStore}
+										className={groupClass}
 									>
 										{body}
 									</ReaderChatGroup>
@@ -645,7 +662,7 @@ export function SentenceReader({
 							}
 
 							return (
-								<div key={group[0]} className="group/sideblock relative my-5">
+								<div key={group[0]} className={`group/sideblock relative ${groupClass}`}>
 									{body}
 									{readingDiscuss && revealedInGroup && (
 										<button

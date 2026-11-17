@@ -94,6 +94,70 @@ describe("splitReaderUnits", () => {
 		assert.match(overescapedHtml, /class="[^"]*katex/);
 		assert.doesNotMatch(overescapedHtml, /katex-error/);
 	});
+
+	it("preserves nested bullet/ordered list depths without turning 4-space sub-bullets into code blocks", () => {
+		const md = ["- Outer", "  - Inner", "    - Deep", "1. Step one", "    - Nested under ordered"].join("\n");
+		const u = splitReaderUnits(md);
+		assert.deepEqual(u.map((x) => x.markdown), ["- Outer", "- Inner", "- Deep", "1. Step one", "- Nested under ordered"]);
+		assert.deepEqual(u.map((x) => x.listDepth), [0, 1, 2, 0, 1]);
+		assert.deepEqual(u.map((x) => Boolean(x.listContinuation)), [false, true, true, true, true]);
+		for (const unit of u) {
+			const html = renderToStaticMarkup(React.createElement(AssistantTextResponse, { mode: "static" } as never, unit.markdown));
+			assert.doesNotMatch(html, /data-testid="md-code"/);
+			assert.match(html, /data-streamdown="list-item"/);
+		}
+	});
+
+	it("normalizes unicode bullets and keeps math, fences, and intro sentences intact around lists", () => {
+		const unicode = "• First dot\n  ◦ Nested dot\n• Second dot";
+		const uu = splitReaderUnits(unicode);
+		assert.deepEqual(uu.map((x) => x.markdown), ["- First dot", "- Nested dot", "- Second dot"]);
+		assert.deepEqual(uu.map((x) => x.listDepth), [0, 1, 0]);
+		const unicodeAnchors = alignReaderGroupAnchors(unicode, "m1", "p1", uu.map((_, i) => [i]), uu);
+		assert.equal(unicodeAnchors[0]!.blockIndex, unicodeAnchors[1]!.blockIndex);
+
+		const nestedMath = "- Point one:\n  $$\n  x = 1\n  $$\n\n  Sub-detail here.\n\n- Point two";
+		const nm = splitReaderUnits(nestedMath);
+		assert.equal(nm.length, 2);
+		assert.match(nm[0]!.markdown, /x = 1/);
+		assert.match(nm[0]!.markdown, /Sub-detail here\./);
+		assert.equal(nm[1]!.listContinuation, true);
+		const nmHtml = renderToStaticMarkup(React.createElement(AssistantTextResponse, { mode: "static" } as never, nm[0]!.markdown));
+		assert.match(nmHtml, /data-testid="md-math"/);
+		assert.match(nmHtml, /data-streamdown="list-item"/);
+
+		const introAndList = "First sentence. Second sentence:\n- Bullet A\n- Bullet B";
+		const il = splitReaderUnits(introAndList);
+		assert.deepEqual(il.map((x) => x.markdown), ["First sentence.", "Second sentence:", "- Bullet A", "- Bullet B"]);
+		assert.deepEqual(il.map((x) => x.inline), [true, true, false, false]);
+		assert.deepEqual(il.map((x) => x.startsBlock), [true, false, true, true]);
+	});
+
+	it("handles abbreviations, trailing numbered refs, escaped dollars, links, URLs, and multi-sentence bold", () => {
+		const dots = "Dr. Smith checked Fig. 2. See eq. 2. Next is fine.";
+		const du = splitReaderUnits(dots);
+		assert.deepEqual(du.map((x) => x.markdown), ["Dr. Smith checked Fig. 2.", "See eq. 2.", "Next is fine."]);
+		for (const unit of du) {
+			const html = renderToStaticMarkup(React.createElement(AssistantTextResponse, { mode: "static" } as never, unit.markdown));
+			assert.doesNotMatch(html, /data-streamdown="ordered-list"/);
+		}
+
+		const escapedDollars = splitReaderUnits("It costs \\$10.50 today. Next costs \\$20.00 tomorrow.");
+		assert.deepEqual(escapedDollars.map((x) => x.markdown), ["It costs \\$10.50 today.", "Next costs \\$20.00 tomorrow."]);
+
+		const links = splitReaderUnits("Visit https://example.com/v1.2/docs. Then read [this note. And more.](https://a.b/c). Done.");
+		assert.deepEqual(links.map((x) => x.markdown), [
+			"Visit https://example.com/v1.2/docs.",
+			"Then read [this note. And more.](https://a.b/c).",
+			"Done.",
+		]);
+
+		const bold = splitReaderUnits("**First sentence. Second sentence.** Third.");
+		assert.deepEqual(bold.map((x) => x.markdown), ["**First sentence.**", "**Second sentence.**", "Third."]);
+
+		const intervalHtml = renderToStaticMarkup(React.createElement(AssistantTextResponse, { mode: "static" } as never, "Range [0, 1) and [2, 3)."));
+		assert.doesNotMatch(intervalHtml, /\[blocked\]/);
+	});
 });
 
 describe("speechText", () => {
@@ -105,6 +169,11 @@ describe("speechText", () => {
 	it("strips GitHub callout markers and \\[...\\] display math", () => {
 		assert.equal(speechText("> [!IMPORTANT]\n> **Rule:**\n> $$x = 1$$"), "Rule: formula");
 		assert.equal(speechText("Look at \\[ \\boxed{x = 1} \\] now."), "Look at formula now.");
+	});
+
+	it("strips task checkboxes, unicode bullets, and italic underscores without breaking snake_case", () => {
+		assert.equal(speechText("- [ ] Check _alpha_ and snake_case_name"), "Check alpha and snake_case_name");
+		assert.equal(speechText("• Bullet dot"), "Bullet dot");
 	});
 });
 
