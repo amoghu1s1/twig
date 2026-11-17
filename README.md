@@ -1,4 +1,10 @@
-<h1 align="center">Twig</h1>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/twig_logo_transparent.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/twig_banner.png">
+    <img src="docs/assets/twig_banner.png" alt="Twig" width="640">
+  </picture>
+</p>
 
 <p align="center"><strong>An agent harness for learning.</strong></p>
 
