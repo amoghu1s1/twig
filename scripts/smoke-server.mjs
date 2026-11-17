@@ -31,6 +31,7 @@ import { createPluginSmokeFixture, verifyPluginServer } from "./smoke-plugin-run
 import { verifyCorePlugins } from "./smoke-core-plugins.mjs";
 import { verifyCompressionRuntime } from "./smoke-compression-runtime.mjs";
 import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as net from "node:net";
@@ -169,7 +170,7 @@ async function main() {
 		fs.writeFileSync(guard, `import {registerHooks} from 'node:module'; import {realpathSync} from 'node:fs'; import path from 'node:path'; import {fileURLToPath} from 'node:url';
 const roots = ${JSON.stringify([standalone, path.join(home, "data", "plugins")])}.map(p=>realpathSync(p));
 registerHooks({resolve(specifier,context,next){ const result=next(specifier,context); if(result.url.startsWith('file:')) { const file=realpathSync(fileURLToPath(result.url)); if(!roots.some(root=>file===root || file.startsWith(root+path.sep))) throw new Error('Import escaped standalone/plugin payload: '+file); } return result; }});`);
-		imports.push("--import", guard);
+		imports.push("--import", pathToFileURL(guard).href);
 	}
 
 	const tail = []; // rolling log tail for failure diagnosis

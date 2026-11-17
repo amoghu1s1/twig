@@ -50,7 +50,17 @@ function nativeCatalogFor(model: { provider: string; id: string }): ModelCatalog
 async function closed<T>(run: () => Promise<T>): Promise<T> {
 	const env = process.env;
 	const fetch = globalThis.fetch;
-	process.env = { NODE_ENV: "test", HOME: "/nonexistent/session-identity", OPENROUTER_API_KEY: "dummy-router", OPENCODE_API_KEY: "dummy-go", OPENAI_API_KEY: "dummy-openai" };
+	process.env = {
+		NODE_ENV: "test",
+		HOME: "/nonexistent/session-identity",
+		...(env.TEMP ? { TEMP: env.TEMP } : {}),
+		...(env.TMP ? { TMP: env.TMP } : {}),
+		...(env.SystemRoot ? { SystemRoot: env.SystemRoot } : {}),
+		...(env.windir ? { windir: env.windir } : {}),
+		OPENROUTER_API_KEY: "dummy-router",
+		OPENCODE_API_KEY: "dummy-go",
+		OPENAI_API_KEY: "dummy-openai",
+	};
 	globalThis.fetch = async () => { throw new Error("CLOSED: unexpected fetch"); };
 	try { return await run(); } finally { process.env = env; globalThis.fetch = fetch; }
 }
@@ -102,10 +112,10 @@ describe("native app and conversation identity", { concurrency: false }, () => {
 	});
 
 	for (const [provider, id, endpoint] of [
-		["opencode-go", "claude-haiku-5-5", "/inference/go/anthropic/v1/messages"],
-		["opencode-go", "gemini-4-argon", "/inference/go/google/v1beta/models/gemini-4-argon:streamGenerateContent"],
-		["opencode-go", "glm-5.3", "/inference/go/openai/v1/chat/completions"],
-		["opencode-go", "gpt-6-luna", "/inference/go/openai/v1/responses"],
+		["opencode-go", "claude-haiku-5-5", "/inference/go/v1/messages"],
+		["opencode-go", "gemini-4-argon-contributor", "/inference/go/v1/models/gemini-4-argon-contributor:streamGenerateContent"],
+		["opencode-go", "glm-5.3", "/inference/go/v1/chat/completions"],
+		["opencode-go", "gpt-6-luna", "/inference/go/v1/responses"],
 		["openrouter", "openrouter/free", "/api/v1/chat/completions"],
 	] as const) {
 		it(`complete native ${provider}/${id} foreground serialization carries app identity and exact sessions`, async () => closed(async () => {
@@ -279,7 +289,7 @@ describe("native app and conversation identity", { concurrency: false }, () => {
 			}
 			for (const request of requests) {
 				assert.equal(new URL(request.url).origin, "https://opencode.ai");
-				assert.equal(new URL(request.url).pathname, "/inference/go/openai/v1/chat/completions");
+				assert.equal(new URL(request.url).pathname, "/inference/go/v1/chat/completions");
 				assert.equal(request.headers.get("x-opencode-client"), metadata.name);
 				assert.equal(request.headers.get("user-agent"), `twig/${metadata.version}`);
 				assert.ok(!JSON.stringify(Object.fromEntries(request.headers)).includes("dummy-router"));
