@@ -38,9 +38,9 @@ Twig keeps LearnHarness's teaching model and adds the parts that matter for dail
 
 - **FSRS-6 review** — completed practice becomes a spaced-repetition queue. Review sessions are ordinary practice; nothing is written back to the graph. [Review plan](docs/review-plan.md)
 - **Code exercises in four languages** — runnable Python, JavaScript, TypeScript and C++ inside lessons. Python uses bundled Pyodide, JS/TS an opaque-origin worker, and C++ a locally detected `clang++`/`g++` with bounded compile and run limits.
-- **Read by sentence** — full-screen reading one sentence at a time, with blur/hide/dim, adjustable type, optional ElevenLabs or browser voice, `Mod+R`, and `gg`/`G` navigation. [Keyboard](docs/keyboard.md#read-by-sentence)
+- **Read by sentence** — full-screen reading one sentence or nested list item at a time, with inline side-chat, blur/hide/dim, adjustable reading width/line spacing/type, callout and LaTeX support, optional ElevenLabs or browser voice, `Mod+R`, and `gg`/`G` navigation. [Keyboard](docs/keyboard.md#read-by-sentence)
 - **Readings** — primer, overview, deep-dive, recap and node readings from a frozen lesson snapshot. Citations are limited to sources actually fetched in that run; Discuss lets you talk through a passage. [Readings](docs/readings.md)
-- **Mistakes review** — every miss is classified and analyzed on a Mistakes page with a short why. The analyst is opt-out and cost-capped.
+- **Mistakes review** — every miss is classified and analyzed on a Mistakes page with a short why, and the tutor has native read-only access to your mistakes to target past gaps in lessons. The analyst is opt-out and cost-capped.
 
 ### Discuss and keep track
 
@@ -51,14 +51,14 @@ Twig keeps LearnHarness's teaching model and adds the parts that matter for dail
 ### Context and tools
 
 - **Session attachments** — attach PDFs, EPUBs, images and other files from the composer. Content is stored once by hash, previewed from the session, and read through scoped PDF/EPUB tools; removal is reversible. [Add context](docs/getting-started.md#use-local-files-in-a-session)
-- **Themes** — eleven presets plus Dark / Light / System mode, server first paint, Electron chrome sync, and WCAG-checked muted and status colors. [Themes](docs/themes.md)
+- **Themes & reading layout** — eleven presets plus Dark / Light / System mode, centered reading columns with width and line-spacing controls, server first paint, Electron chrome sync, and WCAG-checked muted and status colors. [Themes](docs/themes.md)
 - **Graph exports** — Anki notes with stable ids, Obsidian Markdown, and a tidy-graph review that proposes merges, splits and connections. [Anki](docs/anki.md) · [Obsidian](docs/obsidian.md) · [Tidy graph](docs/tidy-graph.md)
 - **Scratchpad and calculator** — a pressure-sensitive drawing sidebar with undo, redo, eraser and straight lines; a draggable scientific calculator; and inert `svg` figures rendered directly in lessons. The drawing board is Twig-native; the upstream Drawing Pad plugin is not shipped.
 - **Core plugins** — the upstream plugin host is integrated. **Rich Code Blocks** is the optional shipped Core plugin (SMILES, ABC and TikZ fences). Flashcards, Coding Questions and Drawing Pad remain native Twig features, so their upstream plugin packages are not enabled.
 
 ### Under the hood
 
-- **Upstream 0.6.1** — carries LearnHarness's attachments, learner-image snapshots, folder and PDF imports, Exa/Firecrawl/Ollama search, file-access restrictions, atomic store writes, Claude CLI guards, projection/recovery fixes, and the plugin host.
+- **Upstream 0.6.1** — carries LearnHarness's attachments, learner-image snapshots, folder and PDF imports, Exa/Firecrawl/Ollama search, file-access restrictions, atomic store and custom-theme writes, Claude CLI guards, projection/recovery fixes, code-ligatures toggle, and the plugin host with bundled authoring docs.
 - **Native review** — FSRS-6 scheduling and Anki export stay first-class Twig features rather than a plugin; review sessions remain ordinary practice sessions.
 - **Defensive tooling** — SSRF-safe web fetch redirects, bounded regex and pre-read limits, and a sandboxed demo/SVG surface.
 - **Twig identity** — the transparent Twig mark, app title, package and desktop identity, app icon and release metadata are Twig-branded; attribution to LearnHarness remains.
