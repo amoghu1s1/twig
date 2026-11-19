@@ -196,6 +196,16 @@ export function KeyboardShortcuts() {
 					e.preventDefault();
 					window.dispatchEvent(new CustomEvent(kbdEventForAction(action)));
 					break;
+				case "command-palette":
+					// Claim Mod+P so Chromium/Electron never opens the Print dialog.
+					e.preventDefault();
+					window.dispatchEvent(new CustomEvent(kbdEventForAction(action)));
+					break;
+				case "toggle-notes":
+				case "toggle-readings":
+					e.preventDefault();
+					window.dispatchEvent(new CustomEvent(kbdEventForAction(action)));
+					break;
 				default:
 					if (dispatchFocusedPluginShortcut(action, controller)) break;
 					// Core dictation is a background-page service, not a modal

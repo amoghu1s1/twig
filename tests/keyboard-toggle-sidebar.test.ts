@@ -49,6 +49,20 @@ describe("the ⌘B chain — keypress → binding → action → event", () => {
 		assert.equal(action, "toggle-sidebar");
 		assert.equal(kbdEventForAction(action), "lh:kbd-toggle-sidebar");
 	});
+
+	it("mod+p, alt+n, and alt+r map to command-palette, toggle-notes, and toggle-readings", () => {
+		assert.equal(actionForBinding("mod+p"), "command-palette");
+		assert.equal(bindingForAction("command-palette"), "mod+p");
+		assert.equal(kbdEventForAction("command-palette"), "lh:kbd-command-palette");
+
+		assert.equal(actionForBinding("alt+n"), "toggle-notes");
+		assert.equal(bindingForAction("toggle-notes"), "alt+n");
+		assert.equal(kbdEventForAction("toggle-notes"), "lh:kbd-toggle-notes");
+
+		assert.equal(actionForBinding("alt+r"), "toggle-readings");
+		assert.equal(bindingForAction("toggle-readings"), "alt+r");
+		assert.equal(kbdEventForAction("toggle-readings"), "lh:kbd-toggle-readings");
+	});
 });
 
 describe("the thinking pill suffix — ⇧⇥ via the registry", () => {

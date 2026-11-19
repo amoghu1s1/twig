@@ -267,4 +267,27 @@ describe("NotesController", () => {
 		assert.equal(c.getSnapshot(), snap);
 		assert.equal(snap.visible, true);
 	});
+
+	it("snapshot text updates reactively on onEdit, appendQuote, and refresh", async () => {
+		const c = new NotesController("c1", "init", { saveDelayMs: 10_000, storage: memoryStorage() });
+		const seen: string[] = [];
+		const unsub = c.subscribe(() => seen.push(c.getSnapshot().text));
+		assert.equal(c.getSnapshot().text, "init");
+
+		c.onEdit("edited");
+		assert.equal(c.getSnapshot().text, "edited");
+		c.appendQuote("quoted line");
+		assert.equal(c.getSnapshot().text, "edited\n\n> quoted line\n");
+		assert.equal(await c.flush(), true);
+
+		serverText = "from server";
+		await c.refresh();
+		assert.equal(c.getSnapshot().text, "from server");
+		assert.deepEqual(
+			seen.filter((v, i) => i === 0 || v !== seen[i - 1]),
+			["edited", "edited\n\n> quoted line\n", "from server"],
+		);
+		unsub();
+		c.dispose();
+	});
 });

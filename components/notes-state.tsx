@@ -36,17 +36,19 @@ export interface NotesSnapshot {
 	/** `open`, unless auto-folded for a narrow window. */
 	visible: boolean;
 	saveError: string | null;
+	text: string;
 }
 
 type NotesStorage = Pick<Storage, "getItem" | "setItem">;
 
-const CLOSED: NotesSnapshot = { open: false, width: NOTES_DEFAULT_WIDTH, visible: false, saveError: null };
+const CLOSED: NotesSnapshot = { open: false, width: NOTES_DEFAULT_WIDTH, visible: false, saveError: null, text: "" };
 
 export class NotesController {
 	private current: string;
 	private version = 0;
 	private savedVersion = 0;
 	private snapshot: NotesSnapshot;
+	private readonly initialSnapshot: NotesSnapshot;
 	private listeners = new Set<() => void>();
 	private timer: ReturnType<typeof setTimeout> | null = null;
 	private inflight: Promise<boolean> | null = null;
@@ -77,7 +79,8 @@ export class NotesController {
 			const raw = this.storage?.getItem(NOTES_WIDTH_KEY);
 			if (raw != null) width = clampNotesWidth(Number(raw));
 		} catch {}
-		this.snapshot = { open, width, visible: open, saveError: null };
+		this.initialSnapshot = { open: false, width: NOTES_DEFAULT_WIDTH, visible: false, saveError: null, text: initialText };
+		this.snapshot = { open, width, visible: open, saveError: null, text: initialText };
 	}
 
 	subscribe(listener: () => void): () => void {
@@ -87,6 +90,10 @@ export class NotesController {
 
 	getSnapshot(): NotesSnapshot {
 		return this.snapshot;
+	}
+
+	getServerSnapshot(): NotesSnapshot {
+		return typeof window === "undefined" ? this.snapshot : this.initialSnapshot;
 	}
 
 	text(): string {
@@ -129,6 +136,7 @@ export class NotesController {
 		this.version++;
 		if (this.timer) clearTimeout(this.timer);
 		this.timer = setTimeout(() => void this.flush(), this.delay);
+		this.update({ text });
 	}
 
 	/** Append a tutor quote to the notes and open the panel. The editor,
@@ -159,6 +167,7 @@ export class NotesController {
 		this.current = text;
 		this.base = notesFingerprint(text);
 		this.port?.reset(text);
+		this.update({ text });
 	}
 
 	flush(opts: { keepalive?: boolean } = {}): Promise<boolean> {
@@ -228,7 +237,13 @@ export class NotesController {
 		const next = { ...this.snapshot, ...patch };
 		next.visible = next.open && (!this.narrow || this.openedWhileNarrow);
 		const prev = this.snapshot;
-		if (next.open === prev.open && next.width === prev.width && next.visible === prev.visible && next.saveError === prev.saveError) return;
+		if (
+			next.open === prev.open &&
+			next.width === prev.width &&
+			next.visible === prev.visible &&
+			next.saveError === prev.saveError &&
+			next.text === prev.text
+		) return;
 		this.snapshot = next;
 		for (const l of [...this.listeners]) l();
 	}
@@ -282,6 +297,6 @@ export function useNotesSnapshot(): NotesSnapshot {
 		c ? (cb) => c.subscribe(cb) : noSubscribe,
 		() => (c ? c.getSnapshot() : CLOSED),
 		// In the browser, hydrate as the server rendered (it reads no storage).
-		() => (c && typeof window === "undefined" ? c.getSnapshot() : CLOSED),
+		() => (c ? c.getServerSnapshot() : CLOSED),
 	);
 }

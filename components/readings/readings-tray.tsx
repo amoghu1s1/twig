@@ -14,11 +14,11 @@
  * create a reading and open it here.
  */
 
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ArrowLeftIcon, BookOpenIcon, LibraryIcon, MapIcon, NotebookTextIcon, ScrollTextIcon, SparklesIcon, XIcon } from "lucide-react";
 import Link from "next/link";
 import type { PlanTree, ReadingKind, ReadingRequest, ReadingSummary } from "@/src/core";
-import { READING_KIND_LABEL } from "@/src/core";
+import { kbdEventForAction, READING_KIND_LABEL } from "@/src/core";
 import { BrailleSpinner } from "@/components/braille-spinner";
 import { ago, requestReading, SessionReadingsContext, useReadingMode, useReadings, type SessionReadings } from "@/components/readings/api";
 import { ModeLabel, ModeToggle, ReadingView } from "@/components/readings/reading-view";
@@ -29,6 +29,14 @@ export function useReadingsTray(chatId: string, enabled: boolean) {
 	const [readingId, setReadingId] = useState<string | null>(null);
 	const { readings } = useReadings(enabled ? { chatId } : null);
 	const [mode, setMode] = useReadingMode();
+
+	useEffect(() => {
+		if (!enabled) return;
+		const event = kbdEventForAction("toggle-readings");
+		const onToggle = () => setOpen((v) => !v);
+		window.addEventListener(event, onToggle);
+		return () => window.removeEventListener(event, onToggle);
+	}, [enabled]);
 
 	const openTray = useCallback((id?: string) => {
 		setReadingId(id ?? null);

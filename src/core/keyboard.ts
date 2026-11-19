@@ -27,6 +27,7 @@ export type KeyAction =
 	| "cycle-thinking"
 	| "toggle-sidebar"
 	| "sessions-search"
+	| "command-palette"
 	| "jump-graph"
 	| "new-session"
 	| "rename-session"
@@ -40,6 +41,8 @@ export type KeyAction =
 	| "open-settings"
 	| "toggle-user-thinking"
 	| "toggle-question-thread"
+	| "toggle-notes"
+	| "toggle-readings"
 	| "toggle-calculator"
 	| "toggle-scratchpad"
 	| "read-by-sentence"
@@ -72,6 +75,7 @@ export const KEYBOARD_ACTIONS: readonly KeyActionDef[] = [
 	{ id: "cycle-thinking", label: "Cycle thinking level", scope: "global", binding: "shift+tab" },
 	{ id: "toggle-sidebar", label: "Toggle sessions sidebar", scope: "global", binding: "mod+b" },
 	{ id: "sessions-search", label: "Search sessions", scope: "global", binding: "mod+shift+f" },
+	{ id: "command-palette", label: "Command palette", scope: "global", binding: "mod+p" },
 	// (The Alt+↑/↓/↵ session cycle was RETIRED, owner 2026-10-10: barely
 	// used, felt laggy. Session navigation lives IN the search now — ↑/↓
 	// walk the filtered list, Enter opens (first match when nothing
@@ -81,6 +85,8 @@ export const KEYBOARD_ACTIONS: readonly KeyActionDef[] = [
 	{ id: "rename-session", label: "Rename session", scope: "chat", binding: "f2" },
 	{ id: "toggle-user-thinking", label: "Toggle all your thinking", scope: "chat", binding: "mod+t" },
 	{ id: "toggle-question-thread", label: "Question · ask for a nudge (side thread)", scope: "chat", binding: "mod+j" },
+	{ id: "toggle-notes", label: "Toggle notes", scope: "chat", binding: "alt+n" },
+	{ id: "toggle-readings", label: "Toggle readings tray", scope: "chat", binding: "alt+r" },
 	// The floating calculator (components/calculator): Alt+C works in every
 	// browser (mod+ letters collide with browser shortcuts) and inside text
 	// fields, which pass mod/alt combos through.

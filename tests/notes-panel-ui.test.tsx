@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
-import { NotesChip, NotesPanel } from "../components/notes-panel.tsx";
+import { NotesChip, NotesPanel, notesExportFilename } from "../components/notes-panel.tsx";
 import { NotesController, NotesProvider, NOTES_OPEN_KEY } from "../components/notes-state.tsx";
 
 function controllerFor(initialText: string, open: boolean): NotesController {
@@ -53,6 +53,33 @@ describe("notes panel render", () => {
 		assert.match(panel.getAttribute("style") ?? "", /width/);
 		// The fold button is a no-drag control inside the draggable header band.
 		assert.ok(document.querySelector(".lh-drag [aria-label='Fold notes']"));
+		// Preview toggle, copy, and download controls live in the header and are enabled for non-empty notes.
+		const previewBtn = document.querySelector('[data-testid="notes-preview-toggle"]')!;
+		const copyBtn = document.querySelector('[data-testid="notes-copy"]')!;
+		const downloadBtn = document.querySelector('[data-testid="notes-download"]')!;
+		assert.equal(previewBtn.getAttribute("aria-pressed"), "false");
+		assert.equal(copyBtn.hasAttribute("disabled"), false);
+		assert.equal(downloadBtn.hasAttribute("disabled"), false);
+		assert.ok(document.querySelector(".lh-drag [data-testid='notes-preview-toggle'].lh-no-drag"));
+		assert.ok(document.querySelector(".lh-drag [data-testid='notes-copy'].lh-no-drag"));
+		assert.ok(document.querySelector(".lh-drag [data-testid='notes-download'].lh-no-drag"));
+	});
+
+	it("empty notes disables copy and download controls", () => {
+		const controller = controllerFor("   ", true);
+		const document = documentFor(
+			<NotesProvider controller={controller}>
+				<NotesPanel />
+			</NotesProvider>,
+		);
+		assert.equal(document.querySelector('[data-testid="notes-copy"]')!.hasAttribute("disabled"), true);
+		assert.equal(document.querySelector('[data-testid="notes-download"]')!.hasAttribute("disabled"), true);
+	});
+
+	it("notesExportFilename derives clean slugs and falls back to session-notes.md", () => {
+		assert.equal(notesExportFilename("Linear Algebra 101"), "linear-algebra-101-notes.md");
+		assert.equal(notesExportFilename(""), "session-notes.md");
+		assert.equal(notesExportFilename("???"), "session-notes.md");
 	});
 
 	it("folded: data-state folded; the editor is NOT rendered inside the inert aside", () => {

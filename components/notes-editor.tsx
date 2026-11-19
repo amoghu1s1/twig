@@ -8,15 +8,31 @@
  * append server-driven edits out of the history-degrading onChange path.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { appendBlockText, type NotesController, type NotesEditorPort } from "@/components/notes-state";
 
-export function NotesEditor({ controller }: { controller: NotesController }) {
+export function NotesEditor({
+	controller,
+	hidden = false,
+	textareaRef,
+}: {
+	controller: NotesController;
+	hidden?: boolean;
+	textareaRef?: RefObject<HTMLTextAreaElement | null>;
+}) {
 	const hostRef = useRef<HTMLDivElement>(null);
 	const areaRef = useRef<HTMLTextAreaElement>(null);
+	const hiddenRef = useRef(hidden);
+	hiddenRef.current = hidden;
 	const [text, setText] = useState(() => controller.text());
 
+	const setAreaRef = useCallback((node: HTMLTextAreaElement | null) => {
+		areaRef.current = node;
+		if (textareaRef) textareaRef.current = node;
+	}, [textareaRef]);
+
 	useEffect(() => {
+		setText(controller.text());
 		const area = areaRef.current;
 		if (!area) return;
 		const port: NotesEditorPort = {
@@ -27,12 +43,14 @@ export function NotesEditor({ controller }: { controller: NotesController }) {
 				area.scrollTop = area.scrollHeight;
 			},
 			append: (block) => {
-				const value = appendBlockText(area.value, block);
+				const value = appendBlockText(controller.text(), block);
 				setText(value);
 				area.scrollTop = area.scrollHeight;
-				area.focus({ preventScroll: true });
-				const end = value.length;
-				area.setSelectionRange(end, end);
+				if (!hiddenRef.current) {
+					area.focus({ preventScroll: true });
+					const end = value.length;
+					area.setSelectionRange?.(end, end);
+				}
 				controller.onEdit(value);
 			},
 		};
@@ -43,9 +61,9 @@ export function NotesEditor({ controller }: { controller: NotesController }) {
 	}, [controller]);
 
 	return (
-		<div ref={hostRef} className="min-h-0 flex-1 pb-2 pl-3">
+		<div ref={hostRef} className={hidden ? "hidden" : "min-h-0 flex-1 pb-2 pl-3"}>
 			<textarea
-				ref={areaRef}
+				ref={setAreaRef}
 				data-testid="notes-editor"
 				aria-label="Session notes"
 				placeholder="Jot down keywords, formulas, quotes…"
@@ -54,7 +72,11 @@ export function NotesEditor({ controller }: { controller: NotesController }) {
 					setText(e.target.value);
 					controller.onEdit(e.target.value);
 				}}
-				onKeyDown={(e) => e.stopPropagation()}
+				onKeyDown={(e) => {
+					// Keep bare keys, Enter, Esc, and Tab isolated to the notes textarea
+					// while allowing Mod/Alt global shortcuts (Alt+N, Alt+R, Mod+P) to bubble.
+					if (!(e.metaKey || e.ctrlKey || e.altKey)) e.stopPropagation();
+				}}
 				className="h-full min-h-24 w-full resize-none bg-transparent font-prose text-sm leading-normal outline-none placeholder:text-muted-foreground"
 			/>
 		</div>

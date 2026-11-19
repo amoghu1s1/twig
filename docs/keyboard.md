@@ -10,14 +10,19 @@ in-app cheat sheet. See [Getting started](getting-started.md) for setup.
 |---|---|
 | Toggle dictation | Mod+D |
 | Open settings | Mod+, |
+| Command palette | Mod+P |
 | Model selector | Mod+K |
 | Cycle thinking level | Shift+Tab |
 | Toggle sessions sidebar | Mod+B |
 | Search sessions | Mod+Shift+F |
 | Graph view | Mod+G |
 | New session | Mod+N |
+| Toggle calculator | Alt+C |
+| Toggle scratchpad | Alt+P |
 | Rename current session | F2 |
 | Toggle all your thinking in the session | Mod+T |
+| Toggle notes | Alt+N |
+| Toggle readings tray | Alt+R |
 | Find in session / search graph or chains view | Mod+F |
 | Read latest passage by sentence | Mod+R |
 | Jump to session start | g g |
