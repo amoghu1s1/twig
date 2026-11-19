@@ -44,14 +44,9 @@ import {
 	type ReadingSummary,
 } from "@/src/core";
 
-/**
- * Pending Track 2 (`notes-shortcuts`) adding "command-palette", "toggle-notes",
- * and "toggle-readings" to src/core/keyboard.ts; identical spelling to
- * kbdEventForAction(...).
- */
-export const COMMAND_PALETTE_EVENT = "lh:kbd-command-palette";
-export const TOGGLE_NOTES_EVENT = "lh:kbd-toggle-notes";
-export const TOGGLE_READINGS_EVENT = "lh:kbd-toggle-readings";
+export const COMMAND_PALETTE_EVENT = kbdEventForAction("command-palette");
+export const TOGGLE_NOTES_EVENT = kbdEventForAction("toggle-notes");
+export const TOGGLE_READINGS_EVENT = kbdEventForAction("toggle-readings");
 export const GRAPH_FOCUS_NODE_EVENT = "lh:graph-focus-node";
 
 export type PaletteCategory = "action" | "session" | "reading" | "node";
