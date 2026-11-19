@@ -34,6 +34,10 @@
 import { useEffect, useRef, useState } from "react";
 import {
 	EXTRACTION_CHUNK_TOKENS_FLOOR,
+	PROSE_LETTER_SPACING_MAX,
+	PROSE_LETTER_SPACING_MIN,
+	PROSE_WORD_SPACING_MAX,
+	PROSE_WORD_SPACING_MIN,
 	resolveSettings,
 	THEME_COLOR_KEYS,
 	type AppearanceSettings,
@@ -63,17 +67,70 @@ export const DEFAULT_READING_FONT = "Source Sans 3";
  *  for tests. */
 export const CURATED_FALLBACK_FONTS: readonly string[] = [
 	"Arial",
+	"Atkinson Hyperlegible Next",
 	"CMU Serif",
 	"Courier New",
 	"Georgia",
 	"Helvetica",
 	"Helvetica Neue",
 	"JetBrains Mono",
+	"Lexend",
 	"Menlo",
 	"Times New Roman",
 	"Trebuchet MS",
 	"Verdana",
 ];
+
+/** Global Typography preset tuned for easier tracking & reduced crowding. */
+export const DYSLEXIA_PRESET_TYPOGRAPHY = {
+	fontFamily: "Atkinson Hyperlegible Next",
+	proseLineHeight: 1.9,
+	proseLetterSpacing: 0.05,
+	proseWordSpacing: 0.16,
+} as const;
+
+/** True when all four dyslexia-friendly typography settings match the preset. */
+export function isDyslexiaPresetActive(appearance: AppearanceSettings | undefined): boolean {
+	return (
+		appearance?.fontFamily === DYSLEXIA_PRESET_TYPOGRAPHY.fontFamily &&
+		appearance?.proseLineHeight === DYSLEXIA_PRESET_TYPOGRAPHY.proseLineHeight &&
+		appearance?.proseLetterSpacing === DYSLEXIA_PRESET_TYPOGRAPHY.proseLetterSpacing &&
+		appearance?.proseWordSpacing === DYSLEXIA_PRESET_TYPOGRAPHY.proseWordSpacing
+	);
+}
+
+/** Enable the dyslexia-friendly typography preset, or restore default typography. */
+export function composeDyslexiaPreset(
+	appearance: AppearanceSettings | undefined,
+	enable: boolean,
+): AppearanceSettings {
+	if (enable) {
+		return {
+			...appearance,
+			...DYSLEXIA_PRESET_TYPOGRAPHY,
+		};
+	}
+	return {
+		...appearance,
+		fontFamily: null,
+		proseLineHeight: undefined,
+		proseLetterSpacing: undefined,
+		proseWordSpacing: undefined,
+	};
+}
+
+function commitBoundedDecimal(
+	raw: string,
+	min: number,
+	max: number,
+	apply: (value: number | undefined) => boolean | Promise<boolean>,
+): boolean | Promise<boolean> {
+	if (raw === "") return apply(undefined);
+	const n = Number(raw);
+	if (!Number.isFinite(n)) return false;
+	const clamped = Math.min(max, Math.max(min, Math.round(n * 100) / 100));
+	return apply(clamped === 0 ? 0 : clamped);
+}
 
 /** window.queryLocalFonts' shape as this section consumes it (family is
  *  the only field used; the API returns one FontData per FACE — the
@@ -379,6 +436,17 @@ export function AppearanceSection({
 			</div>
 			<p className="mt-5 mb-2 text-xs uppercase tracking-widest text-muted-foreground">Typography</p>
 			<SettingsRow
+				label="Dyslexia-friendly preset"
+				hint="Atkinson Hyperlegible Next · 1.9 line · 0.05em letter · 0.16em word"
+				testid="row-dyslexia-preset"
+			>
+				<Toggle
+					checked={isDyslexiaPresetActive(appearance)}
+					label="Dyslexia-friendly preset"
+					onChange={(on) => onSectionChange(composeDyslexiaPreset(appearance, on))}
+				/>
+			</SettingsRow>
+			<SettingsRow
 				label="Reading font"
 				hint={`Empty = ${DEFAULT_READING_FONT}`}
 				testid="row-font"
@@ -479,17 +547,53 @@ export function AppearanceSection({
 					placeholder="1.65"
 					ariaLabel="line spacing"
 					testid="input-prose-leading"
-					onCommit={(v) => {
-						if (v === "") {
-							return onSectionChange({ ...appearance, proseLineHeight: undefined });
-						}
-						const n = Number(v);
-						if (!Number.isFinite(n)) return false;
-						return onSectionChange({
-							...appearance,
-							proseLineHeight: Math.min(2.2, Math.max(1.2, Math.round(n * 100) / 100)),
-						});
-					}}
+					onCommit={(v) =>
+						commitBoundedDecimal(v, 1.2, 2.2, (proseLineHeight) =>
+							onSectionChange({ ...appearance, proseLineHeight }),
+						)
+					}
+				/>
+			</SettingsRow>
+			<SettingsRow
+				label="Letter spacing"
+				hint={`${resolved.proseLetterSpacing === 0 ? "normal" : `${resolved.proseLetterSpacing}em`} (${PROSE_LETTER_SPACING_MIN}–${PROSE_LETTER_SPACING_MAX}em)`}
+				testid="row-prose-letter-spacing"
+			>
+				<CommitInput
+					type="number"
+					value={String(appearance?.proseLetterSpacing ?? "")}
+					placeholder="0"
+					min={PROSE_LETTER_SPACING_MIN}
+					max={PROSE_LETTER_SPACING_MAX}
+					step={0.01}
+					ariaLabel="letter spacing"
+					testid="input-prose-letter-spacing"
+					onCommit={(v) =>
+						commitBoundedDecimal(v, PROSE_LETTER_SPACING_MIN, PROSE_LETTER_SPACING_MAX, (proseLetterSpacing) =>
+							onSectionChange({ ...appearance, proseLetterSpacing }),
+						)
+					}
+				/>
+			</SettingsRow>
+			<SettingsRow
+				label="Word spacing"
+				hint={`${resolved.proseWordSpacing === 0 ? "normal" : `${resolved.proseWordSpacing}em`} (${PROSE_WORD_SPACING_MIN}–${PROSE_WORD_SPACING_MAX}em)`}
+				testid="row-prose-word-spacing"
+			>
+				<CommitInput
+					type="number"
+					value={String(appearance?.proseWordSpacing ?? "")}
+					placeholder="0"
+					min={PROSE_WORD_SPACING_MIN}
+					max={PROSE_WORD_SPACING_MAX}
+					step={0.01}
+					ariaLabel="word spacing"
+					testid="input-prose-word-spacing"
+					onCommit={(v) =>
+						commitBoundedDecimal(v, PROSE_WORD_SPACING_MIN, PROSE_WORD_SPACING_MAX, (proseWordSpacing) =>
+							onSectionChange({ ...appearance, proseWordSpacing }),
+						)
+					}
 				/>
 			</SettingsRow>
 			<SettingsRow label="Code ligatures" testid="row-code-ligatures">

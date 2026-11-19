@@ -13,6 +13,10 @@ import {
 	CURRENT_SETTINGS_VERSION,
 	FACTORY_SETTINGS,
 	BACKGROUND_MODEL_ROLES,
+	PROSE_LETTER_SPACING_MAX,
+	PROSE_LETTER_SPACING_MIN,
+	PROSE_WORD_SPACING_MAX,
+	PROSE_WORD_SPACING_MIN,
 	ROLE_SLOT,
 	isHexColor,
 	sanitizeUserSettings,
@@ -37,6 +41,12 @@ describe("FACTORY_SETTINGS (the compiled factory layer)", () => {
 		assert.equal(a.proseFontSize, 16);
 		assert.equal(a.proseWidth, 46);
 		assert.equal(a.proseLineHeight, 1.65);
+		assert.equal(a.proseLetterSpacing, 0);
+		assert.equal(a.proseWordSpacing, 0);
+		assert.equal(PROSE_LETTER_SPACING_MIN, 0);
+		assert.equal(PROSE_LETTER_SPACING_MAX, 0.15);
+		assert.equal(PROSE_WORD_SPACING_MIN, 0);
+		assert.equal(PROSE_WORD_SPACING_MAX, 0.4);
 		assert.equal(a.sessionNameSerif, true);
 		assert.equal(a.mdRendering.headingWeight, 900);
 		assert.equal(a.mdRendering.boldColor, null); // white
@@ -93,6 +103,8 @@ describe("sanitizeUserSettings", () => {
 				background: "#ffffff",
 				fontFamily: "Some Font",
 				proseFontSize: 18,
+				proseLetterSpacing: 0.05,
+				proseWordSpacing: 0.16,
 				sessionNameSerif: false,
 				mdRendering: { headingWeight: 700, boldColor: "#ff8800", italicColor: null },
 			},
@@ -144,21 +156,28 @@ describe("sanitizeUserSettings", () => {
 		}
 	});
 
-	it("out-of-range numbers CLAMP (proseFontSize, proseWidth, proseLineHeight, headingWeight)", () => {
+	it("out-of-range numbers CLAMP (proseFontSize, proseWidth, proseLineHeight, proseLetterSpacing, proseWordSpacing, headingWeight)", () => {
 		const out = sanitizeUserSettings({
-			appearance: { proseFontSize: 99, proseWidth: 120, proseLineHeight: 5, mdRendering: { headingWeight: 999 } },
+			appearance: { proseFontSize: 99, proseWidth: 120, proseLineHeight: 5, proseLetterSpacing: 1.5, proseWordSpacing: 2, mdRendering: { headingWeight: 999 } },
 		});
 		assert.ok(out);
 		assert.equal(out.appearance?.proseFontSize, 24);
 		assert.equal(out.appearance?.proseWidth, 72);
 		assert.equal(out.appearance?.proseLineHeight, 2.2);
+		assert.equal(out.appearance?.proseLetterSpacing, 0.15);
+		assert.equal(out.appearance?.proseWordSpacing, 0.4);
 		assert.equal(out.appearance?.mdRendering?.headingWeight, 900);
-		const low = sanitizeUserSettings({ appearance: { proseFontSize: 4, proseWidth: 10, proseLineHeight: 0.5, mdRendering: { headingWeight: 5 } } });
+		const low = sanitizeUserSettings({ appearance: { proseFontSize: 4, proseWidth: 10, proseLineHeight: 0.5, proseLetterSpacing: -0.1, proseWordSpacing: -0.001, mdRendering: { headingWeight: 5 } } });
 		assert.ok(low);
 		assert.equal(low.appearance?.proseFontSize, 12);
 		assert.equal(low.appearance?.proseWidth, 32);
 		assert.equal(low.appearance?.proseLineHeight, 1.2);
+		assert.equal(low.appearance?.proseLetterSpacing, 0);
+		assert.equal(low.appearance?.proseWordSpacing, 0);
 		assert.equal(low.appearance?.mdRendering?.headingWeight, 100);
+		const rounded = sanitizeUserSettings({ appearance: { proseLetterSpacing: 0.054, proseWordSpacing: 0.164 } });
+		assert.equal(rounded?.appearance?.proseLetterSpacing, 0.05);
+		assert.equal(rounded?.appearance?.proseWordSpacing, 0.16);
 	});
 
 	it("invalid colors become null (the factory default), valid ones pass", () => {

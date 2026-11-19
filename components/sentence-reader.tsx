@@ -12,11 +12,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { parseMarkdownIntoBlocks } from "streamdown";
-import { BookOpenTextIcon, CloudIcon, MessageCircleQuestionIcon, MessagesSquareIcon, RotateCcwIcon, Volume2Icon, VolumeXIcon, XIcon } from "lucide-react";
+import { BookOpenTextIcon, CloudIcon, FocusIcon, MessageCircleQuestionIcon, MessagesSquareIcon, RotateCcwIcon, TypeIcon, Volume2Icon, VolumeXIcon, XIcon } from "lucide-react";
 import { AssistantTextResponse } from "@/components/ai-elements/message";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { ReaderSpeaker } from "@/components/reader-speaker";
 import { DiscussPanel, PassageAsk, useDiscuss } from "@/components/readings/discussion";
+import { proseFontStack } from "@/components/settings/appearance";
 import { SideChatWindow } from "@/components/side-chat";
 import { sideBlockKey, useSideChatStore, useSideWindows, type SideChatStore } from "@/components/side-chat-state";
 import {
@@ -24,8 +25,17 @@ import {
 	FONT_SIZE_MAX,
 	FONT_SIZE_MIN,
 	healOverescapedCommands,
+	isReaderDyslexiaActive,
 	parseReaderPrefs,
+	READER_DYSLEXIA_PRESET,
+	READER_FONT_FAMILIES,
+	READER_LETTER_SPACING_MAX,
+	READER_LETTER_SPACING_MIN,
+	READER_LINE_HEIGHT_MAX,
+	READER_LINE_HEIGHT_MIN,
 	READER_PREFS_KEY,
+	READER_WORD_SPACING_MAX,
+	READER_WORD_SPACING_MIN,
 	readerPassageKey,
 	speechText,
 	splitReaderUnits,
@@ -33,6 +43,7 @@ import {
 	TTS_RATE_MAX,
 	TTS_RATE_MIN,
 	TTS_VOICES,
+	type ReaderFontFamily,
 	type ReaderPrefs,
 	type ReaderUnit,
 	type RevealStyle,
@@ -55,11 +66,102 @@ function hiddenClass(style: RevealStyle): string {
 	return "opacity-40 blur-[5px]";
 }
 
+export interface ReaderFontOverrides {
+	fontFamily?: ReaderFontFamily;
+	lineHeight?: number | null;
+	letterSpacing?: number | null;
+	wordSpacing?: number | null;
+}
+
 /** The reading surface's type tokens. `.lh-prose` reads these variables, so
- *  the size slider must change the TOKEN — a plain parent font-size loses to
- *  the class. Exported pure for the render test. */
-export function readerFontStyle(fontSize: number): React.CSSProperties {
-	return { "--lh-prose-size": `${fontSize}px`, "--lh-prose-leading": "1.9" } as React.CSSProperties;
+ *  local overrides write only the explicitly overridden CSS tokens and leave
+ *  un-overridden fields absent so global Appearance settings inherit.
+ *  Exported pure for tests. */
+export function readerFontStyle(fontSize: number, overrides?: ReaderFontOverrides): React.CSSProperties {
+	const style: Record<string, string> = {
+		"--lh-prose-size": `${fontSize}px`,
+	};
+	if (overrides?.fontFamily && overrides.fontFamily !== "inherit") {
+		style["--font-prose"] = proseFontStack(overrides.fontFamily);
+	}
+	if (overrides?.lineHeight !== null && overrides?.lineHeight !== undefined) {
+		style["--lh-prose-leading"] = String(overrides.lineHeight);
+	}
+	if (overrides?.letterSpacing !== null && overrides?.letterSpacing !== undefined) {
+		style["--lh-prose-letter-spacing"] = overrides.letterSpacing === 0 ? "normal" : `${overrides.letterSpacing}em`;
+	}
+	if (overrides?.wordSpacing !== null && overrides?.wordSpacing !== undefined) {
+		style["--lh-prose-word-spacing"] = overrides.wordSpacing === 0 ? "normal" : `${overrides.wordSpacing}em`;
+	}
+	return style as React.CSSProperties;
+}
+
+function ReaderSpacingControl({
+	label,
+	testid,
+	resetTestid,
+	min,
+	max,
+	step,
+	value,
+	fallbackValue,
+	display,
+	onChange,
+	onReset,
+}: {
+	label: string;
+	testid: string;
+	resetTestid: string;
+	min: number;
+	max: number;
+	step: number;
+	value: number | null;
+	fallbackValue: number;
+	display: string;
+	onChange: (next: number) => void;
+	onReset: () => void;
+}) {
+	return (
+		<div className="flex flex-col gap-1">
+			<div className="flex items-center justify-between gap-2 text-[11px]">
+				<span className="text-muted-foreground">{label}</span>
+				<span className="flex items-center gap-2">
+					<span className="tabular-nums text-card-foreground">{display}</span>
+					<button
+						type="button"
+						data-testid={resetTestid}
+						disabled={value === null}
+						onPointerDown={(e) => e.stopPropagation()}
+						onMouseDown={(e) => e.stopPropagation()}
+						onClick={(e) => {
+							e.stopPropagation();
+							onReset();
+						}}
+						className="rounded px-1 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
+					>
+						Inherit
+					</button>
+				</span>
+			</div>
+			<input
+				type="range"
+				data-testid={testid}
+				aria-label={label}
+				min={min}
+				max={max}
+				step={step}
+				value={value ?? fallbackValue}
+				onPointerDown={(e) => e.stopPropagation()}
+				onMouseDown={(e) => e.stopPropagation()}
+				onClick={(e) => e.stopPropagation()}
+				onChange={(e) => {
+					const rounded = Math.round(Number(e.target.value) * 100) / 100;
+					onChange(rounded === 0 ? 0 : rounded);
+				}}
+				className="lh-no-drag w-full accent-foreground"
+			/>
+		</div>
+	);
 }
 
 export interface SentenceReaderPassage {
@@ -206,6 +308,7 @@ export function SentenceReader({
 	const loadedKeyRef = useRef<string | null>(null);
 	const [fallbackNote, setFallbackNote] = useState<string | null>(null);
 	const [readerDiscussOpen, setReaderDiscussOpen] = useState(false);
+	const [typeMenuOpen, setTypeMenuOpen] = useState(false);
 	const readerContentRef = useRef<HTMLDivElement | null>(null);
 	const speaker = useRef<ReaderSpeaker | null>(null);
 	const refs = useRef<(HTMLElement | null)[]>([]);
@@ -358,7 +461,13 @@ export function SentenceReader({
 			if (key === "Escape") {
 				e.preventDefault();
 				e.stopPropagation();
+				if (typeMenuOpen) {
+					setTypeMenuOpen(false);
+					return;
+				}
 				onClose();
+			} else if (typeMenuOpen && target?.closest('[data-testid="sentence-reader-type-menu"]')) {
+				return;
 			} else if (key === " " || key === "ArrowRight" || (lower === "j" && !e.shiftKey)) {
 				e.preventDefault();
 				goTo(revealed + 1);
@@ -413,10 +522,29 @@ export function SentenceReader({
 	const discussExchangeCount = readingDiscuss?.discussion
 		? readingDiscuss.discussion.side.exchanges.length + readingDiscuss.discussion.threads.reduce((n, t) => n + t.exchanges.length, 0)
 		: 0;
+	const dyslexiaActive = isReaderDyslexiaActive(prefs);
+	const hasTypeOverride =
+		prefs.fontFamily !== "inherit" ||
+		prefs.lineHeight !== null ||
+		prefs.letterSpacing !== null ||
+		prefs.wordSpacing !== null;
 
 	const content = (
 		<div role="dialog" aria-label="Sentence reader" data-testid="sentence-reader" className="lh-no-drag fixed inset-0 z-[90] flex flex-col bg-background text-foreground">
-			<div className="lh-no-drag lh-wco-gutter flex flex-wrap items-center gap-3 border-b border-border px-4 py-2 text-xs text-muted-foreground">
+			{typeMenuOpen && (
+				<div
+					data-testid="sentence-reader-type-backdrop"
+					aria-hidden
+					className="fixed inset-0 z-10"
+					onPointerDown={(e) => e.stopPropagation()}
+					onMouseDown={(e) => e.stopPropagation()}
+					onClick={(e) => {
+						e.stopPropagation();
+						setTypeMenuOpen(false);
+					}}
+				/>
+			)}
+			<div className="lh-no-drag lh-wco-gutter relative z-20 flex flex-wrap items-center gap-3 border-b border-border px-4 py-2 text-xs text-muted-foreground">
 				<span data-testid="sentence-reader-progress" className="tabular-nums">
 					{revealed} / {total}
 				</span>
@@ -490,6 +618,173 @@ export function SentenceReader({
 					>
 						+
 					</button>
+				</div>
+				<button
+					type="button"
+					data-testid="sentence-reader-spotlight"
+					aria-pressed={prefs.spotlight}
+					title="Focus spotlight (dims earlier sentences)"
+					onPointerDown={(e) => e.stopPropagation()}
+					onMouseDown={(e) => e.stopPropagation()}
+					onClick={(e) => {
+						e.stopPropagation();
+						blurAfterPointerClick(e);
+						updatePrefs({ spotlight: !prefs.spotlight });
+					}}
+					className={`lh-no-drag inline-flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors hover:bg-accent hover:text-foreground ${
+						prefs.spotlight ? "bg-accent text-foreground" : ""
+					}`}
+				>
+					<FocusIcon className="size-3.5" />
+					Spotlight {prefs.spotlight ? "on" : "off"}
+				</button>
+				<div className="lh-no-drag relative z-20">
+					<button
+						type="button"
+						data-testid="sentence-reader-type-trigger"
+						aria-expanded={typeMenuOpen}
+						aria-haspopup="dialog"
+						title="Type & dyslexia comfort settings"
+						onPointerDown={(e) => e.stopPropagation()}
+						onMouseDown={(e) => e.stopPropagation()}
+						onClick={(e) => {
+							e.stopPropagation();
+							blurAfterPointerClick(e);
+							setTypeMenuOpen((v) => !v);
+						}}
+						className={`lh-no-drag inline-flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors hover:bg-accent hover:text-foreground ${
+							typeMenuOpen || hasTypeOverride ? "bg-accent text-foreground" : ""
+						}`}
+					>
+						<TypeIcon className="size-3.5" />
+						Type
+					</button>
+					{typeMenuOpen && (
+						<div
+							role="dialog"
+							aria-label="Reader typography"
+							data-testid="sentence-reader-type-menu"
+							onPointerDown={(e) => e.stopPropagation()}
+							onMouseDown={(e) => e.stopPropagation()}
+							onClick={(e) => e.stopPropagation()}
+							className="lh-no-drag absolute left-0 top-full z-20 mt-1.5 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-3 rounded-xl border border-border bg-card p-3 text-xs text-card-foreground shadow-xl"
+						>
+							<div className="flex items-center justify-between gap-2">
+								<span className="font-ui text-[11px] uppercase tracking-widest text-muted-foreground">
+									Comfort &amp; Type
+								</span>
+								<button
+									type="button"
+									data-testid="sentence-reader-type-reset"
+									disabled={!hasTypeOverride}
+									onClick={(e) => {
+										e.stopPropagation();
+										updatePrefs({
+											fontFamily: "inherit",
+											lineHeight: null,
+											letterSpacing: null,
+											wordSpacing: null,
+										});
+									}}
+									className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+								>
+									Reset to inherit
+								</button>
+							</div>
+							<button
+								type="button"
+								data-testid="sentence-reader-dyslexia-toggle"
+								aria-pressed={dyslexiaActive}
+								onClick={(e) => {
+									e.stopPropagation();
+									if (dyslexiaActive) {
+										updatePrefs({
+											fontFamily: "inherit",
+											lineHeight: null,
+											letterSpacing: null,
+											wordSpacing: null,
+											spotlight: false,
+										});
+									} else {
+										updatePrefs(READER_DYSLEXIA_PRESET);
+									}
+								}}
+								className={`flex items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors ${
+									dyslexiaActive
+										? "border-(--lh-accent) bg-accent text-foreground"
+										: "border-border bg-background text-card-foreground hover:bg-accent/50"
+								}`}
+							>
+								<span className="min-w-0">
+									<span className="block font-medium">Dyslexia-friendly</span>
+									<span className="block text-[10px] text-muted-foreground">
+										Atkinson · 1.9 line · 0.05em / 0.16em · Spotlight
+									</span>
+								</span>
+								<span className="shrink-0 rounded border border-border/70 px-1.5 py-0.5 font-ui text-[10px]">
+									{dyslexiaActive ? "On" : "Off"}
+								</span>
+							</button>
+							<label className="flex flex-col gap-1">
+								<span className="text-[11px] text-muted-foreground">Font</span>
+								<select
+									data-testid="sentence-reader-font"
+									aria-label="Reader font"
+									value={prefs.fontFamily}
+									onPointerDown={(e) => e.stopPropagation()}
+									onMouseDown={(e) => e.stopPropagation()}
+									onClick={(e) => e.stopPropagation()}
+									onChange={(e) => updatePrefs({ fontFamily: e.target.value as ReaderFontFamily })}
+									className="lh-no-drag h-7 rounded border border-border bg-background px-1.5 text-xs text-foreground"
+								>
+									{READER_FONT_FAMILIES.map((family) => (
+										<option key={family} value={family}>
+											{family === "inherit" ? "Inherit (global)" : family}
+										</option>
+									))}
+								</select>
+							</label>
+							<ReaderSpacingControl
+								label="Line spacing"
+								testid="sentence-reader-line-height"
+								resetTestid="sentence-reader-line-height-reset"
+								min={READER_LINE_HEIGHT_MIN}
+								max={READER_LINE_HEIGHT_MAX}
+								step={0.05}
+								value={prefs.lineHeight}
+								fallbackValue={1.65}
+								display={prefs.lineHeight === null ? "Inherit" : String(prefs.lineHeight)}
+								onChange={(lineHeight) => updatePrefs({ lineHeight })}
+								onReset={() => updatePrefs({ lineHeight: null })}
+							/>
+							<ReaderSpacingControl
+								label="Letter spacing"
+								testid="sentence-reader-letter-spacing"
+								resetTestid="sentence-reader-letter-spacing-reset"
+								min={READER_LETTER_SPACING_MIN}
+								max={READER_LETTER_SPACING_MAX}
+								step={0.01}
+								value={prefs.letterSpacing}
+								fallbackValue={0}
+								display={prefs.letterSpacing === null ? "Inherit" : `${prefs.letterSpacing}em`}
+								onChange={(letterSpacing) => updatePrefs({ letterSpacing })}
+								onReset={() => updatePrefs({ letterSpacing: null })}
+							/>
+							<ReaderSpacingControl
+								label="Word spacing"
+								testid="sentence-reader-word-spacing"
+								resetTestid="sentence-reader-word-spacing-reset"
+								min={READER_WORD_SPACING_MIN}
+								max={READER_WORD_SPACING_MAX}
+								step={0.01}
+								value={prefs.wordSpacing}
+								fallbackValue={0}
+								display={prefs.wordSpacing === null ? "Inherit" : `${prefs.wordSpacing}em`}
+								onChange={(wordSpacing) => updatePrefs({ wordSpacing })}
+								onReset={() => updatePrefs({ wordSpacing: null })}
+							/>
+						</div>
+					)}
 				</div>
 				<button
 					type="button"
@@ -591,8 +886,12 @@ export function SentenceReader({
 				<div
 					className="min-h-0 flex-1 overflow-y-auto"
 					onClick={(e) => {
+						if (typeMenuOpen) {
+							setTypeMenuOpen(false);
+							return;
+						}
 						const el = e.target as HTMLElement | null;
-						if (el?.closest('[data-side-ui], [data-testid="reader-discuss-drawer"], [data-testid="discuss-thread"], [data-testid="discuss-draft"], button, a, input, textarea, select, form')) {
+						if (el?.closest('[data-side-ui], [data-testid="reader-discuss-drawer"], [data-testid="discuss-thread"], [data-testid="discuss-draft"], [data-testid="sentence-reader-type-menu"], button, a, input, textarea, select, form, label')) {
 							return;
 						}
 						const sel = window.getSelection();
@@ -604,8 +903,9 @@ export function SentenceReader({
 					    TOKEN — a plain parent font-size is overridden by the class. */}
 					<div
 						ref={readerContentRef}
+						data-spotlight={prefs.spotlight ? "true" : undefined}
 						className="mx-auto max-w-[var(--lh-prose-width,46rem)] px-6 py-[30vh]"
-						style={readerFontStyle(prefs.fontSize)}
+						style={readerFontStyle(prefs.fontSize, prefs)}
 					>
 						{groups.map((group, groupIdx) => {
 							const firstUnit = units[group[0]!]!;
@@ -616,13 +916,21 @@ export function SentenceReader({
 								const u = units[i]!;
 								const shown = i < revealed;
 								const current = i === revealed - 1;
+								const spotlightDim = prefs.spotlight && shown && !current;
+								const currentClass = current
+									? prefs.spotlight
+										? "rounded bg-accent/80 px-1 ring-1 ring-(--lh-accent)/60 text-foreground"
+										: "rounded bg-accent/60 px-0.5"
+									: "";
 								const cls = [
 									"transition-[opacity,filter] duration-200",
 									u.inline ? "inline" : "block",
 									u.inline && i !== group[0] ? "ml-1" : "",
-									shown ? "" : hiddenClass(prefs.style),
-									current ? "rounded bg-accent/60 px-0.5" : "",
-								].join(" ");
+									shown ? (spotlightDim ? "opacity-45" : "") : hiddenClass(prefs.style),
+									currentClass,
+								]
+									.filter(Boolean)
+									.join(" ");
 								const depthAttr = u.listDepth !== undefined ? String(Math.min(u.listDepth, 2)) : undefined;
 								const listStyle = u.listDepth ? { paddingLeft: `${u.listDepth * 1.5}rem` } : undefined;
 								const Tag = u.inline ? "span" : "div";
@@ -633,6 +941,7 @@ export function SentenceReader({
 											refs.current[i] = el;
 										}}
 										data-revealed={shown}
+										data-current={current ? "true" : undefined}
 										data-list-depth={depthAttr}
 										style={listStyle}
 										className={cls}

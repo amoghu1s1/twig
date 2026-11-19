@@ -142,6 +142,8 @@ describe("parseAppearanceSettingsBody", () => {
 			proseFontSize: 20,
 			proseWidth: 52,
 			proseLineHeight: 1.75,
+			proseLetterSpacing: 0.05,
+			proseWordSpacing: 0.16,
 			sessionNameSerif: false,
 			mdRendering: { headingWeight: 700, boldColor: "#ff8800", italicColor: null },
 		});
@@ -154,6 +156,8 @@ describe("parseAppearanceSettingsBody", () => {
 			proseFontSize: 20,
 			proseWidth: 52,
 			proseLineHeight: 1.75,
+			proseLetterSpacing: 0.05,
+			proseWordSpacing: 0.16,
 			sessionNameSerif: false,
 			mdRendering: { headingWeight: 700, boldColor: "#ff8800", italicColor: null },
 		});
@@ -175,6 +179,14 @@ describe("parseAppearanceSettingsBody", () => {
 			{ proseLineHeight: 1.1 },
 			{ proseLineHeight: 2.5 },
 			{ proseLineHeight: "1.65" },
+			{ proseLetterSpacing: -0.01 },
+			{ proseLetterSpacing: 0.16 },
+			{ proseLetterSpacing: "0.05" },
+			{ proseLetterSpacing: null },
+			{ proseWordSpacing: -0.01 },
+			{ proseWordSpacing: 0.41 },
+			{ proseWordSpacing: "0.16" },
+			{ proseWordSpacing: null },
 			{ sessionNameSerif: 1 },
 			{ mdRendering: { headingWeight: 1000 } },
 			{ mdRendering: { boldColor: "red" } },
@@ -187,9 +199,19 @@ describe("parseAppearanceSettingsBody", () => {
 		assert.ok(parseAppearanceSettingsBody({ proseFontSize: 24 }));
 		assert.ok(parseAppearanceSettingsBody({ proseWidth: 32 }));
 		assert.ok(parseAppearanceSettingsBody({ proseWidth: 72 }));
-		assert.ok(parseAppearanceSettingsBody({ proseLineHeight: 1.2 }));
-		assert.ok(parseAppearanceSettingsBody({ proseLineHeight: 2.2 }));
-		assert.ok(parseAppearanceSettingsBody({ mdRendering: { headingWeight: 100 } }));
+		assert.ok(parseAppearanceSettingsBody({ proseLineHeight: 1.2 }).ok);
+		assert.ok(parseAppearanceSettingsBody({ proseLineHeight: 2.2 }).ok);
+		assert.ok(parseAppearanceSettingsBody({ proseLetterSpacing: 0 }).ok);
+		assert.ok(parseAppearanceSettingsBody({ proseLetterSpacing: 0.15 }).ok);
+		assert.ok(parseAppearanceSettingsBody({ proseWordSpacing: 0 }).ok);
+		assert.ok(parseAppearanceSettingsBody({ proseWordSpacing: 0.4 }).ok);
+		const rounded = parseAppearanceSettingsBody({ proseLetterSpacing: 0.054, proseWordSpacing: 0.164 });
+		assert.ok(rounded.ok);
+		if (rounded.ok) {
+			assert.equal(rounded.settings.proseLetterSpacing, 0.05);
+			assert.equal(rounded.settings.proseWordSpacing, 0.16);
+		}
+		assert.ok(parseAppearanceSettingsBody({ mdRendering: { headingWeight: 100 } }).ok);
 		assert.ok(parseAppearanceSettingsBody({ mdRendering: { headingWeight: 900 } }));
 		assert.ok(parseAppearanceSettingsBody({ background: "#abc" }));
 		// null = "the theme's color" — explicit, valid

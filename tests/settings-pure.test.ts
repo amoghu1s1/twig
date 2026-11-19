@@ -8,7 +8,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { appearanceVars, resolveAppearance, staleVarNames } from "../components/settings/appearance.tsx";
-import { clearColorOverrides, colorOverride, composeColorOverride, composeThemeSelection } from "../components/settings/appearance-section.tsx";
+import {
+	CURATED_FALLBACK_FONTS,
+	clearColorOverrides,
+	colorOverride,
+	composeColorOverride,
+	composeDyslexiaPreset,
+	composeThemeSelection,
+	isDyslexiaPresetActive,
+} from "../components/settings/appearance-section.tsx";
 import { BUILTIN_THEMES, DEFAULT_THEME, resolveSettings } from "../src/core";
 import {
 	PROMPT_IN_USE_HINT,
@@ -39,6 +47,8 @@ describe("resolveAppearance — delta over factory", () => {
 		assert.equal(a.proseFontSize, 16);
 		assert.equal(a.proseWidth, 46);
 		assert.equal(a.proseLineHeight, 1.65);
+		assert.equal(a.proseLetterSpacing, 0);
+		assert.equal(a.proseWordSpacing, 0);
 		assert.equal(a.sessionNameSerif, true);
 		assert.deepEqual(a.mdRendering, { headingWeight: 900, boldColor: null, italicColor: null });
 	});
@@ -64,17 +74,31 @@ describe("appearanceVars — the mapping the provider applies", () => {
 		assert.equal(vars["--lh-prose-size"], "16px");
 		assert.equal(vars["--lh-prose-width"], "46rem");
 		assert.equal(vars["--lh-prose-leading"], "1.65");
+		assert.equal(vars["--lh-prose-letter-spacing"], "normal");
+		assert.equal(vars["--lh-prose-word-spacing"], "normal");
 		assert.equal(vars["--lh-heading-weight"], "900");
 		assert.equal(vars["--font-prose"], undefined, "no font override at factory");
 		assert.equal(vars["--font-title"], undefined, "CMU stays");
 	});
 
-	it("JetBrains Mono renders from the bundled face when it is not installed", () => {
-		const vars = appearanceVars(resolveAppearance({ fontFamily: "JetBrains Mono" }), mocha);
+	it("JetBrains Mono, Atkinson Hyperlegible Next, and Lexend render from bundled faces", () => {
+		const jetbrains = appearanceVars(resolveAppearance({ fontFamily: "JetBrains Mono" }), mocha);
 		assert.equal(
-			vars["--font-prose"],
+			jetbrains["--font-prose"],
 			`"JetBrains Mono", var(--font-jetbrains), var(--font-sans3), ui-sans-serif, system-ui, sans-serif`,
 		);
+		const atkinson = appearanceVars(resolveAppearance({ fontFamily: "Atkinson Hyperlegible Next" }), mocha);
+		assert.equal(
+			atkinson["--font-prose"],
+			`"Atkinson Hyperlegible Next", var(--font-atkinson), var(--font-sans3), ui-sans-serif, system-ui, sans-serif`,
+		);
+		const lexend = appearanceVars(resolveAppearance({ fontFamily: "Lexend" }), mocha);
+		assert.equal(
+			lexend["--font-prose"],
+			`"Lexend", var(--font-lexend), var(--font-sans3), ui-sans-serif, system-ui, sans-serif`,
+		);
+		assert.ok(CURATED_FALLBACK_FONTS.includes("Atkinson Hyperlegible Next"));
+		assert.ok(CURATED_FALLBACK_FONTS.includes("Lexend"));
 	});
 
 	it("full delta: every knob lands on its token, overrides over the theme", () => {
@@ -84,6 +108,8 @@ describe("appearanceVars — the mapping the provider applies", () => {
 				colors: { warning: "#fab387" },
 				fontFamily: "Georgia",
 				proseFontSize: 18,
+				proseLetterSpacing: 0.05,
+				proseWordSpacing: 0.16,
 				sessionNameSerif: false,
 				mdRendering: { headingWeight: 700, boldColor: "#ff0000", italicColor: "#00ff00" },
 			}),
@@ -94,10 +120,43 @@ describe("appearanceVars — the mapping the provider applies", () => {
 		assert.equal(vars["--lh-warning"], "#fab387");
 		assert.equal(vars["--font-prose"], `"Georgia", var(--font-sans3), ui-sans-serif, system-ui, sans-serif`);
 		assert.equal(vars["--lh-prose-size"], "18px");
+		assert.equal(vars["--lh-prose-letter-spacing"], "0.05em");
+		assert.equal(vars["--lh-prose-word-spacing"], "0.16em");
 		assert.equal(vars["--font-title"], "var(--font-prose)", "serif off → titles follow the prose font");
 		assert.equal(vars["--lh-heading-weight"], "700");
 		assert.equal(vars["--lh-ink-strong"], "#ff0000");
 		assert.equal(vars["--lh-ink-italic"], "#00ff00");
+	});
+});
+
+describe("composeDyslexiaPreset — one-click typography preset", () => {
+	it("applies Atkinson Hyperlegible Next + spacing and restores defaults on toggle off", () => {
+		const base: AppearanceSettings = { mode: "light", theme: "ivory", proseFontSize: 18 };
+		assert.equal(isDyslexiaPresetActive(base), false);
+		const enabled = composeDyslexiaPreset(base, true);
+		assert.deepEqual(enabled, {
+			mode: "light",
+			theme: "ivory",
+			proseFontSize: 18,
+			fontFamily: "Atkinson Hyperlegible Next",
+			proseLineHeight: 1.9,
+			proseLetterSpacing: 0.05,
+			proseWordSpacing: 0.16,
+		});
+		assert.equal(isDyslexiaPresetActive(enabled), true);
+		assert.equal(isDyslexiaPresetActive({ ...enabled, proseLineHeight: 1.8 }), false);
+
+		const restored = composeDyslexiaPreset(enabled, false);
+		assert.deepEqual(restored, {
+			mode: "light",
+			theme: "ivory",
+			proseFontSize: 18,
+			fontFamily: null,
+			proseLineHeight: undefined,
+			proseLetterSpacing: undefined,
+			proseWordSpacing: undefined,
+		});
+		assert.equal(isDyslexiaPresetActive(restored), false);
 	});
 });
 

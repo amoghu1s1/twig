@@ -78,6 +78,8 @@
 	   the reskin's hand-tuned 16.5 to the ladder's 16.) */
 	--lh-prose-size: 16px;
 	--lh-prose-leading: 1.65;
+	--lh-prose-letter-spacing: normal;
+	--lh-prose-word-spacing: normal;
 	--lh-prose-width: 46rem;
 	/* Markdown heading weight (appearance settings; 900 = the Black cut). */
 	--lh-heading-weight: 900;
@@ -210,6 +212,8 @@ body {
 	font-family: var(--font-prose);
 	font-size: var(--lh-prose-size);
 	line-height: var(--lh-prose-leading);
+	letter-spacing: var(--lh-prose-letter-spacing);
+	word-spacing: var(--lh-prose-word-spacing);
 }
 
 /* Session-name weight (owner, fix wave round 3): with the serif toggle

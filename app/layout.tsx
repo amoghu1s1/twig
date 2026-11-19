@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { JetBrains_Mono, Source_Sans_3 } from "next/font/google";
+import { Atkinson_Hyperlegible_Next, JetBrains_Mono, Lexend, Source_Sans_3 } from "next/font/google";
 import { connection } from "next/server";
 import "katex/dist/katex.min.css";
 import "./globals.css";
@@ -14,10 +14,13 @@ import CopyMathAsTex from "@/components/copy-math-as-tex";
 import { SYSTEM_MODE_SCRIPT } from "@/src/core";
 import { readThemeBoot } from "@/src/server";
 
-// Chrome = JetBrains Mono, teaching prose = Source Sans 3, titles = CMU
-// Serif (the bundled lh-cmu @font-face in globals.css — no CDN).
+// Chrome = JetBrains Mono, teaching prose = Source Sans 3 (with bundled
+// Atkinson Hyperlegible Next and Lexend alternatives), titles = CMU Serif
+// (the bundled lh-cmu @font-face in globals.css — no CDN).
 const ui = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains" });
 const prose = Source_Sans_3({ subsets: ["latin"], variable: "--font-sans3" });
+const atkinson = Atkinson_Hyperlegible_Next({ subsets: ["latin"], variable: "--font-atkinson" });
+const lexend = Lexend({ subsets: ["latin"], variable: "--font-lexend" });
 
 export const metadata: Metadata = {
 	title: "Twig",
@@ -37,7 +40,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 		<html
 			lang="en"
 			data-lh-mode={mode}
-			className={`${renderedMode} ${ui.variable} ${prose.variable}`}
+			className={`${renderedMode} ${ui.variable} ${prose.variable} ${atkinson.variable} ${lexend.variable}`}
 			style={vars as React.CSSProperties}
 			suppressHydrationWarning
 		>

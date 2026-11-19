@@ -17,10 +17,41 @@ import { alignReaderGroupAnchors, readerFontStyle } from "../components/sentence
 import type { LhViewMessage, LhViewPart } from "../src/core/view.ts";
 
 describe("readerFontStyle", () => {
-	it("writes the prose-size token, not a parent font-size the prose class overrides", () => {
-		const style = readerFontStyle(28) as Record<string, string>;
+	it("writes the prose-size token and leaves un-overridden tokens absent so global Appearance inherits", () => {
+		const style = readerFontStyle(28) as Record<string, string | undefined>;
 		assert.equal(style["--lh-prose-size"], "28px");
+		assert.equal(style["--lh-prose-leading"], undefined);
+		assert.equal(style["--lh-prose-letter-spacing"], undefined);
+		assert.equal(style["--lh-prose-word-spacing"], undefined);
+		assert.equal(style["--font-prose"], undefined);
+	});
+
+	it("emits local font and spacing tokens only when explicitly overridden", () => {
+		const style = readerFontStyle(22, {
+			fontFamily: "Atkinson Hyperlegible Next",
+			lineHeight: 1.9,
+			letterSpacing: 0.05,
+			wordSpacing: 0.16,
+		}) as Record<string, string | undefined>;
+		assert.equal(style["--lh-prose-size"], "22px");
+		assert.equal(
+			style["--font-prose"],
+			`"Atkinson Hyperlegible Next", var(--font-atkinson), var(--font-sans3), ui-sans-serif, system-ui, sans-serif`,
+		);
 		assert.equal(style["--lh-prose-leading"], "1.9");
+		assert.equal(style["--lh-prose-letter-spacing"], "0.05em");
+		assert.equal(style["--lh-prose-word-spacing"], "0.16em");
+
+		const zeroSpacing = readerFontStyle(20, {
+			fontFamily: "Source Sans 3",
+			lineHeight: null,
+			letterSpacing: 0,
+			wordSpacing: 0,
+		}) as Record<string, string | undefined>;
+		assert.equal(zeroSpacing["--font-prose"], "var(--font-sans3), ui-sans-serif, system-ui, sans-serif");
+		assert.equal(zeroSpacing["--lh-prose-leading"], undefined);
+		assert.equal(zeroSpacing["--lh-prose-letter-spacing"], "normal");
+		assert.equal(zeroSpacing["--lh-prose-word-spacing"], "normal");
 	});
 });
 
@@ -197,6 +228,50 @@ describe("parseReaderPrefs", () => {
 		assert.equal(p.rate, 0.7);
 		assert.equal(p.voice, DEFAULT_READER_PREFS.voice);
 		assert.equal(p.autoRead, false);
+		assert.equal(p.fontFamily, "inherit");
+		assert.equal(p.lineHeight, null);
+		assert.equal(p.letterSpacing, null);
+		assert.equal(p.wordSpacing, null);
+		assert.equal(p.spotlight, false);
+	});
+
+	it("parses and clamps local typography overrides and spotlight backward-compatibly", () => {
+		const valid = parseReaderPrefs(
+			JSON.stringify({
+				fontFamily: "Lexend",
+				lineHeight: 1.9,
+				letterSpacing: 0.054,
+				wordSpacing: 0.16,
+				spotlight: true,
+			}),
+		);
+		assert.equal(valid.fontFamily, "Lexend");
+		assert.equal(valid.lineHeight, 1.9);
+		assert.equal(valid.letterSpacing, 0.05);
+		assert.equal(valid.wordSpacing, 0.16);
+		assert.equal(valid.spotlight, true);
+
+		const clamped = parseReaderPrefs(
+			JSON.stringify({
+				fontFamily: "Comic Sans MS",
+				lineHeight: 5,
+				letterSpacing: -0.5,
+				wordSpacing: 2,
+				spotlight: "yes",
+			}),
+		);
+		assert.equal(clamped.fontFamily, "inherit");
+		assert.equal(clamped.lineHeight, 2.4);
+		assert.equal(clamped.letterSpacing, 0);
+		assert.equal(clamped.wordSpacing, 0.4);
+		assert.equal(clamped.spotlight, false);
+
+		const invalidNumbers = parseReaderPrefs(
+			JSON.stringify({ lineHeight: "1.9", letterSpacing: null, wordSpacing: "bad" }),
+		);
+		assert.equal(invalidNumbers.lineHeight, null);
+		assert.equal(invalidNumbers.letterSpacing, null);
+		assert.equal(invalidNumbers.wordSpacing, null);
 	});
 });
 

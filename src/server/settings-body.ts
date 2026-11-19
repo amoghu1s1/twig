@@ -28,7 +28,20 @@ import type {
 	ModelSlot,
 	RoleModelOverride,
 } from "../core/settings.ts";
-import { BACKGROUND_MODEL_ROLES, CACHE_RETENTIONS, COMPACTION_THRESHOLD_FLOOR, CUSTOM_MODEL_PIN_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MISTAKE_ANALYSIS_DAILY_CAP_MAX, MISTAKE_ANALYSIS_DAILY_CAP_MIN, MODEL_SLOTS } from "../core/settings.ts";
+import {
+	BACKGROUND_MODEL_ROLES,
+	CACHE_RETENTIONS,
+	COMPACTION_THRESHOLD_FLOOR,
+	CUSTOM_MODEL_PIN_FLOOR,
+	EXTRACTION_CHUNK_TOKENS_FLOOR,
+	MISTAKE_ANALYSIS_DAILY_CAP_MAX,
+	MISTAKE_ANALYSIS_DAILY_CAP_MIN,
+	MODEL_SLOTS,
+	PROSE_LETTER_SPACING_MAX,
+	PROSE_LETTER_SPACING_MIN,
+	PROSE_WORD_SPACING_MAX,
+	PROSE_WORD_SPACING_MIN,
+} from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { isSearchEngineId, SEARCH_ENGINES } from "../core/search.ts";
 import { isDictationLanguage } from "../core/dictation.ts";
@@ -259,6 +272,19 @@ export function parseAgentSettingsBody(body: unknown): SettingsBodyResult<AgentS
 	return { ok: true, settings };
 }
 
+function parseBoundedTwoDecimal(
+	value: unknown,
+	field: string,
+	min: number,
+	max: number,
+): { ok: true; value: number } | { ok: false; error: string } {
+	if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) {
+		return { ok: false, error: `${field} must be a number between ${min} and ${max}` };
+	}
+	const rounded = Math.round(value * 100) / 100;
+	return { ok: true, value: rounded === 0 ? 0 : rounded };
+}
+
 /** A hex-or-null color field (appearance colors): null = default. */
 function parseHexOrNull(value: unknown, field: string): { color?: string | null; error?: string } {
 	if (value === null) return { color: null };
@@ -334,15 +360,29 @@ export function parseAppearanceSettingsBody(body: unknown): SettingsBodyResult<A
 		settings.proseWidth = raw.proseWidth;
 	}
 	if (raw.proseLineHeight !== undefined) {
-		if (
-			typeof raw.proseLineHeight !== "number" ||
-			!Number.isFinite(raw.proseLineHeight) ||
-			raw.proseLineHeight < 1.2 ||
-			raw.proseLineHeight > 2.2
-		) {
-			return { ok: false, error: "proseLineHeight must be a number between 1.2 and 2.2" };
-		}
-		settings.proseLineHeight = Math.round(raw.proseLineHeight * 100) / 100;
+		const parsed = parseBoundedTwoDecimal(raw.proseLineHeight, "proseLineHeight", 1.2, 2.2);
+		if (!parsed.ok) return parsed;
+		settings.proseLineHeight = parsed.value;
+	}
+	if (raw.proseLetterSpacing !== undefined) {
+		const parsed = parseBoundedTwoDecimal(
+			raw.proseLetterSpacing,
+			"proseLetterSpacing",
+			PROSE_LETTER_SPACING_MIN,
+			PROSE_LETTER_SPACING_MAX,
+		);
+		if (!parsed.ok) return parsed;
+		settings.proseLetterSpacing = parsed.value;
+	}
+	if (raw.proseWordSpacing !== undefined) {
+		const parsed = parseBoundedTwoDecimal(
+			raw.proseWordSpacing,
+			"proseWordSpacing",
+			PROSE_WORD_SPACING_MIN,
+			PROSE_WORD_SPACING_MAX,
+		);
+		if (!parsed.ok) return parsed;
+		settings.proseWordSpacing = parsed.value;
 	}
 	if (raw.codeLigatures !== undefined) {
 		if (typeof raw.codeLigatures !== "boolean") {

@@ -235,6 +235,8 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			proseFontSize: appearance.proseFontSize ?? factoryAppearance.proseFontSize,
 			proseWidth: appearance.proseWidth ?? factoryAppearance.proseWidth,
 			proseLineHeight: appearance.proseLineHeight ?? factoryAppearance.proseLineHeight,
+			proseLetterSpacing: appearance.proseLetterSpacing ?? factoryAppearance.proseLetterSpacing,
+			proseWordSpacing: appearance.proseWordSpacing ?? factoryAppearance.proseWordSpacing,
 			codeLigatures: appearance.codeLigatures ?? factoryAppearance.codeLigatures,
 			sessionNameSerif: appearance.sessionNameSerif ?? factoryAppearance.sessionNameSerif,
 			mdRendering: {

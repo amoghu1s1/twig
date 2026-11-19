@@ -62,6 +62,8 @@ export function resolveAppearance(delta: AppearanceSettings | undefined) {
 		proseFontSize: delta?.proseFontSize ?? f.proseFontSize,
 		proseWidth: delta?.proseWidth ?? f.proseWidth,
 		proseLineHeight: delta?.proseLineHeight ?? f.proseLineHeight,
+		proseLetterSpacing: delta?.proseLetterSpacing ?? f.proseLetterSpacing,
+		proseWordSpacing: delta?.proseWordSpacing ?? f.proseWordSpacing,
 		codeLigatures: delta?.codeLigatures ?? f.codeLigatures,
 		sessionNameSerif: delta?.sessionNameSerif ?? f.sessionNameSerif,
 		mdRendering: {
@@ -77,8 +79,19 @@ export function resolveAppearance(delta: AppearanceSettings | undefined) {
  *  without being installed: an installed copy wins by name, the bundled
  *  one fills in otherwise. Exported for the font menu and tests. */
 export const BUNDLED_READING_FONTS: Readonly<Record<string, string>> = {
+	"Atkinson Hyperlegible Next": "var(--font-atkinson)",
 	"JetBrains Mono": "var(--font-jetbrains)",
+	"Lexend": "var(--font-lexend)",
 };
+
+/** Resolve the `--font-prose` CSS font stack for a chosen family name. */
+export function proseFontStack(fontFamily: string): string {
+	if (fontFamily === "Source Sans 3") {
+		return "var(--font-sans3), ui-sans-serif, system-ui, sans-serif";
+	}
+	const bundled = BUNDLED_READING_FONTS[fontFamily];
+	return `"${fontFamily}", ${bundled ? `${bundled}, ` : ""}var(--font-sans3), ui-sans-serif, system-ui, sans-serif`;
+}
 
 /** THE mapping: resolved appearance + active theme + rendered variant → the
  *  CSS variables to set on <html>. Colors: the theme with every override
@@ -93,14 +106,15 @@ export function appearanceVars(
 ): Record<string, string> {
 	const vars: Record<string, string> = themeVars(effectiveColors(theme, a), mode);
 	if (a.fontFamily !== null) {
-		const bundled = BUNDLED_READING_FONTS[a.fontFamily];
-		vars["--font-prose"] = `"${a.fontFamily}", ${bundled ? `${bundled}, ` : ""}var(--font-sans3), ui-sans-serif, system-ui, sans-serif`;
+		vars["--font-prose"] = proseFontStack(a.fontFamily);
 	}
 	// The ONE documented reading-size variable (typography round 4): prose,
 	// inputs, and session titles all read it, so one setProperty moves them.
 	vars["--lh-prose-size"] = `${a.proseFontSize}px`;
 	vars["--lh-prose-width"] = `${a.proseWidth}rem`;
 	vars["--lh-prose-leading"] = String(a.proseLineHeight);
+	vars["--lh-prose-letter-spacing"] = a.proseLetterSpacing === 0 ? "normal" : `${a.proseLetterSpacing}em`;
+	vars["--lh-prose-word-spacing"] = a.proseWordSpacing === 0 ? "normal" : `${a.proseWordSpacing}em`;
 	// Code surfaces opt in to this token; never change prose or UI shaping.
 	// "normal" permits the font's behavior rather than forcing glyph joining.
 	vars["--lh-code-ligatures"] = a.codeLigatures ? "normal" : "none";

@@ -455,6 +455,10 @@ export interface AppearanceSettings {
 	proseWidth?: number;
 	/** Reading prose line-height multiplier (1.2–2.2, default 1.65). */
 	proseLineHeight?: number;
+	/** Reading prose letter-spacing in em (0–0.15, default 0 = normal). */
+	proseLetterSpacing?: number;
+	/** Reading prose word-spacing in em (0–0.4, default 0 = normal). */
+	proseWordSpacing?: number;
 	/** Permit normal font ligatures in code (including inline code and code editors). Default false; prose is unaffected. */
 	codeLigatures?: boolean;
 	/** Session names in CMU Serif (default true — today's look). */
@@ -577,6 +581,8 @@ export interface FactorySettings {
 		proseFontSize: number;
 		proseWidth: number;
 		proseLineHeight: number;
+		proseLetterSpacing: number;
+		proseWordSpacing: number;
 		codeLigatures: boolean;
 		sessionNameSerif: boolean;
 		mdRendering: {
@@ -603,6 +609,8 @@ export const FACTORY_SETTINGS: FactorySettings = {
 		proseFontSize: 16,
 		proseWidth: 46,
 		proseLineHeight: 1.65,
+		proseLetterSpacing: 0,
+		proseWordSpacing: 0,
 		codeLigatures: false,
 		sessionNameSerif: true,
 		mdRendering: { headingWeight: 900, boldColor: null, italicColor: null },
@@ -624,6 +632,10 @@ const PROSE_WIDTH_MIN = 32;
 const PROSE_WIDTH_MAX = 72;
 const PROSE_LINE_HEIGHT_MIN = 1.2;
 const PROSE_LINE_HEIGHT_MAX = 2.2;
+export const PROSE_LETTER_SPACING_MIN = 0;
+export const PROSE_LETTER_SPACING_MAX = 0.15;
+export const PROSE_WORD_SPACING_MIN = 0;
+export const PROSE_WORD_SPACING_MAX = 0.4;
 
 const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
 
@@ -879,6 +891,14 @@ function sanitizeAppearance(raw: Record<string, unknown>): AppearanceSettings {
 	}
 	if (typeof raw.proseLineHeight === "number" && Number.isFinite(raw.proseLineHeight)) {
 		out.proseLineHeight = clamp(Math.round(raw.proseLineHeight * 100) / 100, PROSE_LINE_HEIGHT_MIN, PROSE_LINE_HEIGHT_MAX);
+	}
+	if (typeof raw.proseLetterSpacing === "number" && Number.isFinite(raw.proseLetterSpacing)) {
+		const rounded = Math.round(raw.proseLetterSpacing * 100) / 100;
+		out.proseLetterSpacing = clamp(rounded === 0 ? 0 : rounded, PROSE_LETTER_SPACING_MIN, PROSE_LETTER_SPACING_MAX);
+	}
+	if (typeof raw.proseWordSpacing === "number" && Number.isFinite(raw.proseWordSpacing)) {
+		const rounded = Math.round(raw.proseWordSpacing * 100) / 100;
+		out.proseWordSpacing = clamp(rounded === 0 ? 0 : rounded, PROSE_WORD_SPACING_MIN, PROSE_WORD_SPACING_MAX);
 	}
 	const codeLigatures = boolOrDrop(raw.codeLigatures);
 	if (codeLigatures !== undefined) out.codeLigatures = codeLigatures;

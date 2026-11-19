@@ -534,6 +534,15 @@ export function speechText(markdown: string): string {
 
 export type RevealStyle = "blur" | "hide" | "dim";
 
+export const READER_FONT_FAMILIES = [
+	"inherit",
+	"Atkinson Hyperlegible Next",
+	"Lexend",
+	"Source Sans 3",
+] as const;
+
+export type ReaderFontFamily = (typeof READER_FONT_FAMILIES)[number];
+
 export interface ReaderPrefs {
 	style: RevealStyle;
 	/** Prose font size in px. */
@@ -546,13 +555,62 @@ export interface ReaderPrefs {
 	/** Opt-in: speak through the ElevenLabs proxy (POST /api/tts). DEFAULT OFF —
 	 *  the browser's built-in voice is the default (privacy + zero cost). */
 	cloud: boolean;
+	/** Local font override ("inherit" uses global Appearance setting). */
+	fontFamily: ReaderFontFamily;
+	/** Local line-height override (null = inherit global Appearance setting; 1.2–2.4). */
+	lineHeight: number | null;
+	/** Local letter-spacing override in em (null = inherit; 0–0.15). */
+	letterSpacing: number | null;
+	/** Local word-spacing override in em (null = inherit; 0–0.4). */
+	wordSpacing: number | null;
+	/** Focus spotlight: dim earlier revealed sentences so only the active one stays full contrast. */
+	spotlight: boolean;
 }
 
 export const READER_PREFS_KEY = "lh-reader";
 export const FONT_SIZE_MIN = 14;
 export const FONT_SIZE_MAX = 32;
+export const READER_LINE_HEIGHT_MIN = 1.2;
+export const READER_LINE_HEIGHT_MAX = 2.4;
+export const READER_LETTER_SPACING_MIN = 0;
+export const READER_LETTER_SPACING_MAX = 0.15;
+export const READER_WORD_SPACING_MIN = 0;
+export const READER_WORD_SPACING_MAX = 0.4;
 
-export const DEFAULT_READER_PREFS: ReaderPrefs = { style: "blur", fontSize: 20, autoRead: false, voice: DEFAULT_TTS_VOICE, rate: 1, cloud: false };
+export const READER_DYSLEXIA_PRESET = {
+	fontFamily: "Atkinson Hyperlegible Next",
+	lineHeight: 1.9,
+	letterSpacing: 0.05,
+	wordSpacing: 0.16,
+	spotlight: true,
+} as const satisfies Pick<ReaderPrefs, "fontFamily" | "lineHeight" | "letterSpacing" | "wordSpacing" | "spotlight">;
+
+export const DEFAULT_READER_PREFS: ReaderPrefs = {
+	style: "blur",
+	fontSize: 20,
+	autoRead: false,
+	voice: DEFAULT_TTS_VOICE,
+	rate: 1,
+	cloud: false,
+	fontFamily: "inherit",
+	lineHeight: null,
+	letterSpacing: null,
+	wordSpacing: null,
+	spotlight: false,
+};
+
+/** Whether every dyslexia-friendly comfort knob matches the preset. */
+export function isReaderDyslexiaActive(
+	prefs: Pick<ReaderPrefs, "fontFamily" | "lineHeight" | "letterSpacing" | "wordSpacing" | "spotlight">,
+): boolean {
+	return (
+		prefs.fontFamily === READER_DYSLEXIA_PRESET.fontFamily &&
+		prefs.lineHeight === READER_DYSLEXIA_PRESET.lineHeight &&
+		prefs.letterSpacing === READER_DYSLEXIA_PRESET.letterSpacing &&
+		prefs.wordSpacing === READER_DYSLEXIA_PRESET.wordSpacing &&
+		prefs.spotlight === READER_DYSLEXIA_PRESET.spotlight
+	);
+}
 
 /** Parse the stored preferences, falling back per field to the defaults. */
 export function parseReaderPrefs(raw: string | null): ReaderPrefs {
@@ -566,6 +624,11 @@ export function parseReaderPrefs(raw: string | null): ReaderPrefs {
 	}
 	const num = (x: unknown, lo: number, hi: number, fallback: number) =>
 		typeof x === "number" && Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : fallback;
+	const optNum = (x: unknown, lo: number, hi: number): number | null => {
+		if (typeof x !== "number" || !Number.isFinite(x)) return null;
+		const rounded = Math.round(Math.min(hi, Math.max(lo, x)) * 100) / 100;
+		return rounded === 0 ? 0 : rounded;
+	};
 	return {
 		style: o.style === "blur" || o.style === "hide" || o.style === "dim" ? o.style : d.style,
 		fontSize: Math.round(num(o.fontSize, FONT_SIZE_MIN, FONT_SIZE_MAX, d.fontSize)),
@@ -573,6 +636,14 @@ export function parseReaderPrefs(raw: string | null): ReaderPrefs {
 		voice: typeof o.voice === "string" && TTS_VOICES.some(([id]) => id === o.voice) ? o.voice : d.voice,
 		rate: num(o.rate, TTS_RATE_MIN, TTS_RATE_MAX, d.rate),
 		cloud: typeof o.cloud === "boolean" ? o.cloud : d.cloud,
+		fontFamily:
+			typeof o.fontFamily === "string" && (READER_FONT_FAMILIES as readonly string[]).includes(o.fontFamily)
+				? (o.fontFamily as ReaderFontFamily)
+				: d.fontFamily,
+		lineHeight: optNum(o.lineHeight, READER_LINE_HEIGHT_MIN, READER_LINE_HEIGHT_MAX),
+		letterSpacing: optNum(o.letterSpacing, READER_LETTER_SPACING_MIN, READER_LETTER_SPACING_MAX),
+		wordSpacing: optNum(o.wordSpacing, READER_WORD_SPACING_MIN, READER_WORD_SPACING_MAX),
+		spotlight: typeof o.spotlight === "boolean" ? o.spotlight : d.spotlight,
 	};
 }
 
