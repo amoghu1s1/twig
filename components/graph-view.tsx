@@ -71,7 +71,7 @@ import Link from "next/link";
 import { FileTextIcon, ListTreeIcon, Loader2Icon, RotateCcwIcon, SearchIcon, SettingsIcon, WaypointsIcon } from "lucide-react";
 import { incrementalLayout, propositionSessionHref, type GraphCostSummary, type GraphNode, type GraphSnapshot } from "@/src/core";
 import { planCostLabel } from "@/components/usage-format";
-import { CLUSTER_LIGHTNESS, GraphCanvasRenderer, type GraphRenderSettings } from "./graph-canvas.ts";
+import { CLUSTER_LIGHTNESS, fitTransform, GraphCanvasRenderer, type GraphRenderSettings } from "./graph-canvas.ts";
 import { useAppearance } from "@/components/settings/appearance";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
 import { INTERACTION_LAYER_Z_BASE } from "@/components/host-dialog";
@@ -200,6 +200,53 @@ export function seedMissingNodePositions(
 		});
 	});
 	return positions;
+}
+
+/** Read `?node=<id>` safely from `window.location.search` without Next.js Suspense hooks. */
+export function readDeepLinkNodeId(): string | null {
+	if (typeof window === "undefined" || typeof window.location?.search !== "string") return null;
+	const raw = new URLSearchParams(window.location.search).get("node");
+	const trimmed = raw?.trim();
+	return trimmed ? trimmed : null;
+}
+
+/**
+ * Compute the camera transform `{ k, x, y }` that centers `nodePos` in `viewport`
+ * at a readable zoom level where node labels stay visible, plus the corresponding
+ * screen-space detail-card anchor.
+ */
+export function computeNodeFocusCamera(
+	nodePos: { x: number; y: number },
+	positions: ReadonlyMap<string, { x: number; y: number }>,
+	viewport: { width: number; height: number },
+	labelZoom: number,
+): { k: number; x: number; y: number; anchor: { x: number; y: number } } {
+	const w = Math.max(viewport.width, 200);
+	const h = Math.max(viewport.height, 200);
+	let minX = Infinity;
+	let minY = Infinity;
+	let maxX = -Infinity;
+	let maxY = -Infinity;
+	for (const p of positions.values()) {
+		if (p.x < minX) minX = p.x;
+		if (p.y < minY) minY = p.y;
+		if (p.x > maxX) maxX = p.x;
+		if (p.y > maxY) maxY = p.y;
+	}
+	const spanX = maxX - minX;
+	const spanY = maxY - minY;
+	let k = 3;
+	if (positions.size > 1 && (spanX >= 1 || spanY >= 1)) {
+		const kFit = fitTransform({ minX, maxX, minY, maxY }, w, h, 40).k;
+		const labelThresholdK = kFit / Math.max(labelZoom, 0.05);
+		k = Math.min(12, Math.max(0.5, kFit * 2, labelThresholdK * 1.5));
+	}
+	return {
+		k,
+		x: w / 2 - nodePos.x * k,
+		y: h / 2 - nodePos.y * k,
+		anchor: { x: w / 2, y: h / 2 },
+	};
 }
 
 // ---- Color helpers (canvas wants hex, not oklch) ---------------------------
@@ -985,8 +1032,14 @@ export const GraphView = memo(function GraphView({
 
 	// Search panel state: the query text + the settings section toggle.
 	const [query, setQuery] = useState("");
+	const queryRef = useRef(query);
+	queryRef.current = query;
 	// Surface-scoped Find: the chains overlay owns it while open.
 	const searchInputRef = useRef<HTMLInputElement>(null);
+	const pendingFocusNodeIdRef = useRef<string | null>(null);
+	const appliedFocusSelectionRef = useRef<Selection | null>(null);
+	const focusCameraRef = useRef<{ k: number; x: number; y: number } | null>(null);
+	const [focusTick, setFocusTick] = useState(0);
 	// Render settings: SERVER-persisted (data/render-settings.json via
 	// /api/graph/render-settings) — sizes AND the region/physics sections
 	// (user-facing since 2026-09-13; the dev-session era is over). Loaded
@@ -1082,6 +1135,30 @@ export const GraphView = memo(function GraphView({
 	useEffect(() => {
 		if (chainSelectOpen) setChainsOpen(true);
 	}, [chainSelectOpen]);
+	useEffect(() => {
+		const initial = readDeepLinkNodeId();
+		if (initial) pendingFocusNodeIdRef.current = initial;
+
+		const triggerFocus = (nodeId: string | null) => {
+			if (!nodeId) return;
+			pendingFocusNodeIdRef.current = nodeId;
+			const snap = snapshotRef.current;
+			if (snap && snap.nodes.some((n) => n.id === nodeId && !n.id.startsWith("arg_"))) {
+				setFocusTick((t) => t + 1);
+			}
+		};
+		const onPopState = () => triggerFocus(readDeepLinkNodeId());
+		const onFocusEvent = (e: Event) => {
+			const raw = (e as CustomEvent<{ nodeId?: unknown }>).detail?.nodeId;
+			triggerFocus(typeof raw === "string" ? raw.trim() || null : null);
+		};
+		window.addEventListener("popstate", onPopState);
+		window.addEventListener("lh:graph-focus-node", onFocusEvent);
+		return () => {
+			window.removeEventListener("popstate", onPopState);
+			window.removeEventListener("lh:graph-focus-node", onFocusEvent);
+		};
+	}, []);
 	useEffect(() => {
 		let cancelled = false;
 		fetch("/api/graph")
@@ -1308,19 +1385,46 @@ export const GraphView = memo(function GraphView({
 		// state, deliberately NOT the server settings ledger). Absent or
 		// corrupt → undefined → the renderer fits on first open, ever.
 		let initialCamera: { k: number; x: number; y: number } | null = null;
-		try {
-			const stored = localStorage.getItem(CAMERA_STORAGE_KEY);
-			if (stored) {
-				const parsed = JSON.parse(stored) as { k?: unknown; x?: unknown; y?: unknown };
-				if (
-					typeof parsed.k === "number" && Number.isFinite(parsed.k) && parsed.k > 0 &&
-					typeof parsed.x === "number" && Number.isFinite(parsed.x) &&
-					typeof parsed.y === "number" && Number.isFinite(parsed.y)
-				)
-					initialCamera = { k: parsed.k, x: parsed.x, y: parsed.y };
+		const pendingId = pendingFocusNodeIdRef.current;
+		if (pendingId) {
+			pendingFocusNodeIdRef.current = null;
+			const snap = snapshotRef.current;
+			const positions = posRef.current;
+			const targetNode = snap?.nodes.find((n) => n.id === pendingId && !n.id.startsWith("arg_"));
+			const targetPos = targetNode && positions ? positions.get(targetNode.id) : undefined;
+			if (snap && targetNode && targetPos && positions) {
+				const w = canvas.clientWidth > 0 ? canvas.clientWidth : (window.innerWidth || 800);
+				const h = canvas.clientHeight > 0 ? canvas.clientHeight : (window.innerHeight || 600);
+				const focusView = computeNodeFocusCamera(
+					targetPos,
+					positions,
+					{ width: w, height: h },
+					settingsRef.current.labelZoom,
+				);
+				initialCamera = { k: focusView.k, x: focusView.x, y: focusView.y };
+				focusCameraRef.current = initialCamera;
+				appliedFocusSelectionRef.current = {
+					node: targetNode,
+					sourceIds: snap.nodeSessions[targetNode.id] ?? [],
+					anchor: focusView.anchor,
+				};
 			}
-		} catch {
-			// Corrupt entry → treat as absent; the renderer fits.
+		}
+		if (!initialCamera) {
+			try {
+				const stored = localStorage.getItem(CAMERA_STORAGE_KEY);
+				if (stored) {
+					const parsed = JSON.parse(stored) as { k?: unknown; x?: unknown; y?: unknown };
+					if (
+						typeof parsed.k === "number" && Number.isFinite(parsed.k) && parsed.k > 0 &&
+						typeof parsed.x === "number" && Number.isFinite(parsed.x) &&
+						typeof parsed.y === "number" && Number.isFinite(parsed.y)
+					)
+						initialCamera = { k: parsed.k, x: parsed.x, y: parsed.y };
+				}
+			} catch {
+				// Corrupt entry → treat as absent; the renderer fits.
+			}
 		}
 		// Debounced camera writes: a pan emits hundreds of transforms per
 		// second; one trailing write per quiet spell is plenty.
@@ -1345,13 +1449,17 @@ export const GraphView = memo(function GraphView({
 					const snap = snapshotRef.current;
 					const node = snap?.nodes.find((n) => n.id === nodeId);
 					if (!snap || !node) return;
+					focusCameraRef.current = null;
 					setSelected({
 						node,
 						sourceIds: snap.nodeSessions[node.id] ?? [],
 						anchor: pos,
 					});
 				},
-				onStageClick: () => setSelected(null),
+				onStageClick: () => {
+					focusCameraRef.current = null;
+					setSelected(null);
+				},
 				// Right-click → the node context menu (node interlude). Null
 				// (empty stage) closes a stale menu; a pick opens one anchored
 				// at the pointer. The name comes from the snapshot — what the
@@ -1370,7 +1478,16 @@ export const GraphView = memo(function GraphView({
 				// context menu closes with it: a menu floating over a moved
 				// graph is anchored to nothing.
 				onCameraMove: (t) => {
-					setSelected(null);
+					const focused = focusCameraRef.current;
+					const sameAsFocus =
+						focused !== null &&
+						Math.abs(t.k - focused.k) < 1e-4 &&
+						Math.abs(t.x - focused.x) < 0.5 &&
+						Math.abs(t.y - focused.y) < 0.5;
+					if (!sameAsFocus) {
+						focusCameraRef.current = null;
+						setSelected(null);
+					}
 					setCtxNode(null);
 					persistCamera(t);
 				},
@@ -1402,7 +1519,7 @@ export const GraphView = memo(function GraphView({
 			}
 			renderer.destroy();
 		};
-	}, [isEmpty]);
+	}, [isEmpty, focusTick]);
 
 	// Feed #1 — data: positions + edges + clusters + resolved colors. Runs
 	// after the layout effect (same commit, declaration order) and after
@@ -1435,14 +1552,14 @@ export const GraphView = memo(function GraphView({
 			// Match the app typography (Geist via the body's stack).
 			fontFamily: getComputedStyle(document.body).fontFamily,
 		});
-	}, [snapshot, isEmpty, resolvedMode, colors]);
+	}, [snapshot, isEmpty, resolvedMode, colors, focusTick]);
 
 	// Feed #2 — settings: just marks the frame dirty. No rebuild, no
 	// re-layout, no camera touch (the whole point of the new renderer).
 	const deferredSettings = useDeferredValue(settings);
 	useEffect(() => {
 		rendererRef.current?.setSettings(deferredSettings);
-	}, [deferredSettings, isEmpty]);
+	}, [deferredSettings, isEmpty, focusTick]);
 
 	// Feed #3 — visibility: hidden nodes drop out of rendering, picking,
 	// hover, AND labels; edges drop when either endpoint is hidden.
@@ -1450,7 +1567,7 @@ export const GraphView = memo(function GraphView({
 		rendererRef.current?.setVisible(query.trim() ? visibleIds : null);
 		// The open detail card cannot outlive its node's visibility.
 		setSelected((sel) => (sel && visibleIds.has(sel.node.id) ? sel : null));
-	}, [visibleIds, query]);
+	}, [visibleIds, query, focusTick]);
 
 	// Feed #4 — region tuning. `isEmpty` in the deps (same as Feed #2):
 	// the settings fetch resolves BEFORE the snapshot creates the renderer,
@@ -1458,14 +1575,25 @@ export const GraphView = memo(function GraphView({
 	// the renderer would silently keep the default tuning forever.
 	useEffect(() => {
 		rendererRef.current?.setRegionTuning(regionTuning);
-	}, [regionTuning, isEmpty]);
+	}, [regionTuning, isEmpty, focusTick]);
 
 	// Feed #5 — physics tuning: rebuilds the live sim in place (drag pins
 	// survive; a mid-settle change re-anneals, the honest response). Same
 	// isEmpty dep as Feed #4 — see there.
 	useEffect(() => {
 		rendererRef.current?.setPhysicsTuning(physicsTuning);
-	}, [physicsTuning, isEmpty]);
+	}, [physicsTuning, isEmpty, focusTick]);
+
+	// Open the detail card for a `?node=<id>` deep link once graph data + layout exist.
+	useEffect(() => {
+		const sel = appliedFocusSelectionRef.current;
+		if (!sel) return;
+		appliedFocusSelectionRef.current = null;
+		if (queryRef.current.trim() !== "" && !isNodeVisible(sel.node, queryRef.current)) {
+			setQuery("");
+		}
+		setSelected(sel);
+	}, [snapshot, isEmpty, focusTick]);
 
 	// Position the detail card: below the clicked node, flipped above near
 	// the bottom edge, clamped horizontally. Measure before paint, then keep
@@ -1630,6 +1758,7 @@ export const GraphView = memo(function GraphView({
 			{selected && !isEmpty && (
 				<div
 					ref={cardRef}
+					data-testid="node-detail-card"
 					// Positioned imperatively in the layout effect above; hidden
 					// until placed so the flip never flashes in the wrong spot.
 					style={{ visibility: "hidden", left: 0, top: 0 }}

@@ -1,12 +1,26 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useId, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
+import { HostDialog } from "@/components/host-dialog";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
+import { CommandPalette } from "@/components/command-palette";
+import {
+	SESSION_TAGS_CHANGED_EVENT,
+	SESSION_TAGS_KEY,
+	addSessionTag,
+	allSessionTags,
+	deleteSessionTags,
+	loadSessionTags,
+	normalizeTag,
+	removeSessionTag,
+	saveSessionTags,
+	type SessionTagsMap,
+} from "@/components/session-tags";
 import type { AppearanceMode, ChatDeleteMode } from "@/src/core";
-import { BookOpenIcon, CircleXIcon, DumbbellIcon, HammerIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PinIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { BookOpenIcon, CircleXIcon, DumbbellIcon, HammerIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PinIcon, PlusIcon, SearchIcon, SettingsIcon, TagIcon, XIcon } from "lucide-react";
 import { ActivitySection, toBlobs, useActivity } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
@@ -316,6 +330,7 @@ export function SessionRow({
 	chat,
 	active,
 	pinned = false,
+	tags,
 	onOpen,
 	kbdSelected = false,
 	onContextMenu,
@@ -323,6 +338,7 @@ export function SessionRow({
 	chat: ChatListItem;
 	active: boolean;
 	pinned?: boolean;
+	tags?: readonly string[];
 	onOpen: () => void;
 	/** Keyboard-cycle highlight (shortcut wave A: Alt+↑/↓ + Alt+Enter) —
 	 *  visually distinct from the active session, which stays filled. */
@@ -360,6 +376,27 @@ export function SessionRow({
 				>
 					{sessionMeta(chat)}
 				</span>
+				{tags && tags.length > 0 && (
+					<span data-testid="session-row-tags" className="mt-1 flex flex-wrap items-center gap-1">
+						{tags.slice(0, 2).map((tag) => (
+							<span
+								key={tag}
+								data-testid="session-row-tag"
+								className="inline-block max-w-[8.5rem] truncate rounded-sm border border-border/60 bg-background/60 px-1.5 py-px text-[10px] leading-tight text-muted-foreground"
+							>
+								{tag}
+							</span>
+						))}
+						{tags.length > 2 && (
+							<span
+								data-testid="session-row-tag-overflow"
+								className="inline-block rounded-sm px-1 py-px text-[10px] leading-tight text-muted-foreground/80 tabular-nums"
+							>
+								+{tags.length - 2}
+							</span>
+						)}
+					</span>
+				)}
 			</span>
 			{/* The dumbbell rides the FAR RIGHT (owner round 6, 2026-10-05) —
 			    was left of the name; right-aligned keeps the titles flush with
@@ -428,6 +465,176 @@ export function RenameRow({ chat, onCommit, onCancel }: { chat: ChatListItem; on
 	);
 }
 
+/** Modal tag editor for assigning/removing subject & course tags on one session. */
+export function SessionTagsDialog({
+	chat,
+	tags,
+	availableTags,
+	onAddTag,
+	onRemoveTag,
+	onClose,
+}: {
+	chat: Pick<ChatListItem, "id" | "title"> | null;
+	tags: readonly string[];
+	availableTags: readonly string[];
+	onAddTag: (chatId: string, tag: string) => void;
+	onRemoveTag: (chatId: string, tag: string) => void;
+	onClose: () => void;
+}) {
+	const headingId = useId();
+	const inputRef = useRef<HTMLInputElement>(null);
+	const [draft, setDraft] = useState("");
+
+	useEffect(() => {
+		setDraft("");
+	}, [chat?.id]);
+
+	if (!chat) return null;
+
+	const assignedLower = new Set(tags.map((t) => t.toLowerCase()));
+	const submitDraft = () => {
+		const norm = normalizeTag(draft);
+		if (!norm) {
+			onClose();
+			return;
+		}
+		const canonical = availableTags.find((t) => t.toLowerCase() === norm.toLowerCase()) ?? norm;
+		onAddTag(chat.id, canonical);
+		setDraft("");
+	};
+
+	return (
+		<HostDialog
+			open
+			onClose={() => {
+				onClose();
+				return "closed";
+			}}
+			initialFocusRef={inputRef}
+			aria-labelledby={headingId}
+			backdropProps={{
+				"data-testid": "session-tags-backdrop",
+				className: "fixed inset-0 z-50 flex items-center justify-center bg-background/80 px-4",
+			}}
+			frame={
+				<div
+					data-testid="session-tags-dialog"
+					className="w-full max-w-sm rounded-xl border bg-card p-4 text-xs shadow-2xl"
+					onClick={(e) => e.stopPropagation()}
+				/>
+			}
+		>
+			<div className="mb-3 flex items-start justify-between gap-2">
+				<div className="min-w-0">
+					<div id={headingId} role="heading" aria-level={2} className="flex items-center gap-1.5 text-sm font-medium text-card-foreground">
+						<TagIcon className="size-3.5 text-muted-foreground" />
+						Subjects / tags
+					</div>
+					<div className="mt-0.5 truncate font-prose text-xs text-muted-foreground">{chat.title}</div>
+				</div>
+				<button
+					type="button"
+					onClick={onClose}
+					aria-label="Close subjects dialog"
+					className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+				>
+					<XIcon className="size-3.5" />
+				</button>
+			</div>
+
+			<form
+				onSubmit={(e) => {
+					e.preventDefault();
+					submitDraft();
+				}}
+				className="flex items-center gap-1.5"
+			>
+				<Input
+					ref={inputRef}
+					type="text"
+					data-testid="tag-editor-input"
+					value={draft}
+					onChange={(e) => setDraft(e.target.value)}
+					onKeyDown={(e) => {
+						if (e.key === "Enter") {
+							e.preventDefault();
+							submitDraft();
+						}
+					}}
+					placeholder="Add subject or tag…"
+					aria-label="Add subject or tag"
+					className="h-8 flex-1 text-xs"
+				/>
+				<Button type="submit" size="sm" variant="secondary" data-testid="tag-editor-add" className="h-8 px-2.5 text-xs">
+					Add
+				</Button>
+			</form>
+
+			{tags.length > 0 && (
+				<div className="mt-3">
+					<div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground/70">Assigned</div>
+					<div className="flex flex-wrap gap-1.5">
+						{tags.map((tag) => (
+							<span
+								key={tag}
+								data-testid="tag-editor-assigned"
+								className="inline-flex items-center gap-1 rounded-md border border-border bg-accent/60 px-2 py-0.5 text-xs text-foreground"
+							>
+								<span className="max-w-[12rem] truncate">{tag}</span>
+								<button
+									type="button"
+									data-testid="tag-editor-remove"
+									data-tag={tag}
+									aria-label={`Remove ${tag}`}
+									onClick={() => onRemoveTag(chat.id, tag)}
+									className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-background/60 hover:text-foreground"
+								>
+									<XIcon className="size-3" />
+								</button>
+							</span>
+						))}
+					</div>
+				</div>
+			)}
+
+			{availableTags.length > 0 && (
+				<div className="mt-3">
+					<div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground/70">Existing subjects</div>
+					<div className="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto">
+						{availableTags.map((tag) => {
+							const assigned = assignedLower.has(tag.toLowerCase());
+							return (
+								<button
+									key={tag}
+									type="button"
+									data-testid="tag-editor-toggle"
+									data-tag={tag}
+									aria-pressed={assigned}
+									onClick={() => (assigned ? onRemoveTag(chat.id, tag) : onAddTag(chat.id, tag))}
+									className={cn(
+										"rounded-md border px-2 py-0.5 text-xs transition-colors",
+										assigned
+											? "border-foreground/40 bg-accent text-foreground"
+											: "border-border/70 bg-background/60 text-muted-foreground hover:bg-accent hover:text-foreground",
+									)}
+								>
+									{tag}
+								</button>
+							);
+						})}
+					</div>
+				</div>
+			)}
+
+			<div className="mt-4 flex justify-end">
+				<Button type="button" size="sm" variant="ghost" data-testid="tag-editor-done" onClick={onClose} className="h-7 px-2.5 text-xs">
+					Done
+				</Button>
+			</div>
+		</HostDialog>
+	);
+}
+
 /** The four-way kind filter (practice sessions, owner 2026-10-04):
  *  Teaching / Practice / Capstone / All — a client-side filter over the
  *  same snapshot, persisted in localStorage, defaulting to All. */
@@ -435,13 +642,17 @@ export type SessionKindFilter = "teach" | "all" | "practice" | "capstone";
 const KIND_FILTER_KEY = "lh:session-kind-filter";
 const PINNED_SESSIONS_KEY = "lh:pinned-sessions";
 
-function SessionsSidebar() {
+export function SessionsSidebar() {
 	const interactions = useInteractionLayers();
 	const { open, toggle } = useSidebar();
 	const [chats, setChats] = useState<ChatListItem[] | null>(null);
 	const [query, setQuery] = useState("");
 	const [kindFilter, setKindFilter] = useState<SessionKindFilter>("all");
+	const [selectedTag, setSelectedTag] = useState<string | null>(null);
 	const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => new Set());
+	const [sessionTags, setSessionTags] = useState<SessionTagsMap>({});
+	const sessionTagsRef = useRef<SessionTagsMap>(sessionTags);
+	sessionTagsRef.current = sessionTags;
 	useEffect(() => {
 		const stored = window.localStorage.getItem(KIND_FILTER_KEY);
 		if (stored === "teach" || stored === "all" || stored === "practice" || stored === "capstone") setKindFilter(stored);
@@ -452,6 +663,17 @@ function SessionsSidebar() {
 		} catch {
 			// Ignore malformed storage.
 		}
+		setSessionTags(loadSessionTags());
+		const syncTags = () => setSessionTags(loadSessionTags());
+		const onStorage = (e: StorageEvent) => {
+			if (e.key === SESSION_TAGS_KEY) syncTags();
+		};
+		window.addEventListener(SESSION_TAGS_CHANGED_EVENT, syncTags);
+		window.addEventListener("storage", onStorage);
+		return () => {
+			window.removeEventListener(SESSION_TAGS_CHANGED_EVENT, syncTags);
+			window.removeEventListener("storage", onStorage);
+		};
 	}, []);
 	const setFilter = useCallback((f: SessionKindFilter) => {
 		setKindFilter(f);
@@ -470,6 +692,20 @@ function SessionsSidebar() {
 			return next;
 		});
 	}, []);
+	const handleAddTag = useCallback((chatId: string, tag: string) => {
+		const next = addSessionTag(sessionTagsRef.current, chatId, tag);
+		if (next === sessionTagsRef.current) return;
+		sessionTagsRef.current = next;
+		setSessionTags(next);
+		saveSessionTags(next);
+	}, []);
+	const handleRemoveTag = useCallback((chatId: string, tag: string) => {
+		const next = removeSessionTag(sessionTagsRef.current, chatId, tag);
+		if (next === sessionTagsRef.current) return;
+		sessionTagsRef.current = next;
+		setSessionTags(next);
+		saveSessionTags(next);
+	}, []);
 	const pathname = usePathname();
 	const router = useRouter();
 	const { open: openSettings } = useSettingsDialog();
@@ -482,14 +718,37 @@ function SessionsSidebar() {
 		router.push("/chat/new");
 	}, [router]);
 
+	const kindFilteredChats = useMemo(() => {
+		if (!chats) return null;
+		if (kindFilter === "all") return chats;
+		return chats.filter((c) => (c.kind ?? "teach") === kindFilter);
+	}, [chats, kindFilter]);
+
+	const tagItems = useMemo(
+		() => allSessionTags(sessionTags, kindFilteredChats),
+		[sessionTags, kindFilteredChats],
+	);
+	const allKnownTags = useMemo(
+		() => allSessionTags(sessionTags, chats).map((t) => t.tag),
+		[sessionTags, chats],
+	);
+
+	useEffect(() => {
+		if (chats === null || !selectedTag) return;
+		if (!tagItems.some((t) => t.tag.toLowerCase() === selectedTag.toLowerCase())) {
+			setSelectedTag(null);
+		}
+	}, [chats, selectedTag, tagItems]);
+
 	/* FUZZY (owner round 8, 2026-10-05): subsequence match ranked by
 	 * fuzzyScore — prefix beats word-boundary beats scattered. Empty query
 	 * keeps pinned sessions first, then natural recency order. */
 	const shown = useMemo(() => {
 		const q = query.trim();
-		let list = chats;
-		if (list && kindFilter !== "all") {
-			list = list.filter((c) => (c.kind ?? "teach") === kindFilter);
+		let list = kindFilteredChats;
+		if (list && selectedTag !== null) {
+			const targetLower = selectedTag.toLowerCase();
+			list = list.filter((c) => (sessionTags[c.id] ?? []).some((t) => t.toLowerCase() === targetLower));
 		}
 		if (!list) return list;
 		if (!q) {
@@ -503,11 +762,11 @@ function SessionsSidebar() {
 			return pinned.length > 0 ? [...pinned, ...unpinned] : list;
 		}
 		return list
-			.map((c) => ({ c, score: fuzzyScore(q, c.title) }))
+			.map((c) => ({ c, score: fuzzyScore(q, c.title, ...(sessionTags[c.id] ?? [])) }))
 			.filter((r): r is { c: (typeof list)[number]; score: number } => r.score !== null)
 			.sort((a, b) => b.score - a.score)
 			.map((r) => r.c);
-	}, [chats, query, kindFilter, pinnedIds]);
+	}, [kindFilteredChats, query, selectedTag, pinnedIds, sessionTags]);
 
 	const refreshInFlightRef = useRef(false);
 	const refresh = useCallback(async () => {
@@ -626,6 +885,7 @@ function SessionsSidebar() {
 	const [ctxChatId, setCtxChatId] = useState<string | null>(null);
 	const ctxAnchorRef = useRef<HTMLElement | null>(null);
 	const [renamingId, setRenamingId] = useState<string | null>(null);
+	const [taggingChat, setTaggingChat] = useState<ChatListItem | null>(null);
 	const [deleting, setDeleting] = useState<ChatListItem | null>(null);
 
 	const openContext = (e: React.MouseEvent<HTMLButtonElement>, chat: ChatListItem) => {
@@ -681,7 +941,14 @@ function SessionsSidebar() {
 	const onDeleted = useCallback(
 		(id: string, _mode: ChatDeleteMode, graphRevision: number) => {
 			setDeleting(null);
+			setTaggingChat((cur) => (cur?.id === id ? null : cur));
 			setChats((prev) => (prev ? prev.filter((c) => c.id !== id) : prev));
+			const nextTags = deleteSessionTags(sessionTagsRef.current, id);
+			if (nextTags !== sessionTagsRef.current) {
+				sessionTagsRef.current = nextTags;
+				setSessionTags(nextTags);
+				saveSessionTags(nextTags);
+			}
 			if (pathname === `/chat/${id}`) router.push("/");
 			window.dispatchEvent(new CustomEvent("lh:graph-revision", { detail: { revision: graphRevision } }));
 		},
@@ -830,6 +1097,7 @@ function SessionsSidebar() {
 					<span className="relative flex-1">
 						<Input
 							ref={searchRef}
+							type="text"
 							data-testid="session-search"
 							value={query}
 							onChange={(e) => {
@@ -913,12 +1181,62 @@ function SessionsSidebar() {
 					))}
 				</div>
 
+				{tagItems.length > 0 && (
+					<div
+						data-testid="session-tag-filter"
+						className="mx-3 mt-1.5 flex max-h-20 flex-wrap items-center gap-1 overflow-y-auto"
+					>
+						<button
+							type="button"
+							data-testid="tag-filter-all"
+							aria-pressed={selectedTag === null}
+							onClick={() => {
+								setSelectedTag(null);
+								setKbdIndex(null);
+							}}
+							className={cn(
+								"rounded-sm px-1.5 py-0.5 font-ui text-[11px] transition-colors",
+								selectedTag === null
+									? "bg-accent text-foreground"
+									: "border border-border/60 text-muted-foreground hover:text-foreground",
+							)}
+						>
+							All
+						</button>
+						{tagItems.map(({ tag, count }) => {
+							const active = selectedTag?.toLowerCase() === tag.toLowerCase();
+							return (
+								<button
+									key={tag}
+									type="button"
+									data-testid="tag-filter-pill"
+									data-tag={tag}
+									aria-pressed={active}
+									onClick={() => {
+										setSelectedTag((cur) => (cur?.toLowerCase() === tag.toLowerCase() ? null : tag));
+										setKbdIndex(null);
+									}}
+									className={cn(
+										"inline-flex max-w-full items-center gap-1 rounded-sm px-1.5 py-0.5 font-ui text-[11px] transition-colors",
+										active
+											? "bg-accent text-foreground"
+											: "border border-border/60 text-muted-foreground hover:text-foreground",
+									)}
+								>
+									<span className="truncate">{tag}</span>
+									<span className="text-[10px] opacity-70 tabular-nums">{count}</span>
+								</button>
+							);
+						})}
+					</div>
+				)}
+
 				<div ref={listRef} className="flex-1 overflow-y-auto p-2">
 					{shown === null ? (
 						<div className="px-2 py-4 text-xs text-muted-foreground">Loading…</div>
 					) : shown.length === 0 ? (
 						<div className="px-2 py-4 text-xs text-muted-foreground">
-							{query.trim() ? "No sessions match." : "No sessions yet."}
+							{query.trim() || selectedTag ? "No sessions match." : "No sessions yet."}
 						</div>
 					) : (
 						shown.map((c, i) => {
@@ -950,6 +1268,7 @@ function SessionsSidebar() {
 											chat={c}
 											active={pathname === `/chat/${c.id}`}
 											pinned={isPinned}
+											tags={sessionTags[c.id]}
 											kbdSelected={i === kbdIndex}
 											onOpen={() => {
 												setKbdIndex(null);
@@ -1052,6 +1371,18 @@ function SessionsSidebar() {
 						</button>
 						<button
 							type="button"
+							data-testid="ctx-tags"
+							onClick={() => {
+								const target = chats?.find((c) => c.id === ctxChatId);
+								if (target) setTaggingChat(target);
+								setCtxChatId(null);
+							}}
+							className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent"
+						>
+							Subjects / tags…
+						</button>
+						<button
+							type="button"
 							data-testid="ctx-delete"
 							onClick={() => {
 								const target = chats?.find((c) => c.id === ctxChatId);
@@ -1066,6 +1397,15 @@ function SessionsSidebar() {
 						<CoverageMenuBlock chatId={ctxChatId} />
 					</MenuShell>
 				)}
+
+				<SessionTagsDialog
+					chat={taggingChat}
+					tags={taggingChat ? (sessionTags[taggingChat.id] ?? []) : []}
+					availableTags={allKnownTags}
+					onAddTag={handleAddTag}
+					onRemoveTag={handleRemoveTag}
+					onClose={() => setTaggingChat(null)}
+				/>
 
 				{/* The two-option delete dialog (wave 6) — portaled to body
 				    by the component itself, lives here for state locality. */}
@@ -1096,6 +1436,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 				    after the content in the tree, but it's window-level so order only
 				    matters for the events it dispatches, never for DOM priority. */}
 				<KeyboardShortcuts />
+				<CommandPalette />
 				<PluginWidgets />
 			</SettingsDialogProvider></InteractionLayersProvider>
 		</HostContentRootContext.Provider>
