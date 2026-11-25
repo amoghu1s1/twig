@@ -155,6 +155,23 @@ function selectableSlice(chunk: TextChunk, range: Range): boolean {
 	return to > from;
 }
 
+/** Capture a TextSelector + tightened Range inside the given source elements. */
+export function captureSelectorInSources(sources: readonly Element[], range: Range): { range: Range; selector: TextSelector } | null {
+	const { text, chunks } = readSourceText(sources);
+	const selected = chunks.filter((chunk) => selectableSlice(chunk, range));
+	const first = selected[0];
+	const last = selected.at(-1);
+	if (!first || !last) return null;
+	const start: BoundaryPoint = first.node === range.startContainer ? { node: first.node, offset: range.startOffset } : { node: first.node, offset: 0 };
+	const end: BoundaryPoint = last.node === range.endContainer ? { node: last.node, offset: range.endOffset } : { node: last.node, offset: last.end - last.start };
+	const selector = selectorFromBoundaries(text, chunks, start, end);
+	if (!selector) return null;
+	const tight = range.cloneRange();
+	if (first.atomic) tight.setStartBefore(first.node); else tight.setStart(start.node, start.offset);
+	if (last.atomic) tight.setEndAfter(last.node); else tight.setEnd(end.node, end.offset);
+	return { range: tight, selector };
+}
+
 export function captureSelection(viewport: Element, selection: Selection | null): CapturedSelection | null {
 	if (!selection || selection.isCollapsed || selection.rangeCount !== 1) return null;
 	const range = selection.getRangeAt(0).cloneRange();
@@ -170,23 +187,13 @@ export function captureSelection(viewport: Element, selection: Selection | null)
 	const messageId = source.getAttribute(SOURCE_ATTRIBUTE);
 	// Live (still streaming) messages carry c_ ids replaced at persist.
 	if (!messageId || messageId.startsWith("c_")) return null;
-	const { text, chunks } = readSourceText(sourceElements(viewport, messageId));
-	const selected = chunks.filter((chunk) => selectableSlice(chunk, range));
-	const first = selected[0];
-	const last = selected.at(-1);
-	if (!first || !last) return null;
 	// The end must not leave this message (another message or the page).
 	const endElement = range.endContainer.nodeType === 1 ? (range.endContainer as Element) : range.endContainer.parentElement;
 	const endSource = endElement?.closest(`[${SOURCE_ATTRIBUTE}]`);
 	if (endSource && endSource.getAttribute(SOURCE_ATTRIBUTE) !== messageId) return null;
-	const start: BoundaryPoint = first.node === range.startContainer ? { node: first.node, offset: range.startOffset } : { node: first.node, offset: 0 };
-	const end: BoundaryPoint = last.node === range.endContainer ? { node: last.node, offset: range.endOffset } : { node: last.node, offset: last.end - last.start };
-	const selector = selectorFromBoundaries(text, chunks, start, end);
-	if (!selector) return null;
-	const tight = range.cloneRange();
-	if (first.atomic) tight.setStartBefore(first.node); else tight.setStart(start.node, start.offset);
-	if (last.atomic) tight.setEndAfter(last.node); else tight.setEnd(end.node, end.offset);
-	return { messageId, range: tight, selector };
+	const captured = captureSelectorInSources(sourceElements(viewport, messageId), range);
+	if (!captured) return null;
+	return { messageId, range: captured.range, selector: captured.selector };
 }
 
 /** Re-find a quote in the live transcript; null when gone or ambiguous. */

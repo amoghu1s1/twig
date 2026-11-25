@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { ChevronDownIcon, ChevronUpIcon, SearchIcon, XIcon } from "lucide-react";
 import { kbdEventForAction, stepSessionMatch } from "@/src/core";
 import {
-	sameSessionRange, sessionFindRanges, sessionRangeIdentity, type SessionRangeIdentity,
+	sameSessionRange, sessionFindEntries, sessionFindRanges, sessionRangeIdentity,
+	type CollapsedSearchSource, type SessionFindEntry, type SessionRangeIdentity,
 } from "@/components/session-find-dom";
 import { scrollSessionTarget, type SessionScrollContext } from "@/components/session-navigation";
 import { useOptionalInteractionLayers } from "./interaction-layers";
@@ -56,9 +57,11 @@ export function sessionFindHasForegroundLayer(doc: Document, scope?: HTMLElement
 /** Mounted for the lifetime of ONE Chat (which is keyed by chatId). Closing
  * keeps the query/reading position; changing sessions resets all local state.
  * The bar lives outside scopeRef, so it never finds its own query or count. */
-export function SessionFind({ scopeRef, scrollContextRef }: {
+export function SessionFind({ scopeRef, scrollContextRef, collapsedSources, onRevealCollapsed }: {
 	scopeRef: RefObject<HTMLDivElement | null>;
 	scrollContextRef: RefObject<SessionScrollContext | null>;
+	collapsedSources?: () => readonly CollapsedSearchSource[];
+	onRevealCollapsed?: (entry: { kind: "collapsed-side" | "collapsed-card"; key: string }) => void;
 }) {
 	const controller = useOptionalInteractionLayers();
 	const [open, setOpen] = useState(false);
@@ -67,10 +70,15 @@ export function SessionFind({ scopeRef, scrollContextRef }: {
 	useEffect(injectFindStyles, []);
 	const inputRef = useRef<HTMLInputElement | null>(null);
 	const previousFocus = useRef<HTMLElement | null>(null);
-	const rangesRef = useRef<Range[]>([]);
+	const entriesRef = useRef<SessionFindEntry[]>([]);
 	const indexRef = useRef(-1);
 	const identityRef = useRef<SessionRangeIdentity | null>(null);
 	const lastQueryRef = useRef<string | null>(null);
+	const pendingRevealRef = useRef<{ kind: "collapsed-side" | "collapsed-card"; key: string; selector: string; matchIndexInContainer: number } | null>(null);
+	const collapsedSourcesRef = useRef(collapsedSources);
+	collapsedSourcesRef.current = collapsedSources;
+	const onRevealCollapsedRef = useRef(onRevealCollapsed);
+	onRevealCollapsedRef.current = onRevealCollapsed;
 
 	const close = useCallback(() => {
 		clearSessionFindHighlights();
@@ -109,20 +117,58 @@ export function SessionFind({ scopeRef, scrollContextRef }: {
 		if (!open || !scopeRef.current) return;
 		const scope = scopeRef.current;
 		let frame: number | null = null;
+		const activateEntry = (entries: readonly SessionFindEntry[], index: number, scroll: boolean) => {
+			const domRanges = entries.filter((e): e is Extract<SessionFindEntry, { kind: "dom" }> => e.kind === "dom").map((e) => e.range);
+			const chosen = entries[index];
+			const activeDomIdx = chosen?.kind === "dom" ? domRanges.indexOf(chosen.range) : -1;
+			publishHighlights(domRanges, activeDomIdx);
+			if (!scroll || !chosen) return;
+			if (chosen.kind === "dom") {
+				scrollSessionTarget(chosen.range, scope, scrollContextRef.current);
+			} else {
+				pendingRevealRef.current = {
+					kind: chosen.kind,
+					key: chosen.key,
+					selector: chosen.selector,
+					matchIndexInContainer: chosen.matchIndexInContainer,
+				};
+				onRevealCollapsedRef.current?.({ kind: chosen.kind, key: chosen.key });
+			}
+		};
 		const refresh = (selectFirst: boolean) => {
-			const ranges = sessionFindRanges(scope, query);
-			let index = selectFirst ? 0 : ranges.findIndex((range) => sameSessionRange(range, identityRef.current));
-			if (index < 0) index = Math.max(0, Math.min(indexRef.current, ranges.length - 1));
-			if (!ranges.length) index = -1;
-			rangesRef.current = ranges;
+			const entries = sessionFindEntries(scope, query, collapsedSourcesRef.current?.());
+			let index = -1;
+			let scrollNow = selectFirst;
+			const reveal = pendingRevealRef.current;
+			if (reveal) {
+				const expanded = scope.querySelector<HTMLElement>(reveal.selector);
+				if (expanded && expanded.getAttribute("aria-expanded") !== "false") {
+					pendingRevealRef.current = null;
+					const insideRanges = sessionFindRanges(expanded, query);
+					const targetRange = insideRanges[Math.min(reveal.matchIndexInContainer, insideRanges.length - 1)] ?? insideRanges[0];
+					if (targetRange) {
+						index = entries.findIndex((e) => e.kind === "dom" && sameSessionRange(e.range, sessionRangeIdentity(targetRange)));
+						scrollNow = true;
+					}
+				}
+			}
+			if (index < 0) {
+				index = selectFirst
+					? 0
+					: entries.findIndex((e) => e.kind === "dom" && sameSessionRange(e.range, identityRef.current));
+				if (index < 0) index = Math.max(0, Math.min(indexRef.current, entries.length - 1));
+			}
+			if (!entries.length) index = -1;
+			entriesRef.current = entries;
 			indexRef.current = index;
-			identityRef.current = ranges[index] ? sessionRangeIdentity(ranges[index]!) : null;
-			setResult((old) => old.index === index && old.count === ranges.length ? old : { index, count: ranges.length });
-			publishHighlights(ranges, index);
-			if (selectFirst && ranges[index]) scrollSessionTarget(ranges[index]!, scope, scrollContextRef.current);
+			const activeEntry = entries[index];
+			identityRef.current = activeEntry?.kind === "dom" ? sessionRangeIdentity(activeEntry.range) : null;
+			setResult((old) => (old.index === index && old.count === entries.length ? old : { index, count: entries.length }));
+			activateEntry(entries, index, scrollNow);
 		};
 		// New queries start at the session's first match. Reopening the retained
 		// query or receiving streamed content only refreshes; neither yanks scroll.
+		if (lastQueryRef.current !== query) pendingRevealRef.current = null;
 		refresh(lastQueryRef.current !== query);
 		lastQueryRef.current = query;
 		const schedule = () => {
@@ -145,13 +191,28 @@ export function SessionFind({ scopeRef, scrollContextRef }: {
 	useEffect(() => clearSessionFindHighlights, []);
 
 	const step = (direction: 1 | -1) => {
-		const ranges = rangesRef.current;
-		const index = stepSessionMatch(indexRef.current, ranges.length, direction);
+		const entries = entriesRef.current;
+		const index = stepSessionMatch(indexRef.current, entries.length, direction);
 		indexRef.current = index;
-		identityRef.current = ranges[index] ? sessionRangeIdentity(ranges[index]!) : null;
-		setResult({ index, count: ranges.length });
-		publishHighlights(ranges, index);
-		if (ranges[index] && scopeRef.current) scrollSessionTarget(ranges[index]!, scopeRef.current, scrollContextRef.current);
+		const chosen = entries[index];
+		identityRef.current = chosen?.kind === "dom" ? sessionRangeIdentity(chosen.range) : null;
+		setResult({ index, count: entries.length });
+		const domRanges = entries.filter((e): e is Extract<SessionFindEntry, { kind: "dom" }> => e.kind === "dom").map((e) => e.range);
+		const activeDomIdx = chosen?.kind === "dom" ? domRanges.indexOf(chosen.range) : -1;
+		publishHighlights(domRanges, activeDomIdx);
+		if (!chosen || !scopeRef.current) return;
+		if (chosen.kind === "dom") {
+			pendingRevealRef.current = null;
+			scrollSessionTarget(chosen.range, scopeRef.current, scrollContextRef.current);
+		} else {
+			pendingRevealRef.current = {
+				kind: chosen.kind,
+				key: chosen.key,
+				selector: chosen.selector,
+				matchIndexInContainer: chosen.matchIndexInContainer,
+			};
+			onRevealCollapsedRef.current?.({ kind: chosen.kind, key: chosen.key });
+		}
 	};
 
 	if (!open) return null;

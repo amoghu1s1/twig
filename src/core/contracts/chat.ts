@@ -8,6 +8,7 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { LhMessage } from "../native-messages.ts";
+import type { ChatHighlight } from "../highlights.ts";
 import type { Phase3 } from "../phases.ts";
 import type { PlanNodeStatus, PlanTree } from "./plan.ts";
 import type { EmissionStats } from "./graph.ts";
@@ -75,6 +76,10 @@ export interface ChatRecord {
 	 *  `messages`: the teaching/practice agents, extraction, coverage and
 	 *  compaction never read this field. Absent = none. */
 	sideChats?: SideChatThread[];
+	/** Persistent learner highlights anchored to tutor prose or side-chat
+	 *  answers. DELIBERATELY outside `messages`: agents, extraction, coverage,
+	 *  and compaction never read this field. Absent = none. */
+	highlights?: ChatHighlight[];
 	/** Session context attachments (2026-10-29): files the learner attached
 	 *  from the composer, stored once by content under data/attachments/. The
 	 *  agent sees them through the system prompt's attachments section and

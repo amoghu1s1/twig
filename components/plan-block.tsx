@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { BookOpenIcon, MaximizeIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
+import { BookOpenIcon, CornerDownRightIcon, MaximizeIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 // The placement engine — literally mermaid's: dagre-d3-es, the fork
 // mermaid 11 ships with (owner, plan-graph round 8: same engine as the
@@ -765,12 +765,18 @@ export function PlanPopup({
 	messages,
 	onClose,
 	onReadDeeper,
+	onJumpToNode,
+	jumpableNodes,
 }: {
 	messages: readonly PopupMessage[];
 	onClose: () => void;
 	/** Readings (docs/readings.md §6.1): click a node → "Read deeper".
 	 *  Absent = nodes aren't pickable (practice, previews). */
 	onReadDeeper?: (nodeId: string) => Promise<string | null>;
+	/** Teleport to the strand's teaching in the transcript. */
+	onJumpToNode?: (nodeId: string) => void;
+	/** Node ids that have been visited or are current (able to jump). */
+	jumpableNodes?: ReadonlySet<string>;
 }) {
 	// The picked node (a click without a drag) + the action's state.
 	const [picked, setPicked] = useState<string | null>(null);
@@ -938,7 +944,8 @@ export function PlanPopup({
 						startDrag(e);
 						return;
 					}
-					const node = onReadDeeper
+					const pickable = Boolean(onReadDeeper || onJumpToNode);
+					const node = pickable
 						? ((e.target as Element).closest?.("[data-testid^='plan-node-']")?.getAttribute("data-testid")?.slice("plan-node-".length) ?? null)
 						: null;
 					downRef.current = { node, x: e.clientX, y: e.clientY };
@@ -949,7 +956,7 @@ export function PlanPopup({
 					const down = downRef.current;
 					downRef.current = null;
 					endDrag(e);
-					if (!onReadDeeper || !down) return;
+					if (!(onReadDeeper || onJumpToNode) || !down) return;
 					const still = Math.hypot(e.clientX - down.x, e.clientY - down.y) < 5;
 					if (still) {
 						setPicked(down.node);
@@ -987,7 +994,7 @@ export function PlanPopup({
 								pickedId={picked}
 							/>
 						</div>
-						{onReadDeeper && (
+						{(onReadDeeper || onJumpToNode) && (
 							<div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center p-2">
 								{picked && tree.nodes.some((n) => n.id === picked) ? (
 									<div
@@ -995,26 +1002,47 @@ export function PlanPopup({
 										className="pointer-events-auto flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 font-ui text-xs shadow-lg"
 									>
 										<span className="max-w-[18rem] truncate font-medium">{tree.nodes.find((n) => n.id === picked)!.title}</span>
-										<button
-											type="button"
-											disabled={readBusy}
-											onClick={async () => {
-												setReadBusy(true);
-												setReadError(null);
-												const err = await onReadDeeper(picked);
-												setReadBusy(false);
-												if (err) setReadError(err);
-												else onClose();
-											}}
-											className="flex items-center gap-1.5 rounded-full bg-primary px-2.5 py-1 font-medium text-primary-foreground hover:bg-primary/80 disabled:opacity-60"
-										>
-											<BookOpenIcon className="size-3.5" /> Read deeper
-										</button>
+										{onJumpToNode && (
+											<button
+												type="button"
+												data-testid="plan-jump-to-node"
+												disabled={jumpableNodes ? !jumpableNodes.has(picked) : false}
+												title={jumpableNodes && !jumpableNodes.has(picked) ? "Not taught yet" : "Jump to this strand in the lesson"}
+												onClick={() => {
+													onJumpToNode(picked);
+													onClose();
+												}}
+												className="flex items-center gap-1 rounded-full border border-border bg-background px-2.5 py-1 font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
+											>
+												<CornerDownRightIcon className="size-3.5" /> Jump to lesson
+											</button>
+										)}
+										{onReadDeeper && (
+											<button
+												type="button"
+												disabled={readBusy}
+												onClick={async () => {
+													setReadBusy(true);
+													setReadError(null);
+													const err = await onReadDeeper(picked);
+													setReadBusy(false);
+													if (err) setReadError(err);
+													else onClose();
+												}}
+												className="flex items-center gap-1.5 rounded-full bg-primary px-2.5 py-1 font-medium text-primary-foreground hover:bg-primary/80 disabled:opacity-60"
+											>
+												<BookOpenIcon className="size-3.5" /> Read deeper
+											</button>
+										)}
 										{readError && <span className="text-destructive">{readError}</span>}
 									</div>
 								) : (
 									<span className="rounded-full bg-background/70 px-2.5 py-1 font-ui text-xs text-muted-foreground/70">
-										Click an idea to read deeper on it
+										{onReadDeeper && onJumpToNode
+											? "Click an idea to jump to it or read deeper"
+											: onReadDeeper
+												? "Click an idea to read deeper on it"
+												: "Click an idea to jump to it"}
 									</span>
 								)}
 							</div>

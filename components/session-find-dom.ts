@@ -154,3 +154,85 @@ export function sameSessionRange(range: Range, identity: SessionRangeIdentity | 
 	return !!identity && range.startContainer === identity.start && range.startOffset === identity.startOffset
 		&& range.endContainer === identity.end && range.endOffset === identity.endOffset;
 }
+
+export interface CollapsedSearchSource {
+	kind: "collapsed-side" | "collapsed-card";
+	key: string;
+	selector: string;
+	/** Hidden body strings inside the collapsed container (excluding the collapsed bar's own label). */
+	texts: readonly string[];
+}
+
+export type SessionFindEntry =
+	| { kind: "dom"; range: Range }
+	| {
+			kind: "collapsed-side" | "collapsed-card";
+			key: string;
+			selector: string;
+			containerEl: HTMLElement;
+			matchIndexInContainer: number;
+	  };
+
+function domOrderMap(root: Node): Map<Node, number> {
+	const order = new Map<Node, number>();
+	let idx = 0;
+	const walk = (node: Node) => {
+		order.set(node, idx++);
+		for (const child of node.childNodes) walk(child);
+	};
+	walk(root);
+	return order;
+}
+
+/** Merge live visible DOM matches with matches inside currently collapsed
+ *  side-chats and collapsed answered cards, ordered by DOM position. */
+export function sessionFindEntries(
+	scope: HTMLElement,
+	query: string,
+	collapsedSources?: readonly CollapsedSearchSource[],
+): SessionFindEntry[] {
+	const domRanges = sessionFindRanges(scope, query);
+	if (!query || !collapsedSources || collapsedSources.length === 0) {
+		return domRanges.map((range) => ({ kind: "dom", range }));
+	}
+	const items: Array<{ node: Node; offset: number; entry: SessionFindEntry }> = domRanges.map((range) => ({
+		node: range.startContainer,
+		offset: range.startOffset,
+		entry: { kind: "dom", range },
+	}));
+	for (const source of collapsedSources) {
+		const el = scope.querySelector<HTMLElement>(source.selector);
+		if (!el || el.getAttribute("aria-expanded") !== "false" || !displayedRoot(el)) continue;
+		const barCount = sessionFindRanges(el, query).length;
+		let hiddenMatchIdx = 0;
+		for (const text of source.texts) {
+			if (!text) continue;
+			const hits = findSessionTextMatches(text, query);
+			for (let i = 0; i < hits.length; i++) {
+				items.push({
+					node: el,
+					offset: hiddenMatchIdx,
+					entry: {
+						kind: source.kind,
+						key: source.key,
+						selector: source.selector,
+						containerEl: el,
+						matchIndexInContainer: barCount + hiddenMatchIdx,
+					},
+				});
+				hiddenMatchIdx++;
+			}
+		}
+	}
+	if (items.length === domRanges.length) {
+		return items.map((item) => item.entry);
+	}
+	const order = domOrderMap(scope);
+	items.sort((a, b) => {
+		const oa = order.get(a.node) ?? 0;
+		const ob = order.get(b.node) ?? 0;
+		if (oa !== ob) return oa - ob;
+		return a.offset - b.offset;
+	});
+	return items.map((item) => item.entry);
+}

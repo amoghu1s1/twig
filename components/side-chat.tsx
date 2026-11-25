@@ -17,19 +17,27 @@
  * windows through a per-block store subscription (side-chat-state.tsx).
  */
 
-import { createContext, memo, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { createContext, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Block, type BlockProps } from "streamdown";
-import { ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, CornerDownLeftIcon, MessageCircleQuestionIcon, MessageCircleReplyIcon, NotebookPenIcon, QuoteIcon, RotateCcwIcon, SquareIcon, Trash2Icon, XIcon } from "lucide-react";
-import type { SideChatAnchor, SideChatMessage } from "@/src/core";
+import { ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, CornerDownLeftIcon, HighlighterIcon, MessageCircleQuestionIcon, MessageCircleReplyIcon, NotebookPenIcon, QuoteIcon, RotateCcwIcon, SquareIcon, Trash2Icon, XIcon } from "lucide-react";
+import { HIGHLIGHT_COLORS, type CreateHighlightInput, type HighlightColor, type SideChatAnchor, type SideChatMessage } from "@/src/core";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { BrailleSpinner } from "@/components/braille-spinner";
+import { SentenceReaderButton } from "@/components/sentence-reader";
 import { Button } from "@/components/ui/button";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { cn } from "@/lib/utils";
 import type { NotesController } from "@/components/notes-state";
 import { sideBlockKey, useSideChatStore, useSideWindows, type SideChatStore, type SideWindowView } from "@/components/side-chat-state";
+import {
+	HIGHLIGHT_SWATCH_CSS,
+	SIDE_HL_MESSAGE_ATTR,
+	SIDE_HL_THREAD_ATTR,
+	captureHighlightTarget,
+	useOptionalChatHighlights,
+} from "@/components/highlights";
 
 // ─── the passage seam ────────────────────────────────────────────────────────
 
@@ -279,6 +287,8 @@ function OpenWindow({ view, store, messages, excerpt }: { view: SideWindowView; 
 							<SideAnswer
 								key={m.id}
 								message={m}
+								threadId={view.thread?.id}
+								onOpenReader={store.onOpenReader ? () => store.openReader(m.text, `side:${view.thread?.id ?? view.key}:${m.id}`) : undefined}
 								onRetry={i === messages.length - 1 && m.error !== undefined && !busy ? () => void store.ask(view.key, { retry: true }) : undefined}
 							/>
 						),
@@ -361,9 +371,25 @@ function SideQuestionRow({ message }: { message: SideChatMessage }) {
 	);
 }
 
-function SideAnswer({ message, onRetry }: { message: SideChatMessage; onRetry?: () => void }) {
+function SideAnswer({
+	message,
+	threadId,
+	onOpenReader,
+	onRetry,
+}: {
+	message: SideChatMessage;
+	threadId?: string;
+	onOpenReader?: () => void;
+	onRetry?: () => void;
+}) {
+	const sideAttrs = threadId
+		? { [SIDE_HL_THREAD_ATTR]: threadId, [SIDE_HL_MESSAGE_ATTR]: message.id }
+		: {};
 	return (
-		<div data-testid="side-chat-answer" className="min-w-0">
+		<div data-testid="side-chat-answer" className="min-w-0" {...sideAttrs}>
+			{onOpenReader && message.text.trim() !== "" && (
+				<SentenceReaderButton onOpen={onOpenReader} />
+			)}
 			{message.text && <MessageResponse>{message.text}</MessageResponse>}
 			{message.stopped && <p className="mt-1 font-ui text-xs text-muted-foreground">Stopped.</p>}
 			{message.error !== undefined && (
@@ -563,20 +589,39 @@ interface SelectionTarget {
 	quote: string;
 	/** The ask anchor — present only when the selection sits in side-enabled prose. */
 	anchor?: SideChatAnchor;
+	/** Highlight target when the selection sits in settled tutor prose or a settled side answer. */
+	highlight?: Omit<CreateHighlightInput, "color">;
 }
 
-/** The floating "Ask about this" / "Add to notes" pair for selections in
- *  teacher prose. Both ends of the selection must sit in side-enabled
- *  prose blocks for the ask; the window opens after the block where the
- *  selection ENDS. Notes take the quote whenever the selection starts in
- *  any settled teacher prose (the notes controller decides its panel). */
-export function SideSelectionAsk({ notes, onQuote }: { notes?: NotesController | null; onQuote?: (quote: string) => void }) {
+/** The floating "Ask about this" / "Quote" / "Add to notes" / "Highlight" bar
+ *  for selections in teacher prose and side-chat answers. */
+export function SideSelectionAsk({
+	notes,
+	onQuote,
+	scopeRef,
+}: {
+	notes?: NotesController | null;
+	onQuote?: (quote: string) => void;
+	scopeRef?: RefObject<HTMLElement | null>;
+}) {
 	const store = useSideChatStore();
+	const highlights = useOptionalChatHighlights();
 	const [target, setTarget] = useState<SelectionTarget | null>(null);
+	const barRef = useRef<HTMLDivElement>(null);
+	const [clampedLeft, setClampedLeft] = useState<number | null>(null);
+
+	useLayoutEffect(() => {
+		const bar = barRef.current;
+		if (!bar || !target) return;
+		const rect = bar.getBoundingClientRect();
+		const ideal = target.x - rect.width / 2;
+		setClampedLeft(Math.max(8, Math.min(ideal, window.innerWidth - rect.width - 8)));
+	}, [target]);
+
 	useEffect(() => {
 		if (!store) return;
 		const resolve = () => {
-			const selection = window.getSelection();
+			const selection = typeof window.getSelection === "function" ? window.getSelection() : null;
 			if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
 				setTarget(null);
 				return;
@@ -586,13 +631,16 @@ export function SideSelectionAsk({ notes, onQuote }: { notes?: NotesController |
 			const start = elementOf(range.startContainer)?.closest("[data-side-block]");
 			const startProse = elementOf(range.startContainer)?.closest("[data-source-message-id]");
 			const sourceId = startProse?.getAttribute("data-source-message-id");
-			if ((!end || !start || !end.hasAttribute("data-side-enabled")) && !(notes && sourceId && !sourceId.startsWith("c_"))) {
-				setTarget(null);
-				return;
-			}
+			const startSide = elementOf(range.startContainer)?.closest(`[${SIDE_HL_MESSAGE_ATTR}][${SIDE_HL_THREAD_ATTR}]`);
+			const inSettledTutor = Boolean(sourceId && !sourceId.startsWith("c_"));
+			const inSettledSide = Boolean(startSide);
+
 			const anchor = end ? store.blocks.get(end.getAttribute("data-side-block") ?? "") : undefined;
-			const askable = !!(anchor && end?.hasAttribute("data-side-enabled"));
-			if (!askable && !notes) {
+			const askable = !!(anchor && start && end?.hasAttribute("data-side-enabled"));
+			const scopeEl = scopeRef?.current ?? document.body;
+			const highlightTarget = highlights && (inSettledTutor || inSettledSide) ? captureHighlightTarget(scopeEl, range) : null;
+
+			if (!askable && !((inSettledTutor || inSettledSide) && (notes || onQuote || highlightTarget))) {
 				setTarget(null);
 				return;
 			}
@@ -603,14 +651,20 @@ export function SideSelectionAsk({ notes, onQuote }: { notes?: NotesController |
 			}
 			const rects = range.getClientRects();
 			const rect = rects.length > 0 ? rects[rects.length - 1]! : range.getBoundingClientRect();
-			setTarget({ x: rect.right, y: rect.bottom, anchor: askable ? anchor : undefined, quote });
+			setTarget({
+				x: rect.right,
+				y: rect.bottom,
+				anchor: askable ? anchor : undefined,
+				quote,
+				...(highlightTarget ? { highlight: highlightTarget } : {}),
+			});
 		};
 		const onPointerUp = () => window.requestAnimationFrame(resolve);
 		const onKeyUp = (e: KeyboardEvent) => {
 			if (e.shiftKey || e.key === "Shift") window.requestAnimationFrame(resolve);
 		};
 		const onSelectionChange = () => {
-			const selection = window.getSelection();
+			const selection = typeof window.getSelection === "function" ? window.getSelection() : null;
 			if (!selection || selection.isCollapsed) setTarget(null);
 		};
 		const onScroll = () => setTarget(null);
@@ -624,20 +678,24 @@ export function SideSelectionAsk({ notes, onQuote }: { notes?: NotesController |
 			document.removeEventListener("selectionchange", onSelectionChange);
 			window.removeEventListener("scroll", onScroll, true);
 		};
-	}, [store, notes, onQuote]);
+	}, [store, notes, onQuote, highlights, scopeRef]);
+
 	if (!store || !target || typeof document === "undefined") return null;
 	const askable = target.anchor !== undefined;
-	const askWidth = askable ? 132 : 0;
-	const width = askWidth + (notes ? 124 : 0) + (onQuote ? 104 : 0) + ((askWidth && (notes || onQuote)) ? 4 : 0);
-	const left = Math.max(8, Math.min(target.x - askWidth / 2 - (notes ? 62 : 0), window.innerWidth - width - 8));
-	const top = Math.min(target.y + 6, window.innerHeight - 36);
+	const fallbackLeft = Math.max(8, Math.min(target.x - 100, window.innerWidth - 320));
+	const top = Math.min(target.y + 6, window.innerHeight - 40);
 	const keepSelection = { onPointerDown: (e: React.PointerEvent) => e.preventDefault(), onMouseDown: (e: React.MouseEvent) => e.preventDefault() };
 	const dismiss = () => {
 		window.getSelection()?.removeAllRanges();
 		setTarget(null);
+		setClampedLeft(null);
 	};
 	return createPortal(
-		<div style={{ position: "fixed", left, top, width }} className="z-[100] flex gap-1">
+		<div
+			ref={barRef}
+			style={{ position: "fixed", left: clampedLeft ?? fallbackLeft, top }}
+			className="z-[100] flex max-w-[calc(100vw-16px)] items-center gap-1"
+		>
 			{askable && (
 				<button
 					type="button"
@@ -647,8 +705,7 @@ export function SideSelectionAsk({ notes, onQuote }: { notes?: NotesController |
 						store.openAt(target.anchor!, target.quote);
 						dismiss();
 					}}
-					style={{ width: 132 }}
-					className="flex h-7 items-center justify-center gap-1.5 rounded-md border bg-popover font-ui text-xs font-medium text-popover-foreground shadow-md transition-colors hover:bg-accent"
+					className="flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md border bg-popover px-2.5 font-ui text-xs font-medium text-popover-foreground shadow-md transition-colors hover:bg-accent"
 				>
 					<MessageCircleQuestionIcon className="size-3.5" />
 					Ask about this
@@ -663,8 +720,7 @@ export function SideSelectionAsk({ notes, onQuote }: { notes?: NotesController |
 						onQuote(target.quote);
 						dismiss();
 					}}
-					style={{ width: 104 }}
-					className="flex h-7 items-center justify-center gap-1.5 rounded-md border bg-popover font-ui text-xs font-medium text-popover-foreground shadow-md transition-colors hover:bg-accent"
+					className="flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md border bg-popover px-2.5 font-ui text-xs font-medium text-popover-foreground shadow-md transition-colors hover:bg-accent"
 				>
 					<QuoteIcon className="size-3.5" />
 					Quote
@@ -679,12 +735,35 @@ export function SideSelectionAsk({ notes, onQuote }: { notes?: NotesController |
 						notes.appendQuote(target.quote);
 						dismiss();
 					}}
-					style={{ width: 124 }}
-					className="flex h-7 items-center justify-center gap-1.5 rounded-md border bg-popover font-ui text-xs font-medium text-popover-foreground shadow-md transition-colors hover:bg-accent"
+					className="flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md border bg-popover px-2.5 font-ui text-xs font-medium text-popover-foreground shadow-md transition-colors hover:bg-accent"
 				>
 					<NotebookPenIcon className="size-3.5" />
 					Add to notes
 				</button>
+			)}
+			{highlights && target.highlight && (
+				<div
+					data-testid="side-selection-highlight"
+					className="flex h-7 shrink-0 items-center gap-1.5 rounded-md border bg-popover px-2 font-ui text-xs font-medium text-popover-foreground shadow-md"
+				>
+					<HighlighterIcon className="size-3.5 text-muted-foreground" aria-hidden />
+					{HIGHLIGHT_COLORS.map((color: HighlightColor) => (
+						<button
+							key={color}
+							type="button"
+							data-testid={`side-selection-highlight-${color}`}
+							aria-label={`Highlight ${HIGHLIGHT_SWATCH_CSS[color].label}`}
+							title={`Highlight ${HIGHLIGHT_SWATCH_CSS[color].label}`}
+							{...keepSelection}
+							onClick={() => {
+								void highlights.addHighlight({ ...target.highlight!, color });
+								dismiss();
+							}}
+							className="size-3.5 rounded-full transition-transform hover:scale-125"
+							style={{ backgroundColor: HIGHLIGHT_SWATCH_CSS[color].dot }}
+						/>
+					))}
+				</div>
 			)}
 		</div>,
 		document.body,

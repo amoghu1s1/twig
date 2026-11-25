@@ -3,6 +3,7 @@ import { isJobLive } from "../agent/subagents/aborts.ts";
 import { coverageOf } from "../core/coverage.ts";
 import { deleteChatTraces, type ChatDeleteMode, type ChatDeletionStats } from "../core/graph-deletion.ts";
 import { titleFromPrompt } from "../core/contracts.ts";
+import { newHighlightId, type ChatHighlight, type CreateHighlightInput, type HighlightColor } from "../core/highlights.ts";
 import { graphRevision } from "./graph.ts";
 import { removeBlobsUnreferenced } from "../store/attachments.ts";
 import { stores } from "./stores.ts";
@@ -36,6 +37,60 @@ export function readChatNotes(chatId: string): string | null {
 /** Save the session's notes — a per-field write on the record. */
 export function saveChatNotes(chatId: string, text: string): boolean {
 	return stores.chatStore.saveNotes(chatId, text);
+}
+
+/** Saved learner highlights ([] when none); null when the chat is unknown. */
+export function readChatHighlights(chatId: string): ChatHighlight[] | null {
+	const chat = stores.chatStore.getChat(chatId);
+	return chat ? (chat.highlights ?? []) : null;
+}
+
+/** Append one highlight; null when the chat is unknown. */
+export function addChatHighlight(chatId: string, input: CreateHighlightInput): ChatHighlight | null {
+	const highlight: ChatHighlight = {
+		id: newHighlightId(),
+		sourceKind: input.sourceKind,
+		sourceId: input.sourceId,
+		...(input.sideMessageId ? { sideMessageId: input.sideMessageId } : {}),
+		selector: input.selector,
+		color: input.color,
+		createdAt: new Date().toISOString(),
+	};
+	const stored = stores.chatStore.updateHighlights(chatId, (current) => [...current, highlight]);
+	return stored ? highlight : null;
+}
+
+/** Update a highlight's color; returns updated highlight, "unknown-chat", or "unknown-highlight". */
+export function updateChatHighlightColor(
+	chatId: string,
+	highlightId: string,
+	color: HighlightColor,
+): ChatHighlight | "unknown-chat" | "unknown-highlight" {
+	let updated: ChatHighlight | undefined;
+	const stored = stores.chatStore.updateHighlights(chatId, (current) =>
+		current.map((h) => {
+			if (h.id !== highlightId) return h;
+			updated = { ...h, color };
+			return updated;
+		}),
+	);
+	if (stored === null) return "unknown-chat";
+	return updated ?? "unknown-highlight";
+}
+
+/** Remove a highlight; returns true, "unknown-chat", or "unknown-highlight". */
+export function deleteChatHighlight(
+	chatId: string,
+	highlightId: string,
+): true | "unknown-chat" | "unknown-highlight" {
+	let removed = false;
+	const stored = stores.chatStore.updateHighlights(chatId, (current) => {
+		const next = current.filter((h) => h.id !== highlightId);
+		removed = next.length !== current.length;
+		return next;
+	});
+	if (stored === null) return "unknown-chat";
+	return removed ? true : "unknown-highlight";
 }
 export type { ChatDeleteMode, ChatDeletionStats } from "../core/graph-deletion.ts";
 

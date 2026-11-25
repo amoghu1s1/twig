@@ -51,6 +51,7 @@ export * from "./events.ts";
 // line existed). Same logic as layout-settle.ts below.
 export * from "./layout.ts";
 export * from "./plan-tree.ts";
+export * from "./plan-navigation.ts";
 export * from "./phases.ts";
 export * from "./pending.ts";
 export * from "./prompt-segments.ts";
@@ -65,6 +66,7 @@ export * from "./input-events.ts";
 export { parseFilePaths, quoteFilePath, filePathLabel, isDirectoryReference, directoryReferencePath } from "./file-paths.ts";
 export type { FilePathPart } from "./file-paths.ts";
 export * from "./citations.ts";
+export * from "./highlights.ts";
 export { parseComposerTokens } from "./composer-tokens.ts";
 export type { ComposerToken } from "./composer-tokens.ts";
 // Wave D (owner-approved 2026-09-26): the client view model — the grouping

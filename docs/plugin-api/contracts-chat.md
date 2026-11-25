@@ -303,12 +303,13 @@ export interface ChatRecord {
     settings?: ChatSettings;
     notes?: string;
     sideChats?: SideChatThread[];
+    highlights?: ChatHighlight[];
     attachments?: AttachmentRecord[];
     version?: number;
 }
 ```
 
-**Related types:** [AttachmentRecord](contracts-chat.md#attachmentrecord), [ChatSettings](contracts-chat.md#chatsettings), [ExtractionRunUsage](contracts-chat.md#extractionrunusage), [ImageSnapshot](contracts-chat.md#imagesnapshot), [LabSessionMeta](contracts-lab.md#labsessionmeta), [LhMessage](native-messages.md#lhmessage), [PersistedChatKind](contracts-chat.md#persistedchatkind), [PlanTree](contracts-plan.md#plantree), [SideChatThread](contracts-chat.md#sidechatthread), [TurnUsage](contracts-chat.md#turnusage).
+**Related types:** [AttachmentRecord](contracts-chat.md#attachmentrecord), [ChatHighlight](highlights.md#chathighlight), [ChatSettings](contracts-chat.md#chatsettings), [ExtractionRunUsage](contracts-chat.md#extractionrunusage), [ImageSnapshot](contracts-chat.md#imagesnapshot), [LabSessionMeta](contracts-lab.md#labsessionmeta), [LhMessage](native-messages.md#lhmessage), [PersistedChatKind](contracts-chat.md#persistedchatkind), [PlanTree](contracts-plan.md#plantree), [SideChatThread](contracts-chat.md#sidechatthread), [TurnUsage](contracts-chat.md#turnusage).
 
 **Member index** (including nested object members; inherited members are defined in the linked base types):
 
@@ -326,6 +327,7 @@ export interface ChatRecord {
 - [settings](#chatrecord-settings)
 - [notes](#chatrecord-notes)
 - [sideChats](#chatrecord-sidechats)
+- [highlights](#chatrecord-highlights)
 - [attachments](#chatrecord-attachments)
 - [version](#chatrecord-version)
 
@@ -441,6 +443,16 @@ compaction never read this field. Absent = none.
 
 ```ts
 sideChats?: SideChatThread[];
+```
+
+### ChatRecord highlights
+
+Persistent learner highlights anchored to tutor prose or side-chat
+answers. DELIBERATELY outside `messages`: agents, extraction, coverage,
+and compaction never read this field. Absent = none.
+
+```ts
+highlights?: ChatHighlight[];
 ```
 
 ### ChatRecord attachments

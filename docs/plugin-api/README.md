@@ -23,6 +23,7 @@ The SDK is **type-only**. Call the contexts supplied by LearnHarness, not runtim
 
 ## Modules
 
+- [citations](citations.md)
 - [contracts-chat](contracts-chat.md)
 - [contracts-graph](contracts-graph.md)
 - [contracts-jobs](contracts-jobs.md)
@@ -30,6 +31,7 @@ The SDK is **type-only**. Call the contexts supplied by LearnHarness, not runtim
 - [contracts-models](contracts-models.md)
 - [contracts-plan](contracts-plan.md)
 - [events](events.md)
+- [highlights](highlights.md)
 - [native-messages](native-messages.md)
 - [phases](phases.md)
 - [plugin-agents](plugin-agents.md)
@@ -195,6 +197,7 @@ The SDK is **type-only**. Call the contexts supplied by LearnHarness, not runtim
 
 These are reachable through public data, event, inheritance or helper-type relationships. Types not re-exported from the SDK root cannot be imported by name from that root; access them through public types rather than private app imports.
 
+- [TextSelector](citations.md#textselector) — `citations`
 - [AttachmentKind](contracts-chat.md#attachmentkind) — `contracts-chat`
 - [AttachmentRecord](contracts-chat.md#attachmentrecord) — `contracts-chat`
 - [CallUsage](contracts-chat.md#callusage) — `contracts-chat`
@@ -228,6 +231,9 @@ These are reachable through public data, event, inheritance or helper-type relat
 - [ServerEvent](events.md#serverevent) — `events`
 - [ServerEvents](events.md#serverevents) — `events`
 - [ServerEventType](events.md#servereventtype) — `events`
+- [ChatHighlight](highlights.md#chathighlight) — `highlights`
+- [HIGHLIGHT_COLORS](highlights.md#highlight_colors) — `highlights`
+- [HighlightColor](highlights.md#highlightcolor) — `highlights`
 - [LhMarkerMessage](native-messages.md#lhmarkermessage) — `native-messages`
 - [LhMessage](native-messages.md#lhmessage) — `native-messages`
 - [Phase3](phases.md#phase3) — `phases`
@@ -263,4 +269,4 @@ These are reachable through public data, event, inheritance or helper-type relat
 
 Standard JavaScript/DOM types (`Promise`, `AbortSignal`, `File`, `HTMLElement`, and utility types) use their standard contracts. Pi model/messages/tools and TypeBox schemas use the exact peer versions declared by the bundled SDK's `package.json`. Supply those peers when typechecking; they are development types, not permission to import private LearnHarness runtime modules.
 
-Coverage: **140 public types**, **63 supporting declarations**, **926 declared member signatures/variants**. Generation contains no build timestamps or absolute source paths.
+Coverage: **140 public types**, **67 supporting declarations**, **939 declared member signatures/variants**. Generation contains no build timestamps or absolute source paths.

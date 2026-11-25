@@ -69,6 +69,7 @@ import {
 	latestReadablePassageTarget,
 	messageAnchorId,
 	pendingPluginQuestionOf,
+	planNodeJumpTargets,
 	pluginQuestionCallsOf,
 	pluginQuestionOccurrenceKey,
 	sideEntryPoints,
@@ -106,7 +107,12 @@ import { QuestionDock } from "@/components/question-dock";
 import { CodeExerciseDockHost } from "@/components/code-exercise-dock-host";
 import { CodeExerciseAnsweredCard } from "@/components/code-exercise-answered-card";
 import { SessionFind, sessionFindHasForegroundLayer } from "@/components/session-find";
-import { scrollSessionToBottom, scrollSessionToTop, SessionMessageNavigation } from "@/components/session-navigation";
+import type { CollapsedSearchSource } from "@/components/session-find-dom";
+import { scrollSessionTarget, scrollSessionToBottom, scrollSessionToTop, SessionMessageNavigation } from "@/components/session-navigation";
+import { CardCollapseProvider, CardCollapseStore } from "@/components/card-collapse-state";
+import { ChatHighlightsProvider, useOptionalChatHighlights } from "@/components/highlights";
+import { SessionOutlineChip, type SessionHeadingItem } from "@/components/session-outline";
+import { SessionTurnRail, extractSessionTurns } from "@/components/session-turn-rail";
 import { SentenceReader, SentenceReaderButton, type SentenceReaderPassage } from "@/components/sentence-reader";
 import { PracticeDock } from "@/components/practice-dock";
 import { PluginProblemDock, type PluginProblemDockProps } from "./plugin-problem-dock";
@@ -391,6 +397,12 @@ export function Chat({
 		sideStoreRef.current = new SideChatStore(chatId);
 	}
 	const sideStore = sideStoreRef.current;
+
+	const cardCollapseRef = useRef<CardCollapseStore | null>(null);
+	if (cardCollapseRef.current === null || cardCollapseRef.current.chatId !== chatId) {
+		cardCollapseRef.current = new CardCollapseStore(chatId);
+	}
+	const cardCollapseStore = cardCollapseRef.current;
 
 	// THE SESSION HOOK (Wave D, owner-approved 2026-09-26): the app-owned
 	// replacement for useChat + the AI-SDK transport. The record is native
@@ -1482,6 +1494,7 @@ export function Chat({
 	// top-bar plan chip, and the dock band's marginalia.
 	const [planOpen, setPlanOpen] = useState(false);
 	const [readerPassage, setReaderPassage] = useState<({ text: string } & SentenceReaderPassage) | null>(null);
+	sideStore.onOpenReader = ({ text, partId }) => setReaderPassage({ text, partId, sideEnabled: false });
 	// Reader + session-edge shortcuts (registry actions). The handlers read the
 	// live transcript at EVENT time, so they attach once. A surfaced layer —
 	// the reader itself, a dialog, a menu — outranks all three.
@@ -1552,6 +1565,157 @@ export function Chat({
 	// The session's live plan (drives the top-bar chip; the marginalia
 	// derives its own from the same transcript).
 	const planTree = useMemo(() => latestTree(messages), [messages]);
+	const planJumpTargets = useMemo(() => (planTree ? planNodeJumpTargets(planTree, messages) : new Map<string, string>()), [planTree, messages]);
+	const jumpablePlanNodes = useMemo(() => new Set(planJumpTargets.keys()), [planJumpTargets]);
+	const sessionTurns = useMemo(() => extractSessionTurns(messages), [messages]);
+
+	const latestAnsweredCardId = useMemo(() => {
+		for (let mi = messages.length - 1; mi >= 0; mi--) {
+			const parts = messages[mi]!.parts;
+			for (let pi = parts.length - 1; pi >= 0; pi--) {
+				const part = parts[pi]!;
+				if (part.state !== "output-available" || !part.toolCallId) continue;
+				if (
+					part.type === "tool-quiz" ||
+					part.type === "tool-probe" ||
+					part.type === "tool-ask_user_question" ||
+					part.type === "tool-explain" ||
+					part.type === "tool-recall" ||
+					part.type === "tool-code-exercises"
+				) {
+					return part.toolCallId;
+				}
+			}
+		}
+		return null;
+	}, [messages]);
+	cardCollapseStore.setLatestCardId(latestAnsweredCardId);
+
+	const jumpFlashRef = useRef<{ el: HTMLElement; timer: number } | null>(null);
+	const jumpToElement = useCallback((el: HTMLElement | null) => {
+		const scope = sessionFindScopeRef.current;
+		if (!scope || !el) return;
+		scrollSessionTarget(el, scope, scrollContextRef.current);
+		if (jumpFlashRef.current) {
+			window.clearTimeout(jumpFlashRef.current.timer);
+			jumpFlashRef.current.el.classList.remove("lh-source-highlight");
+		}
+		el.classList.add("lh-source-highlight");
+		const timer = window.setTimeout(() => {
+			el.classList.remove("lh-source-highlight");
+			if (jumpFlashRef.current?.el === el) jumpFlashRef.current = null;
+		}, 1_800);
+		jumpFlashRef.current = { el, timer };
+	}, []);
+	useEffect(() => () => {
+		if (jumpFlashRef.current) window.clearTimeout(jumpFlashRef.current.timer);
+	}, []);
+
+	const jumpToMessage = useCallback((messageId: string) => {
+		const scope = sessionFindScopeRef.current;
+		if (!scope) return;
+		const el =
+			document.getElementById(messageAnchorId(messageId)) ??
+			scope.querySelector<HTMLElement>(`[data-turn-anchor="${CSS.escape(messageId)}"]`);
+		jumpToElement(el);
+	}, [jumpToElement]);
+
+	const jumpToHeading = useCallback((heading: SessionHeadingItem) => {
+		const scope = sessionFindScopeRef.current;
+		if (!scope) return;
+		const msgEls = Array.from(scope.querySelectorAll(`[data-source-message-id="${CSS.escape(heading.messageId)}"]`));
+		const headings = msgEls.flatMap((el) => Array.from(el.querySelectorAll<HTMLElement>("h1, h2, h3, h4")));
+		const target = headings[heading.indexInMessage] ?? document.getElementById(messageAnchorId(heading.messageId)) ?? scope.querySelector<HTMLElement>(`[data-turn-anchor="${CSS.escape(heading.messageId)}"]`);
+		jumpToElement(target);
+	}, [jumpToElement]);
+
+	const jumpToCard = useCallback((cardId: string) => {
+		cardCollapseStore.setOpen(cardId, true);
+		let attempts = 0;
+		const tryJump = () => {
+			const scope = sessionFindScopeRef.current;
+			const el = scope?.querySelector<HTMLElement>(`[data-answered-card="${CSS.escape(cardId)}"]`) ?? null;
+			if (el && el.getAttribute("aria-expanded") !== "false") {
+				jumpToElement(el);
+				return;
+			}
+			if (++attempts < 8) window.requestAnimationFrame(tryJump);
+			else if (el) jumpToElement(el);
+		};
+		window.requestAnimationFrame(tryJump);
+	}, [cardCollapseStore, jumpToElement]);
+
+	const collapsedSearchSources = useCallback((): CollapsedSearchSource[] => {
+		const sources: CollapsedSearchSource[] = [];
+		for (const thread of sideStore.threadsSnapshot()) {
+			if (thread.open) continue;
+			const renderKey = sideStore.renderKeyFor(thread.id);
+			const texts: string[] = [];
+			const firstBarQuote = thread.messages.find((m) => m.role === "user")?.quotes?.[0];
+			for (const msg of thread.messages) {
+				if (msg.text) texts.push(msg.text);
+				for (const q of msg.quotes ?? []) {
+					if (q !== firstBarQuote) texts.push(q);
+				}
+			}
+			if (texts.length > 0) {
+				sources.push({
+					kind: "collapsed-side",
+					key: thread.id,
+					selector: `[data-side-window="${CSS.escape(renderKey)}"]`,
+					texts,
+				});
+			}
+		}
+		for (const m of messages) {
+			if (m.role !== "assistant") continue;
+			for (const part of m.parts) {
+				if (part.state !== "output-available" || !part.toolCallId) continue;
+				if (cardCollapseStore.isOpen(part.toolCallId)) continue;
+				const texts: string[] = [];
+				if (part.type === "tool-code-exercises") {
+					const a = part.output as CodeExerciseAnswerData | undefined;
+					if (!a) continue;
+					if (a.code) texts.push(a.code);
+					if (a.lastRun?.stdout) texts.push(a.lastRun.stdout);
+					if (a.lastRun?.error) texts.push(a.lastRun.error);
+					if (a.thinking) texts.push(a.thinking);
+					if (a.explanation) texts.push(a.explanation);
+				} else if (
+					part.type === "tool-quiz" ||
+					part.type === "tool-probe" ||
+					part.type === "tool-ask_user_question" ||
+					part.type === "tool-explain" ||
+					part.type === "tool-recall"
+				) {
+					const a = part.output as QuestionAnswerData | undefined;
+					if (!a) continue;
+					for (const opt of a.options ?? []) texts.push(opt.label);
+					if (a.other) texts.push(a.other);
+					if (a.text) texts.push(a.text);
+					if (a.thinking) texts.push(a.thinking);
+					if (a.note) texts.push(a.note);
+					if (a.readingThinking) texts.push(a.readingThinking);
+					if (a.explanation) texts.push(a.explanation);
+					if (a.committed) texts.push(a.committed);
+				}
+				if (texts.length > 0) {
+					sources.push({
+						kind: "collapsed-card",
+						key: part.toolCallId,
+						selector: `[data-answered-card="${CSS.escape(part.toolCallId)}"]`,
+						texts,
+					});
+				}
+			}
+		}
+		return sources;
+	}, [sideStore, messages, cardCollapseStore]);
+
+	const handleRevealCollapsed = useCallback((entry: { kind: "collapsed-side" | "collapsed-card"; key: string }) => {
+		if (entry.kind === "collapsed-side") sideStore.setOpen(entry.key, true);
+		else cardCollapseStore.setOpen(entry.key, true);
+	}, [sideStore, cardCollapseStore]);
 	// Readings (docs/readings.md): teaching sessions only (practice, lab,
 	// and archived capstone sessions have no plan and no readings).
 	const readingsEnabled = kind !== "practice" && kind !== "lab" && kind !== "capstone";
@@ -2001,6 +2165,9 @@ export function Chat({
 		>
 		<JobsContext.Provider value={jobs}>
 		<SessionReadingsContext.Provider value={readingsEnabled ? readingsTray.seam : null}>
+		<SideChatProvider store={sideStore}>
+		<ChatHighlightsProvider chatId={chatId} scopeRef={sessionFindScopeRef} scrollContextRef={scrollContextRef}>
+		<CardCollapseProvider store={cardCollapseStore}>
 		{/* The session surface: the transcript column (header + scroller) and
 		    the plan-tree panel as full-height SIBLINGS — the panel spans top to
 		    bottom exactly like the left sidebar, and the header (name + phase
@@ -2118,6 +2285,14 @@ export function Chat({
 						</button>
 </Hint>
 					)}
+				<OutlineChipWithHighlights
+					messages={messages}
+					planTree={planTree}
+					planJumpTargets={planJumpTargets}
+					onJumpMessage={jumpToMessage}
+					onJumpHeading={jumpToHeading}
+					onJumpCard={jumpToCard}
+				/>
 				<NotesChip />
 					{/* The extraction ring (owner-locked redesign, 2026-09-24): fills
 					    with uncovered vs the chunk threshold, pulses while a run is in
@@ -2165,10 +2340,15 @@ export function Chat({
 				</TopBar>
 				)}
 
-				<SessionFind scopeRef={sessionFindScopeRef} scrollContextRef={scrollContextRef} />
-				<SideChatProvider store={sideStore}>
+				<SessionFind
+					scopeRef={sessionFindScopeRef}
+					scrollContextRef={scrollContextRef}
+					collapsedSources={collapsedSearchSources}
+					onRevealCollapsed={handleRevealCollapsed}
+				/>
 				<SideSelectionAsk
 					notes={notes}
+					scopeRef={sessionFindScopeRef}
 					onQuote={(quote) => {
 						const prefix = textRef.current.trim() ? `${textRef.current.replace(/\s*$/, "")}\n\n` : "";
 						applyText(`${prefix}> ${quote.replace(/\n/g, "\n> ")}\n\n`);
@@ -2176,6 +2356,12 @@ export function Chat({
 					}}
 				/>
 				<div ref={sessionFindScopeRef} className="relative flex min-h-0 flex-1">
+				<SessionTurnRail
+					turns={sessionTurns}
+					scopeRef={sessionFindScopeRef}
+					scrollContextRef={scrollContextRef}
+					onJumpTurn={jumpToMessage}
+				/>
 				<Conversation className="h-full min-w-0 flex-1" initial="instant" contextRef={scrollContextRef}>
 					<SessionMessageNavigation />
 					<TranscriptElementReporter onElement={setTranscriptElement} />
@@ -2292,6 +2478,7 @@ export function Chat({
 										    Rendered WITHOUT the Message wrapper — that is the bubble. */
 											<div
 										data-testid="user-message"
+										data-turn-anchor={m.id || undefined}
 										/* THE DOCUMENT, ALL-IN (owner rounds two+three, 2026-10-07):
 										    no chat side — the user message is a full-width card-color
 										    BAND, the IDENTICAL geometry as the thinking rows: 5px band
@@ -2340,7 +2527,7 @@ export function Chat({
 												)}
 											</div>
 									) : (
-									<Message from="assistant" className="max-w-full">
+									<Message from="assistant" data-turn-anchor={m.id || undefined} className="max-w-full">
 									<MessageContent className="w-full">
 											{m.parts.map((part, pi) => {
 												if (part.pluginProblem) return <ProblemCard key={pi} part={{ ...part, state: part.state ?? "input-available", toolCallId: part.toolCallId ?? "" }} />;
@@ -2443,14 +2630,20 @@ export function Chat({
 														// transcript; answered ones render as graded records.
 														if (part.state === "output-available") {
 															return (
-																<AnsweredCard key={pi} answer={part.output as QuestionAnswerData} input={part.input} mistakeId={`${chatId}:${part.toolCallId}`} />
+																<AnsweredCard
+																	key={pi}
+																	answer={part.output as QuestionAnswerData}
+																	input={part.input}
+																	mistakeId={`${chatId}:${part.toolCallId}`}
+																	cardId={part.toolCallId}
+																/>
 															);
 														}
 														return null;
 													}
 													case "tool-code-exercises": {
 														if (part.state === "output-available") {
-															return <CodeExerciseAnsweredCard key={pi} answer={part.output as CodeExerciseAnswerData} />;
+															return <CodeExerciseAnsweredCard key={pi} answer={part.output as CodeExerciseAnswerData} cardId={part.toolCallId} />;
 														}
 														return null;
 													}
@@ -2698,6 +2891,7 @@ export function Chat({
 							onFloat={sideThread.float}
 							onClose={closeSideThread}
 							onCurrentStep={goToCurrentSideStep}
+							onOpenReader={(text, partId) => setReaderPassage({ text, partId, sideEnabled: false })}
 						/>
 					</SideThreadPanel>
 				)}
@@ -2717,6 +2911,7 @@ export function Chat({
 						onFloat={sideThread.float}
 						onClose={closeSideThread}
 						onCurrentStep={goToCurrentSideStep}
+						onOpenReader={(text, partId) => setReaderPassage({ text, partId, sideEnabled: false })}
 					/>
 				)}
 
@@ -2738,6 +2933,11 @@ export function Chat({
 					<PlanPopup
 						messages={messages}
 						onClose={() => setPlanOpen(false)}
+						onJumpToNode={(nodeId) => {
+							const targetId = planJumpTargets.get(nodeId);
+							if (targetId) jumpToMessage(targetId);
+						}}
+						jumpableNodes={jumpablePlanNodes}
 						onReadDeeper={
 							readingsEnabled ? (nodeId) => readingsTray.seam.request({ kind: "deep-dive", planNodeId: nodeId }) : undefined
 						}
@@ -2751,7 +2951,6 @@ export function Chat({
 				<AbortTurnDialog mode={abortAsk} onClose={closeAbortAsk} onConfirm={confirmAbort} busy={busy} />
 				{readingsEnabled && <PassageReadDeeper rootRef={sessionFindScopeRef} />}
 				</div>
-				</SideChatProvider>
 			</div>
 			{/* The readings tray (owner ruling 2026-10-27: a side tray beside
 			    the lesson — the transcript stays untouched). A full-height
@@ -2769,6 +2968,9 @@ export function Chat({
 			)}
 			{!embedded && <NotesPanel />}
 		</div>
+		</CardCollapseProvider>
+		</ChatHighlightsProvider>
+		</SideChatProvider>
 		</SessionReadingsContext.Provider>
 		</JobsContext.Provider>
 		</SessionMermaidContext.Provider>
@@ -2790,6 +2992,36 @@ export function Chat({
 		</ChatActionsContext.Provider>
 		</NotesProvider>
 		</MistakesContext.Provider>
+	);
+}
+
+function OutlineChipWithHighlights({
+	messages,
+	planTree,
+	planJumpTargets,
+	onJumpMessage,
+	onJumpHeading,
+	onJumpCard,
+}: {
+	messages: readonly LhViewMessage[];
+	planTree: ReturnType<typeof latestTree>;
+	planJumpTargets: ReadonlyMap<string, string>;
+	onJumpMessage: (messageId: string) => void;
+	onJumpHeading: (heading: SessionHeadingItem) => void;
+	onJumpCard: (cardId: string) => void;
+}) {
+	const hl = useOptionalChatHighlights();
+	return (
+		<SessionOutlineChip
+			messages={messages}
+			planTree={planTree}
+			planJumpTargets={planJumpTargets}
+			highlights={hl?.highlights ?? []}
+			onJumpMessage={onJumpMessage}
+			onJumpHeading={onJumpHeading}
+			onJumpCard={onJumpCard}
+			onJumpHighlight={(h) => hl?.jumpToHighlight(h)}
+		/>
 	);
 }
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useContext, useState } from "react";
+import { ChevronDownIcon, ChevronRightIcon, ChevronUpIcon } from "lucide-react";
 import { MistakesContext } from "@/components/mistakes-context";
 import { ERROR_TYPE_LABELS } from "@/src/core";
 import { ConfidenceRail } from "@/components/confidence-rail";
@@ -9,11 +10,26 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { SubmittedImages } from "./submitted-images";
 import { ThinkingBlock } from "@/components/thinking-block";
 import { PathText } from "@/components/file-path-chip";
+import { blurAfterPointerClick } from "@/components/focus-hygiene";
+import { useCardOpen } from "@/components/card-collapse-state";
 import { cn } from "@/lib/utils";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { FigureSplit } from "@/components/figure-split";
 import type { QuestionAnswerData } from "@/src/core";
 import { answerForPresentation, parseAskInput, parseExplainInput, parseQuizInput } from "@/src/core";
+
+export function answeredCardKindLabel(answer: QuestionAnswerData): string {
+	if (answer.tool === "probe") return "Probe";
+	if (answer.tool === "recall") return "Recall";
+	if (answer.kind === "quiz") return answer.questionType === "predict" ? "Prediction" : "Check";
+	if (answer.kind === "explain") return "Explain";
+	return "Question";
+}
+
+export function answeredCardExcerpt(text: string, max = 90): string {
+	const flat = text.replace(/[$#*>`_`]+/g, " ").replace(/\s+/g, " ").trim();
+	return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+}
 
 /**
  * Static rendering of an answered question (tool part in `output-available`).
@@ -29,27 +45,92 @@ export function AnsweredCard({
 	answer: savedAnswer,
 	input,
 	mistakeId,
+	cardId,
 }: {
 	answer: QuestionAnswerData;
 	input?: unknown;
 	/** `<chatId>:<toolCallId>` — where this answer's recorded analysis lives. */
 	mistakeId?: string;
+	/** Stable card identifier (toolCallId) enabling collapsible behavior inside a chat. */
+	cardId?: string;
 }) {
 	const answer = answerForPresentation(savedAnswer, input);
 	const mistake = useContext(MistakesContext).get(mistakeId ?? "");
 	const analysis = mistake?.status === "ready" ? mistake.analysis : undefined;
 	const hasAnalysis = Boolean(analysis) || mistake?.status === "pending";
 	const [whyOpen, setWhyOpen] = useState(false); // the tucked explanation (predictions, owner 2026-10-03)
+	const { open, store: collapseStore } = useCardOpen(cardId, true);
+	const collapsible = Boolean(cardId && collapseStore);
+
+	const isQuiz = answer.kind === "quiz";
+	const isExplain = answer.kind === "explain";
+	const kindLabel = answeredCardKindLabel(answer);
+	const verdictBadge = answer.dismissed ? (
+		<StatusBadge text="skipped" />
+	) : isQuiz ? (
+		answer.dontKnow ? (
+			<StatusBadge text="didn't know" />
+		) : answer.correct ? (
+			<StatusBadge text="correct" color="var(--lh-success)" />
+		) : (
+			<StatusBadge text="incorrect" color="var(--lh-error)" />
+		)
+	) : null;
+
+	if (collapsible && !open) {
+		const excerpt = answeredCardExcerpt(answer.questionText);
+		return (
+			<button
+				type="button"
+				data-testid="answered-card-bar"
+				data-answered-card={cardId}
+				aria-expanded={false}
+				aria-label={`Open ${kindLabel}: ${excerpt}`}
+				onClick={(e) => {
+					blurAfterPointerClick(e);
+					collapseStore!.setOpen(cardId!, true);
+				}}
+				className="flex w-full min-w-0 items-center gap-2 rounded-lg border bg-card px-3 py-1.5 text-left font-ui text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+			>
+				<ChevronRightIcon className="size-3 shrink-0" />
+				<span className="shrink-0 font-medium uppercase tracking-wide">{kindLabel}</span>
+				{verdictBadge}
+				<span className="min-w-0 truncate text-foreground/80">{excerpt}</span>
+				{isQuiz && answer.confidence != null && !answer.dismissed && (
+					<span className="ml-auto shrink-0 font-mono tabular-nums">{answer.confidence}%</span>
+				)}
+			</button>
+		);
+	}
+
 	if (answer.dismissed) {
 		return (
-			<div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
+			<div
+				className="rounded-xl border bg-card p-4 text-sm text-muted-foreground"
+				data-answered-card={cardId}
+			>
+				{collapsible && (
+					<button
+						type="button"
+						data-testid="answered-card-toggle"
+						aria-expanded={true}
+						aria-label={`Collapse ${kindLabel}`}
+						onClick={(e) => {
+							blurAfterPointerClick(e);
+							collapseStore!.setOpen(cardId!, false);
+						}}
+						className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
+					>
+						<ChevronDownIcon className="size-3 shrink-0" />
+						{kindLabel}
+						{verdictBadge}
+					</button>
+				)}
 				<span className="font-medium">{answer.questionText}</span> — skipped
 			</div>
 		);
 	}
 
-	const isQuiz = answer.kind === "quiz";
-	const isExplain = answer.kind === "explain";
 	const selectedIdx = new Set(answer.answers.map((a) => a.index));
 	const correctIdx = new Set(answer.correctIndices ?? []);
 	// The question's own context rides the ORIGINAL CALL, not the answer
@@ -82,36 +163,35 @@ export function AnsweredCard({
 		<div
 			className="rounded-xl border bg-card p-4 text-card-foreground [&>*:last-child]:mb-0"
 			data-testid="answered-card"
+			data-answered-card={cardId}
 		>
 			<FigureSplit
 				figure={figure}
 				bodyClassName="[&>*:last-child]:mb-0"
 				head={
 					<>
-						<div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-							{/* The tool's OWN name first (owner 2026-10-09): probe-phase
-						    cards label Probe/Recall — the phase boundary visible in the
-						    transcript. No `tool` on old records: kind labels as before. */}
-							{answer.tool === "probe"
-								? "Probe"
-								: answer.tool === "recall"
-									? "Recall"
-									: isQuiz
-											? answer.questionType === "predict"
-												? "Prediction"
-												: "Check"
-												: isExplain
-													? "Explain"
-														: "Question"}
-							{isQuiz &&
-								(answer.dontKnow ? (
-									<StatusBadge text="didn't know" />
-								) : answer.correct ? (
-									<StatusBadge text="correct" color="var(--lh-success)" />
-								) : (
-									<StatusBadge text="incorrect" color="var(--lh-error)" />
-								))}
-						</div>
+						{collapsible ? (
+							<button
+								type="button"
+								data-testid="answered-card-toggle"
+								aria-expanded={true}
+								aria-label={`Collapse ${kindLabel}`}
+								onClick={(e) => {
+									blurAfterPointerClick(e);
+									collapseStore!.setOpen(cardId!, false);
+								}}
+								className="mb-1 flex w-full items-center gap-2 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
+							>
+								<ChevronDownIcon className="size-3 shrink-0" />
+								{kindLabel}
+								{verdictBadge}
+							</button>
+						) : (
+							<div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+								{kindLabel}
+								{verdictBadge}
+							</div>
+						)}
 						<div className="mb-3 font-medium">
 							<ToolContentResponse>{answer.questionText}</ToolContentResponse>
 						</div>
@@ -290,6 +370,26 @@ export function AnsweredCard({
 					</div>
 				)}
 			</FigureSplit>
+			{collapsible && (
+				<div className="mt-2 flex items-center">
+					<button
+						type="button"
+						data-testid="answered-card-collapse-bottom"
+						aria-label={`Collapse ${kindLabel}`}
+						title="Collapse"
+						onClick={(e) => {
+							blurAfterPointerClick(e);
+							collapseStore!.setOpen(cardId!, false);
+							window.requestAnimationFrame(() => {
+								document.querySelector(`[data-answered-card="${CSS.escape(cardId!)}"]`)?.scrollIntoView({ block: "nearest" });
+							});
+						}}
+						className="-ml-1 flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+					>
+						<ChevronUpIcon className="size-3.5" />
+					</button>
+				</div>
+			)}
 		</div>
 		</>
 	);

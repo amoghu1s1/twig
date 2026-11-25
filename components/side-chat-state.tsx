@@ -181,8 +181,14 @@ class SideChatStore {
 	readonly composerText = new Map<string, string>();
 	/** Rendered prose blocks, for the selection popover's anchor lookup. */
 	readonly blocks = new Map<string, SideChatAnchor>();
+	/** Optional Sentence Reader launcher wired by the host chat view. */
+	onOpenReader?: (passage: { text: string; partId: string }) => void;
 
 	constructor(readonly chatId: string) {}
+
+	openReader(text: string, partId: string): void {
+		this.onOpenReader?.({ text, partId });
+	}
 
 	subscribe = (listener: () => void) => {
 		this.listeners.add(listener);
@@ -193,6 +199,16 @@ class SideChatStore {
 
 	/** One block's window stack (a stable empty array when there is none). */
 	windowsAt = (blockKey: string): readonly SideWindowView[] => this.windows.get(blockKey) ?? EMPTY_WINDOWS;
+
+	/** Snapshot of saved side threads (for outline & collapsed-search integration). */
+	threadsSnapshot(): readonly SideChatThread[] {
+		return this.canonical.threads;
+	}
+
+	/** Render key (stable across draft → saved promotion) for a thread id. */
+	renderKeyFor(threadId: string): string {
+		return this.canonical.aliases.get(threadId) ?? threadId;
+	}
 
 	private set(patch: Partial<SideCanonical>): void {
 		this.canonical = { ...this.canonical, ...patch };

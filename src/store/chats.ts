@@ -27,6 +27,7 @@ import type {
 } from "../core/contracts.ts";
 import { CURRENT_CHAT_VERSION } from "../core/contracts.ts";
 import type { LhMessage } from "../core/native-messages.ts";
+import type { ChatHighlight } from "../core/highlights.ts";
 import { activeProblemOf, danglingQuestionOf } from "../core/native-messages.ts";
 import { phaseAt3Lh } from "../core/phases.ts";
 import { removeLeftoverTemps, writeFileAtomicSync } from "./atomic-write.ts";
@@ -328,6 +329,18 @@ function updateSideChats(id: string, update: (threads: SideChatThread[]) => Side
 	return next;
 }
 
+/** Persisted learner highlights: synchronous read-modify-write, like
+ *  updateSideChats. Never bumps updatedAt. */
+function updateHighlights(id: string, update: (highlights: ChatHighlight[]) => ChatHighlight[]): ChatHighlight[] | null {
+	const record = getChat(id);
+	if (!record) return null;
+	const next = update(record.highlights ?? []);
+	if (next.length > 0) record.highlights = next;
+	else delete record.highlights;
+	writeChat(record);
+	return next;
+}
+
 /** Rewind to a retained prefix: messages and tree land in ONE write, so a
  *  crash can never leave a tree that its own transcript does not imply. */
 function rewindMessages(id: string, messages: LhMessage[], tree: PlanTree | undefined): void {
@@ -353,6 +366,7 @@ export const chatStore: ChatStore = {
 	renameChat,
 	saveNotes,
 	updateSideChats,
+	updateHighlights,
 	deleteChat,
 	addAttachments,
 	setAttachmentDetached,

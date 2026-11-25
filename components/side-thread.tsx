@@ -7,6 +7,7 @@ import { rmsToMeter, type DictationPhase } from "./dictation";
 import { CitationActionsContext } from "./citation-chip";
 import { MessageResponse } from "./ai-elements/message";
 import { BrailleSpinner } from "./braille-spinner";
+import { SentenceReaderButton } from "./sentence-reader";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { fitResizableSideThreadFrame, placeSideThread, resizeSideThread, type SideThreadFrame, type SideThreadResizeEdge, type SideThreadPlacement, type SideThreadViewport } from "./side-thread-float";
@@ -44,6 +45,7 @@ export interface SideThreadHandlers {
 	onFloat: () => void;
 	onClose: () => void;
 	onCurrentStep?: () => void;
+	onOpenReader?: (text: string, partId: string) => void;
 }
 function Passage({ text, chatId, sourceMessageId, selector, citation: savedCitation }: { text: string; chatId?: string; sourceMessageId?: string; selector?: Omit<TextSelector, "text">; citation?: TutorCitation }) {
 	const actions = useContext(CitationActionsContext);
@@ -70,7 +72,7 @@ function SideInputMeter({ levelRef }: { levelRef?: { current: number } }) {
 
 /** #451's companion body, rendering the durable raw messages supplied by
  * #487's service. There is no sharing toggle, generated note, or deletion. */
-export function SideThreadBody({ state, chatId, draft, readDraft, dictation, onDraftChange, onAsk, onStop, onExpand, onFloat, onClose, onCurrentStep, onDragStart }: {
+export function SideThreadBody({ state, chatId, draft, readDraft, dictation, onDraftChange, onAsk, onStop, onExpand, onFloat, onClose, onCurrentStep, onOpenReader, onDragStart }: {
 	state: SideThreadState; chatId?: string; onDragStart?: (event: React.PointerEvent<HTMLElement>) => void;
 } & SideThreadHandlers) {
 	const controller = useOptionalInteractionLayers();
@@ -130,7 +132,16 @@ export function SideThreadBody({ state, chatId, draft, readDraft, dictation, onD
 				{state.messages.map((message) => (
 					<div key={message.id} data-testid={message.role === "user" ? "side-learner-message" : "side-helper-message"} className={message.role === "user" ? "ml-auto flex w-fit max-w-[70%] flex-col gap-1.5 rounded-xl bg-muted px-3 py-2 text-sm [overflow-wrap:anywhere]" : "flex flex-col gap-1.5 text-sm"}>
 						{message.quotes?.map((quote, index) => <Passage key={index} text={quote} citation={collectCitations(message.quoteCitations?.[index] ?? "")[0]?.citation} />)}
-						{message.role === "user" ? <p className="whitespace-pre-wrap font-medium">{message.text}</p> : <MessageResponse>{message.text}</MessageResponse>}
+						{message.role === "user" ? (
+							<p className="whitespace-pre-wrap font-medium">{message.text}</p>
+						) : (
+							<>
+								{onOpenReader && message.text.trim() !== "" && (
+									<SentenceReaderButton onOpen={() => onOpenReader(message.text, `side-thread:${state.threadId}:${message.id}`)} />
+								)}
+								<MessageResponse>{message.text}</MessageResponse>
+							</>
+						)}
 						{message.stopped && <span className="font-ui text-xs text-muted-foreground">Stopped</span>}
 						{message.error && <span role="alert" className="text-xs text-destructive">{message.error}</span>}
 					</div>

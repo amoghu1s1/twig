@@ -10,6 +10,7 @@
  */
 
 import type { LhMessage } from "./native-messages.ts";
+import type { ChatHighlight } from "./highlights.ts";
 import type { PluginAgentRecord } from "./plugin-agents.ts";
 import type { PluginTaskRecord } from "./plugin-workers.ts";
 import type { AnkiNoteRecord } from "./anki.ts";
@@ -105,6 +106,9 @@ export interface ChatStore {
 	 *  side-chat service announces its own changes. Not conversation
 	 *  activity — updatedAt stays put. */
 	updateSideChats(id: string, update: (threads: SideChatThread[]) => SideChatThread[]): SideChatThread[] | null;
+	/** Read-modify-write the record's persisted learner highlights in one
+	 *  synchronous section. Not conversation activity — updatedAt stays put. */
+	updateHighlights(id: string, update: (highlights: ChatHighlight[]) => ChatHighlight[]): ChatHighlight[] | null;
 	/** Delete the session record entirely (session-deletion wave 6, owner
 	 *  2026-09-22). False when the id is unknown. The graph-ledger purge and
 	 *  job cleanup are the caller's choreography (core/graph-deletion.ts +

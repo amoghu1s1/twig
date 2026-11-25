@@ -1,10 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { CheckIcon, XIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, XIcon } from "lucide-react";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { HighlightedCode } from "@/components/highlighted-code";
 import { ThinkingBlock } from "@/components/thinking-block";
+import { answeredCardExcerpt } from "@/components/answered-card";
+import { useCardOpen } from "@/components/card-collapse-state";
+import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { cn } from "@/lib/utils";
 import { CODE_LANGUAGE_LABELS, restoreLiteralNewlines, type CodeExerciseAnswerData } from "@/src/core";
 
@@ -15,22 +18,87 @@ import { CODE_LANGUAGE_LABELS, restoreLiteralNewlines, type CodeExerciseAnswerDa
  * (components/answered-card.tsx). Graded exercises show the checks verdict;
  * run-only ones show the output without a verdict.
  */
-export function CodeExerciseAnsweredCard({ answer }: { answer: CodeExerciseAnswerData }) {
+export function CodeExerciseAnsweredCard({ answer, cardId }: { answer: CodeExerciseAnswerData; cardId?: string }) {
 	const [whyOpen, setWhyOpen] = useState(false);
+	const { open, store: collapseStore } = useCardOpen(cardId, true);
+	const collapsible = Boolean(cardId && collapseStore);
+	const { lastRun } = answer;
+	const kindLabel = `Code · ${CODE_LANGUAGE_LABELS[answer.language]}`;
+
+	if (collapsible && !open) {
+		const excerpt = answeredCardExcerpt(restoreLiteralNewlines(answer.questionText));
+		return (
+			<button
+				type="button"
+				data-testid="answered-card-bar"
+				data-answered-card={cardId}
+				aria-expanded={false}
+				aria-label={`Open ${kindLabel}: ${excerpt}`}
+				onClick={(e) => {
+					blurAfterPointerClick(e);
+					collapseStore!.setOpen(cardId!, true);
+				}}
+				className="flex w-full min-w-0 items-center gap-2 rounded-lg border bg-card px-3 py-1.5 text-left font-ui text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+			>
+				<ChevronRightIcon className="size-3 shrink-0" />
+				<span className="shrink-0 font-medium uppercase tracking-wide">{kindLabel}</span>
+				{answer.dismissed ? (
+					<span className="shrink-0 text-muted-foreground">skipped</span>
+				) : (
+					answer.graded && <Verdict passed={lastRun?.passed === true} timedOut={lastRun?.timedOut === true} />
+				)}
+				<span className="min-w-0 truncate text-foreground/80">{excerpt}</span>
+			</button>
+		);
+	}
+
 	if (answer.dismissed) {
 		return (
-			<div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
+			<div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground" data-answered-card={cardId}>
+				{collapsible && (
+					<button
+						type="button"
+						data-testid="answered-card-toggle"
+						aria-expanded={true}
+						aria-label={`Collapse ${kindLabel}`}
+						onClick={(e) => {
+							blurAfterPointerClick(e);
+							collapseStore!.setOpen(cardId!, false);
+						}}
+						className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
+					>
+						<ChevronDownIcon className="size-3 shrink-0" />
+						{kindLabel}
+					</button>
+				)}
 				<span className="font-medium">{answer.questionText}</span> — skipped
 			</div>
 		);
 	}
-	const { lastRun } = answer;
 	return (
-		<div className="rounded-xl border bg-card p-4 text-card-foreground" data-testid="code-answered-card">
-			<div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-				Code · {CODE_LANGUAGE_LABELS[answer.language]}
-				{answer.graded && <Verdict passed={lastRun?.passed === true} timedOut={lastRun?.timedOut === true} />}
-			</div>
+		<div className="rounded-xl border bg-card p-4 text-card-foreground" data-testid="code-answered-card" data-answered-card={cardId}>
+			{collapsible ? (
+				<button
+					type="button"
+					data-testid="answered-card-toggle"
+					aria-expanded={true}
+					aria-label={`Collapse ${kindLabel}`}
+					onClick={(e) => {
+						blurAfterPointerClick(e);
+						collapseStore!.setOpen(cardId!, false);
+					}}
+					className="mb-1 flex w-full items-center gap-2 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
+				>
+					<ChevronDownIcon className="size-3 shrink-0" />
+					{kindLabel}
+					{answer.graded && <Verdict passed={lastRun?.passed === true} timedOut={lastRun?.timedOut === true} />}
+				</button>
+			) : (
+				<div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+					{kindLabel}
+					{answer.graded && <Verdict passed={lastRun?.passed === true} timedOut={lastRun?.timedOut === true} />}
+				</div>
+			)}
 			<div className="mb-3 font-medium">
 				<MessageResponse>{restoreLiteralNewlines(answer.questionText)}</MessageResponse>
 			</div>
@@ -70,6 +138,26 @@ export function CodeExerciseAnsweredCard({ answer }: { answer: CodeExerciseAnswe
 							</MessageResponse>
 						</div>
 					)}
+				</div>
+			)}
+			{collapsible && (
+				<div className="mt-2 flex items-center">
+					<button
+						type="button"
+						data-testid="answered-card-collapse-bottom"
+						aria-label={`Collapse ${kindLabel}`}
+						title="Collapse"
+						onClick={(e) => {
+							blurAfterPointerClick(e);
+							collapseStore!.setOpen(cardId!, false);
+							window.requestAnimationFrame(() => {
+								document.querySelector(`[data-answered-card="${CSS.escape(cardId!)}"]`)?.scrollIntoView({ block: "nearest" });
+							});
+						}}
+						className="-ml-1 flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+					>
+						<ChevronUpIcon className="size-3.5" />
+					</button>
 				</div>
 			)}
 		</div>
