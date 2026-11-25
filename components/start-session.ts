@@ -1,9 +1,11 @@
+import type { LabLanguage } from "@/src/core";
 import { clearOpeningPrompt, OPENING_PROMPT_FAILURE, stashOpeningPrompt } from "./opening-prompt";
 
 interface SessionCreation {
 	title: string;
-	kind?: "practice" | "capstone";
+	kind?: "practice" | "lab";
 	graphContext?: { propositions: readonly { id: string; name: string; statement: string }[] };
+	lab?: { workspaceDir?: string; interpreterPath?: string; language?: LabLanguage };
 }
 
 /** Per source-composer instance. Retain a successful creation if storage

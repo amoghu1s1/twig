@@ -51,6 +51,10 @@ export interface ServerEvents {
 	"plugins-changed": Record<string, never>;
 	/** Live-only, plugin-scoped notifications. Reconnect requires snapshot resync. */
 	"plugin-message": { pluginId: string; topic: string; data?: unknown };
+	/** Lab workspace notebook or metadata changed (e.g., mentor inserted a cell
+	 *  or cell execution persisted). Notify-then-fetch: Lab UI refetches
+	 *  /api/labs/:id/notebook and optionally highlights focusCellId. */
+	"lab-changed": { chatId: string; revision?: string; focusCellId?: string };
 }
 
 export type ServerEventType = keyof ServerEvents;
@@ -74,6 +78,7 @@ export const SERVER_EVENT_TYPES = [
 	"mistakes-changed",
 	"plugins-changed",
 	"plugin-message",
+	"lab-changed",
 ] as const satisfies readonly ServerEventType[];
 
 /** One notification: distribute over the vocabulary so narrowing `type`

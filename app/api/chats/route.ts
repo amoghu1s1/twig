@@ -1,6 +1,6 @@
 import { chainsForSelection, formatChainLine } from "@/src/core";
-import { newGraphContextMessage, type GraphContextPick } from "@/src/core";
-import { compactionInFlight, createChat, isTurnRunning, listChats, readSettingsRecord, stores, titleFromPrompt } from "@/src/server";
+import { newGraphContextMessage, type GraphContextPick, type LabLanguage, type LabSessionMeta } from "@/src/core";
+import { compactionInFlight, createChat, isTurnRunning, listChats, provisionLabWorkspace, readSettingsRecord, stores, titleFromPrompt } from "@/src/server";
 import type { ChatListItem } from "@/src/core";
 
 /** The session picker's list: record-derived summaries (phase, pending
@@ -20,13 +20,44 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-	const body = (await req.json().catch(() => ({}))) as { title?: unknown; kind?: unknown; graphContext?: unknown };
+	const body = (await req.json().catch(() => ({}))) as {
+		title?: unknown;
+		kind?: unknown;
+		graphContext?: unknown;
+		lab?: unknown;
+	};
 	const title = typeof body.title === "string" ? body.title : "";
-	// Practice sessions (owner, 2026-10-04): kind "practice" marks the
-	// record — the practice agent + its tools from turn 1, no extraction.
-	// Capstone sessions (2026-11-01): kind "capstone" marks a build-it session.
-	const kind = body.kind === "practice" || body.kind === "capstone" ? body.kind : undefined;
-	const chat = createChat(titleFromPrompt(title || "Untitled session"), kind);
+	if (body.kind === "capstone") {
+		return Response.json({ error: 'Capstone sessions are retired; use kind "lab".' }, { status: 400 });
+	}
+	const kind = body.kind === "practice" || body.kind === "lab" ? body.kind : undefined;
+	const resolvedTitle = titleFromPrompt(title || (kind === "lab" ? "Untitled lab" : "Untitled session"));
+
+	let labMeta: LabSessionMeta | undefined;
+	if (kind === "lab") {
+		const rawLab = body.lab && typeof body.lab === "object" && !Array.isArray(body.lab)
+			? (body.lab as { workspaceDir?: unknown; interpreterPath?: unknown; language?: unknown })
+			: {};
+		const workspaceDir = typeof rawLab.workspaceDir === "string" && rawLab.workspaceDir.trim() ? rawLab.workspaceDir.trim() : undefined;
+		const interpreterPath = typeof rawLab.interpreterPath === "string" && rawLab.interpreterPath.trim() ? rawLab.interpreterPath.trim() : undefined;
+		const language: LabLanguage = rawLab.language === "python" ? "python" : "python";
+		try {
+			const provisioned = await provisionLabWorkspace({
+				title: resolvedTitle,
+				workspaceDir,
+				interpreterPath,
+				language,
+			});
+			labMeta = provisioned.meta;
+		} catch (err) {
+			return Response.json(
+				{ error: err instanceof Error ? err.message : "Could not provision Lab workspace" },
+				{ status: 400 },
+			);
+		}
+	}
+
+	const chat = createChat(resolvedTitle, kind, labMeta ? { lab: labMeta } : undefined);
 	// PER-SESSION MODELS (owner, 2026-09-28): a session owns its model +
 	// thinking level from birth — stamped verbatim from the STRONG slot,
 	// the new-session default. From here the strong slot never reaches
@@ -68,5 +99,5 @@ export async function POST(req: Request) {
 		);
 		stores.chatStore.saveMessages(chat.id, [newGraphContextMessage(picks, chainLines)]);
 	}
-	return Response.json({ id: chat.id, title: chat.title });
+	return Response.json({ id: chat.id, title: chat.title, ...(chat.lab ? { lab: chat.lab } : {}) });
 }

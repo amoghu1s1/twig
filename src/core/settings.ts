@@ -31,6 +31,7 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { CacheRetention } from "@earendil-works/pi-ai";
 import { CLAUDE_CODE_PROVIDER } from "./contracts/claude-code.ts";
+import type { LabNudgeLevel } from "./contracts/lab.ts";
 import { providerLabel } from "./provider-label.ts";
 import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
@@ -543,6 +544,17 @@ export interface CompactionSettings {
 	includeReasoning?: boolean;
 }
 
+/** Lab workspace & default Python interpreter preferences (delta section). */
+export interface LabSettings {
+	/** Root directory where new Lab folders are created by default
+	 *  (empty/absent = ~/Documents/Twig Labs). */
+	defaultRootDir?: string;
+	/** Preferred Python executable path for new Lab sessions (empty/absent = auto-detect). */
+	pythonPath?: string;
+	/** Default coaching nudge level for new Lab sessions (absent = "nudge"). */
+	defaultNudgeLevel?: LabNudgeLevel;
+}
+
 /** THE record. Every section optional (delta); unknown top-level keys are
  *  preserved verbatim by the sanitizer (forward-compat with newer records). */
 export interface UserSettings {
@@ -559,6 +571,7 @@ export interface UserSettings {
 	appearance?: AppearanceSettings;
 	graph?: GraphSettings;
 	compaction?: CompactionSettings;
+	lab?: LabSettings;
 	[key: string]: unknown;
 }
 
@@ -593,6 +606,7 @@ export interface FactorySettings {
 	};
 	graph: Required<GraphSettings>;
 	compaction: Required<CompactionSettings>;
+	lab: Required<LabSettings>;
 }
 
 export const FACTORY_SETTINGS: FactorySettings = {
@@ -617,6 +631,7 @@ export const FACTORY_SETTINGS: FactorySettings = {
 	},
 	graph: { enabled: true, rendering: true, extractionChunkTokens: 4096, ankiSync: false, obsidianSync: false },
 	compaction: { thresholdTokens: 150_000, includeReasoning: false },
+	lab: { defaultRootDir: "", pythonPath: "", defaultNudgeLevel: "nudge" },
 };
 
 /** The chunk budget's validated floor (GraphSettings.extractionChunkTokens
@@ -955,6 +970,22 @@ function sanitizeCompaction(raw: Record<string, unknown>): CompactionSettings {
 	return out;
 }
 
+function sanitizeLab(raw: Record<string, unknown>): LabSettings {
+	const out: LabSettings = {};
+	if (typeof raw.defaultRootDir === "string") {
+		const trimmed = raw.defaultRootDir.trim();
+		if (trimmed.length > 0 && !trimmed.includes("\0")) out.defaultRootDir = trimmed;
+	}
+	if (typeof raw.pythonPath === "string") {
+		const trimmed = raw.pythonPath.trim();
+		if (trimmed.length > 0 && !trimmed.includes("\0")) out.pythonPath = trimmed;
+	}
+	if (raw.defaultNudgeLevel === "nudge" || raw.defaultNudgeLevel === "balanced" || raw.defaultNudgeLevel === "direct") {
+		out.defaultNudgeLevel = raw.defaultNudgeLevel;
+	}
+	return out;
+}
+
 /**
  * Coerce arbitrary JSON (disk file, network body) into a valid delta record:
  * known fields validated strictly (invalid ones drop/clamp per module doc),
@@ -1001,6 +1032,9 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	}
 	if (r.compaction !== undefined && r.compaction !== null && typeof r.compaction === "object") {
 		out.compaction = sanitizeCompaction(r.compaction as Record<string, unknown>);
+	}
+	if (r.lab !== undefined && r.lab !== null && typeof r.lab === "object" && !Array.isArray(r.lab)) {
+		out.lab = sanitizeLab(r.lab as Record<string, unknown>);
 	}
 	// Unknown top-level keys ride along untouched (forward-compat). One
 	// known-DEAD key is stripped instead of riding: `chat` (the old

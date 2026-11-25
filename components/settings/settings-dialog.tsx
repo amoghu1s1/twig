@@ -42,11 +42,13 @@ import {
 	type AppearanceSettings,
 	type CompactionSettings,
 	type GraphSettings,
+	type LabSettings,
 	type UserSettings,
 } from "@/src/core";
 import { useAppearance } from "./appearance.tsx";
 import { SettingsSection } from "./controls.tsx";
 import { UpdateSettings } from "./update-settings.tsx";
+import { LabSettingsRows } from "./lab-rows.tsx";
 import { AgentSection } from "./agent-section.tsx";
 import type { ModelsSettings } from "@/src/core";
 import { MENU_CLOSE_EVENT, MENU_OPEN_EVENT } from "@/components/menu-shell";
@@ -353,7 +355,7 @@ export function SettingsDialogBody({
 	const writeQueue = useRef<Promise<void>>(Promise.resolve());
 	const write = useCallback(
 		(
-			section: "general" | "agent" | "models" | "appearance" | "graph" | "compaction",
+			section: "general" | "agent" | "models" | "appearance" | "graph" | "compaction" | "lab",
 			body: object,
 		): Promise<boolean> => {
 			let accepted = false;
@@ -517,6 +519,10 @@ export function SettingsDialogBody({
 										onAutoUpdateChange={(on) =>
 											void write("general", { ...record.general, autoUpdate: on })
 										}
+									/>
+									<LabSettingsRows
+										lab={record.lab}
+										onLabChange={(next: LabSettings) => write("lab", next)}
 									/>
 								</SettingsSection>
 							)}

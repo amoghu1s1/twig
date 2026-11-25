@@ -43,7 +43,6 @@ import { Separator } from "@/components/ui/separator";
 import { AnsweredCard } from "@/components/answered-card";
 import { MalformedQuestion } from "@/components/malformed-question";
 import { artifactRenderers } from "@/components/artifacts";
-import { SeedNavigationContext } from "@/components/capstone-cards";
 import { SubagentSteerCard } from "@/components/artifacts/steer-card";
 import { ChatSessionComposer } from "@/components/composer";
 import { useEnterSubmits } from "@/components/enter-submits";
@@ -82,6 +81,7 @@ import {
 	type ChatSettings,
 	type LhMessage,
 	type ModelSlotName,
+	type PersistedChatKind,
 	type PluginQuestionSnapshot,
 	type PluginSubmission,
 	type PluginSubmissionTarget,
@@ -99,7 +99,7 @@ import { PlanBlock, PlanPopup, latestTree } from "@/components/plan-block";
 import { PlanMarginalia, planExists } from "@/components/plan-window";
 import { MermaidOverlay, SessionMermaidContext, type SessionImage } from "@/components/session-overlay";
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
-import { ArrowRightIcon, BookOpenIcon, DumbbellIcon, HammerIcon, MessageCircleQuestionIcon, WaypointsIcon } from "lucide-react";
+import { ArchiveIcon, ArrowRightIcon, BookOpenIcon, DumbbellIcon, FlaskConicalIcon, MessageCircleQuestionIcon, WaypointsIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { PlanBlockData } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
@@ -334,6 +334,9 @@ export function Chat({
 	initialConfigured = false,
 	kind = "teach",
 	initialAttachments = [],
+	embedded = false,
+	externalPromptDraft,
+	legacyArchived = false,
 }: {
 	chatId: string;
 	title: string;
@@ -343,10 +346,9 @@ export function Chat({
 	initialNotes?: string;
 	/** Memory-only settlement notice supplied on reopening. */
 	initialError?: string;
-	/** The session kind (practice sessions, owner 2026-10-04): practice and
-	 *  capstone render no phase chip (no probe→teach arc applies); a
-	 *  Practice or Capstone tag rides the header instead. */
-	kind?: "teach" | "practice" | "capstone";
+	/** The session kind: practice, lab, and archived capstone render no phase
+	 *  chip (no probe→teach arc applies); a kind badge rides the header instead. */
+	kind?: PersistedChatKind;
 	initialPrompt?: string;
 	/** A teacher turn is running server-side but attached to no client
 	 * (navigated away mid-turn, returned while in flight). */
@@ -363,13 +365,18 @@ export function Chat({
 	/** The session's context attachments: names for the transcript's chips;
 	 *  grows as the composer uploads more. */
 	initialAttachments?: AttachmentRecord[];
+	/** When rendered inside Twig Lab's split workspace, hide the outer TopBar
+	 *  and NotesPanel and size to the host pane instead of h-dvh. */
+	embedded?: boolean;
+	/** Imperative prompt draft injection from Lab cell actions ("Ask mentor"). */
+	externalPromptDraft?: { id: number; text: string };
+	/** Pre-existing capstone sessions remain viewable in read-only mode. */
+	legacyArchived?: boolean;
 }) {
 	// Reattach plumbing (background-turn runner wave): the hook holds the
 	// settled terminal's callback — a stable ref assigned below, once
 	// syncFromServer exists (refs, not closures: no stale capture).
 	const reattachSettledRef = useRef<() => void>(() => {});
-	// The capstone cards' seeded-start buttons navigate through the app
-	// router (a client-side transition) rather than a full page load.
 	const router = useRouter();
 
 	// Notes (notes wave): one controller per view; the panel, the chip and
@@ -804,6 +811,14 @@ export function Chat({
 	const recordComposerText = useCallback((v: string) => {
 		textRef.current = v; composerEditRevision.current++;
 	}, []);
+	const lastExternalDraftIdRef = useRef<number | null>(null);
+	useEffect(() => {
+		if (!externalPromptDraft || legacyArchived) return;
+		if (lastExternalDraftIdRef.current === externalPromptDraft.id) return;
+		lastExternalDraftIdRef.current = externalPromptDraft.id;
+		applyText(externalPromptDraft.text);
+		composerInputRef.current?.focus();
+	}, [externalPromptDraft, legacyArchived, applyText]);
 	// Saved slot completeness is live, but the session's selected route
 	// comes from its own ordinary model control, never today's Strong pin.
 	const { catalog, configured, zeroKeys } = useModelSetup(initialConfigured);
@@ -1537,10 +1552,9 @@ export function Chat({
 	// The session's live plan (drives the top-bar chip; the marginalia
 	// derives its own from the same transcript).
 	const planTree = useMemo(() => latestTree(messages), [messages]);
-	// Readings (docs/readings.md): the session's side tray + its seam —
-	// teaching sessions only (practice and capstone have no plan and no
-	// readings).
-	const readingsEnabled = kind !== "practice" && kind !== "capstone";
+	// Readings (docs/readings.md): teaching sessions only (practice, lab,
+	// and archived capstone sessions have no plan and no readings).
+	const readingsEnabled = kind !== "practice" && kind !== "lab" && kind !== "capstone";
 	const readingsTray = useReadingsTray(chatId, readingsEnabled);
 
 	// ── Session usage (wave-4 stats bar) ──
@@ -1970,7 +1984,6 @@ export function Chat({
 	return (
 		<MistakesContext.Provider value={sessionMistakes}>
 		<NotesProvider controller={notes}>
-		<SeedNavigationContext.Provider value={(path) => router.push(path)}>
 		<ChatActionsContext.Provider
 			value={{
 				chatId,
@@ -1994,18 +2007,9 @@ export function Chat({
 		    chip) spans from the left sidebar's edge to the panel's edge. The
 		    dock overlays the column bottom (outside the scroller); a spacer in
 		    the transcript reserves its height. */}
-		<div className="relative flex h-dvh">
+		<div className={cn("relative flex min-h-0", embedded ? "h-full flex-1" : "h-dvh")}>
 			<div className="flex min-w-0 flex-1 flex-col">
-				{/* The top bar is its own block (owner, top-fade round 4): in flow
-				    above the scroller on the plain page background — no gradient. Its
-				    bottom outline (border-b border-border) matches the one that
-				    separates the left sidebar — same width, same color (owner, r5).
-				    h-15 (60px), not py-2: the toggle (a size-9 icon button) renders
-				    only while the sidebar is CLOSED — an auto-height row would
-				    collapse when it disappears and slide the title + chip up.
-				    60px is an ALIGNMENT, not just a size: it equals the sidebar's
-				    LH wordmark band, so the header's border-b continues that
-				    band's bottom edge as one line across the app (owner, round 6). */}
+				{!embedded && (
 				<TopBar
 					// While renaming the bar is NOT a drag surface: app-region:drag
 					// would eat the mousedown, so click-to-escape (below) could
@@ -2122,9 +2126,8 @@ export function Chat({
 					{/* Practice (owner, 2026-10-04): the coverage ring hides —
 				    practice never extracts, so an ever-filling ring with no
 				    run behind it would lie. */}
-					{kind !== "practice" && kind !== "capstone" && <CoverageRing chatId={chatId} refreshKey={coverageTick} />}
-					{/* Practice sessions: no phase arc — a quiet Practice tag
-					    instead of the phase chip. */}
+					{kind !== "practice" && kind !== "lab" && kind !== "capstone" && <CoverageRing chatId={chatId} refreshKey={coverageTick} />}
+					{/* Non-teach sessions: no phase arc — a quiet kind tag instead. */}
 					{kind === "practice" ? (
 						<span
 							data-testid="phase-chip"
@@ -2135,6 +2138,16 @@ export function Chat({
 							<DumbbellIcon className="size-3" />
 							Practice
 						</span>
+					) : kind === "lab" ? (
+						<span
+							data-testid="phase-chip"
+							data-phase="lab"
+							aria-hidden="true"
+							className="pointer-events-none flex shrink-0 select-none items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground"
+						>
+							<FlaskConicalIcon className="size-3" />
+							Lab
+						</span>
 					) : kind === "capstone" ? (
 						<span
 							data-testid="phase-chip"
@@ -2142,14 +2155,15 @@ export function Chat({
 							aria-hidden="true"
 							className="pointer-events-none flex shrink-0 select-none items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground"
 						>
-							<HammerIcon className="size-3" />
-							Capstone
+							<ArchiveIcon className="size-3" />
+							Archived capstone
 						</span>
 					) : (
 						<PhaseChip phase={phases.at(-1) ?? "probe"} />
 					)}
 					<PluginSessionTopBarActions readContext={actionContext} captureContext={captureActionContext} refreshRef={refreshPluginActions} />
 				</TopBar>
+				)}
 
 				<SessionFind scopeRef={sessionFindScopeRef} scrollContextRef={scrollContextRef} />
 				<SideChatProvider store={sideStore}>
@@ -2169,8 +2183,12 @@ export function Chat({
 						<div data-session-find-root="" className={`${COLUMN} flex flex-1 flex-col gap-4 pt-4`}>
 							{messages.length === 0 && !busy && (
 								<ConversationEmptyState
-									title="New session"
-									description="The teacher will open by probing what you already know."
+									title={kind === "lab" ? "Twig Lab mentor" : "New session"}
+									description={
+										kind === "lab"
+											? "Run cells on the left, or ask for starter scaffolding, an experiment, or help debugging."
+											: "The teacher will open by probing what you already know."
+									}
 								/>
 							)}
 
@@ -2506,7 +2524,7 @@ export function Chat({
 						    the overlay — the flow-space replacement for the old
 						    sticky dock. Zero only pre-measurement (the first layout
 						    effect reports before paint). */}
-						<div aria-hidden data-testid="dock-spacer" style={{ height: dockReserve }} />
+						<div aria-hidden data-testid="dock-spacer" style={{ height: legacyArchived ? 0 : dockReserve }} />
 				</ConversationContent>
 				{/* The dock: an overlay sibling of the scroller (the
 				    use-stick-to-bottom pattern). The scroll-down button lives
@@ -2514,6 +2532,14 @@ export function Chat({
 				    anchored to the dock block's top edge, so it rides every
 				    height morph (typing, a question growing the band, the
 				    fold) and NEVER overlaps the composer. */}
+				{legacyArchived ? (
+					<div
+						data-testid="legacy-capstone-banner"
+						className="border-t border-border/80 bg-card/80 px-4 py-3 text-center text-xs text-muted-foreground"
+					>
+						Archived capstone session — read-only history. Start a new Lab session for interactive coding.
+					</div>
+				) : (
 				<DockOverlay
 					viewReader={inputViewReader}
 					viewTargets={surfaceTarget ? { text: textTarget()!, answer: builtinTarget, thinking: thinkingTarget(), pluginQuestion: pluginQuestionTarget(), pluginProblem: pluginProblemTarget() } : undefined}
@@ -2654,6 +2680,7 @@ export function Chat({
 						);
 					}}
 				/>
+				)}
 				</Conversation>
 				{sideThread.state?.mode === "panel" && (
 					<SideThreadPanel>
@@ -2740,7 +2767,7 @@ export function Chat({
 					tree={planTree}
 				/>
 			)}
-			<NotesPanel />
+			{!embedded && <NotesPanel />}
 		</div>
 		</SessionReadingsContext.Provider>
 		</JobsContext.Provider>
@@ -2761,7 +2788,6 @@ export function Chat({
 			}}
 		/>
 		</ChatActionsContext.Provider>
-		</SeedNavigationContext.Provider>
 		</NotesProvider>
 		</MistakesContext.Provider>
 	);

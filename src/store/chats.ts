@@ -20,6 +20,7 @@ import type {
 	ChatSummary,
 	ExtractionRunUsage,
 	ImageSnapshot,
+	LabSessionMeta,
 	PlanTree,
 	SideChatThread,
 	TurnUsage,
@@ -44,7 +45,7 @@ function chatFile(id: string): string {
  *  phase, busy, pendingQuestion) is already announced by turn-started /
  *  turn-settled, which the sidebar refetches on. Silence here is law,
  *  not oversight. */
-function createChat(title: string, kind?: "practice" | "capstone"): ChatRecord {
+function createChat(title: string, kind?: "practice" | "lab", opts?: { lab?: LabSessionMeta }): ChatRecord {
 	const now = new Date().toISOString();
 	const record: ChatRecord = {
 		id: `chat_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`,
@@ -52,10 +53,10 @@ function createChat(title: string, kind?: "practice" | "capstone"): ChatRecord {
 		createdAt: now,
 		updatedAt: now,
 		messages: [],
-		// Practice and capstone sessions carry the marker; teach stays
-		// ABSENT (absence reads as teach — pre-practice records never
-		// migrate).
-		...(kind === "practice" || kind === "capstone" ? { kind } : {}),
+		// Practice and Lab sessions carry the marker; teach stays ABSENT
+		// (absence reads as teach — pre-practice records never migrate).
+		...(kind === "practice" || kind === "lab" ? { kind } : {}),
+		...(kind === "lab" && opts?.lab ? { lab: opts.lab } : {}),
 	};
 	fs.mkdirSync(PATHS.chats, { recursive: true });
 	writeChat(record);
@@ -200,6 +201,15 @@ function saveSettings(id: string, settings: ChatSettings): void {
 	writeChat(record);
 }
 
+/** Update bound Lab metadata without bumping updatedAt. */
+function saveLabMeta(id: string, lab: LabSessionMeta): boolean {
+	const record = getChat(id);
+	if (!record) return false;
+	record.lab = lab;
+	writeChat(record);
+	return true;
+}
+
 /** Rename a session (the header's click-to-edit title, 2026-09-17). Like
  * saveSettings, a rename is NOT conversation activity: updatedAt stays put
  * so sidebar order never churns. Same fallback as createChat — the empty
@@ -339,6 +349,7 @@ export const chatStore: ChatStore = {
 	saveTree,
 	rewindMessages,
 	saveSettings,
+	saveLabMeta,
 	renameChat,
 	saveNotes,
 	updateSideChats,

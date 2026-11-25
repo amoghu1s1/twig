@@ -53,8 +53,8 @@ const sampleChats: ChatListItem[] = [
 	},
 	{
 		id: "c3",
-		title: "Compiler capstone",
-		kind: "capstone",
+		title: "NumPy matrix lab",
+		kind: "lab",
 		createdAt: "2026-01-01T00:00:00.000Z",
 		updatedAt: "2026-01-04T00:00:00.000Z",
 		messageCount: 2,
@@ -107,7 +107,7 @@ describe("CommandPalette pure helpers", () => {
 		for (const expected of [
 			"New teaching session",
 			"New practice session",
-			"New capstone session",
+			"New Lab session",
 			"Open Settings",
 			"Open Knowledge Graph",
 			"Open Readings library",
@@ -139,7 +139,7 @@ describe("CommandPalette pure helpers", () => {
 		assert.equal(sessions[0]!.badge, "Teaching");
 		assert.deepEqual(sessions[0]!.tags, ["Multivariable Calculus", "MATH 201"]);
 		assert.equal(sessions[1]!.badge, "Practice");
-		assert.equal(sessions[2]!.badge, "Capstone");
+		assert.equal(sessions[2]!.badge, "Lab");
 		assert.deepEqual(sessions[0]!.execution, { kind: "route", href: "/chat/c1" });
 
 		assert.equal(readings.length, 1);
@@ -521,7 +521,7 @@ describe("CommandPalette component behavior", () => {
 			const actionRows = [...document.querySelectorAll<HTMLElement>('[data-testid="command-palette-item"]')];
 			assert.equal(actionRows.length, 3);
 			assert.equal(actionRows[0]!.getAttribute("data-active"), "true");
-			// Wrap backward from 0 -> 2 (New capstone session)
+			// Wrap backward from 0 -> 2 (New Lab session)
 			await f.key(input2, "ArrowUp");
 			const afterUp = [...document.querySelectorAll<HTMLElement>('[data-testid="command-palette-item"]')];
 			assert.equal(afterUp[2]!.getAttribute("data-active"), "true");

@@ -16,6 +16,7 @@ import {
 	parseGeneralSettingsBody,
 	parseCompactionSettingsBody,
 	parseGraphSettingsBody,
+	parseLabSettingsBody,
 	SETTINGS_SECTIONS,
 } from "../src/server/settings-body.ts";
 
@@ -339,15 +340,47 @@ describe("parseCompactionSettingsBody (owner round 14)", () => {
 	});
 });
 
+describe("parseLabSettingsBody", () => {
+	it("parses valid paths, trims whitespace, and ignores blank strings", () => {
+		const res = parseLabSettingsBody({
+			defaultRootDir: "  /home/user/Twig Labs  ",
+			pythonPath: "  ",
+		});
+		assert.ok(res.ok);
+		assert.deepEqual(res.settings, { defaultRootDir: "/home/user/Twig Labs" });
+
+		const both = parseLabSettingsBody({
+			defaultRootDir: "/tmp/labs",
+			pythonPath: "/usr/bin/python3",
+			defaultNudgeLevel: "balanced",
+		});
+		assert.ok(both.ok);
+		assert.deepEqual(both.settings, {
+			defaultRootDir: "/tmp/labs",
+			pythonPath: "/usr/bin/python3",
+			defaultNudgeLevel: "balanced",
+		});
+	});
+
+	it("rejects non-object bodies, non-strings, null bytes, and invalid defaultNudgeLevel", () => {
+		assert.equal(parseLabSettingsBody("not-an-object").ok, false);
+		assert.equal(parseLabSettingsBody({ defaultRootDir: 123 }).ok, false);
+		assert.equal(parseLabSettingsBody({ pythonPath: false }).ok, false);
+		assert.equal(parseLabSettingsBody({ defaultRootDir: "/tmp/\0bad" }).ok, false);
+		assert.equal(parseLabSettingsBody({ pythonPath: "/usr/bin/\0python" }).ok, false);
+		assert.equal(parseLabSettingsBody({ defaultNudgeLevel: "invalid" }).ok, false);
+	});
+});
+
 describe("SETTINGS_SECTIONS (the route's section map)", () => {
-	it("maps exactly the eight record sections", () => {
+	it("maps all record sections including lab", () => {
 		// compaction joined (owner round 14): its own section PUT — the
 		// threshold is engine behavior, not an agent-section key. The custom
 		// endpoint is NOT a section: it is one more provider in the Keys list,
 		// connected through POST /api/custom-provider.
 		assert.deepEqual(
 			Object.keys(SETTINGS_SECTIONS),
-			["general", "chat", "agent", "appearance", "graph", "compaction", "models", "dictation", "claudeCode"],
+			["general", "chat", "agent", "appearance", "graph", "compaction", "models", "dictation", "claudeCode", "lab"],
 		);
 	});
 });

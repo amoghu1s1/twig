@@ -15,7 +15,8 @@ import {
 	type TeacherToolContext,
 } from "./tools.ts";
 import { practiceTools, createPracticeGate, type PracticeGate, type PracticeToolContext } from "./tools/practice.ts";
-import { capstoneTools, type CapstoneToolContext } from "./tools/capstone.ts";
+import { labTools, type LabToolContext } from "./tools/lab.ts";
+import { formatNudgeGuidanceBanner, normalizeLabNudgeLevel } from "../core/lab-nudge.ts";
 import { pluginProblemTools, isPluginProblemPoseAcknowledgment, type NativePluginProblemContribution } from "./plugin-problem-tools.ts";
 import { healToolRecord, withArgumentHeal } from "./tools/heal.ts";
 import { sendToUserApplies, sendToUserTool } from "./tools/send-to-user.ts";
@@ -61,19 +62,19 @@ import { PluginQuestionLedger, type NativePluginQuestionContribution } from "./p
 
 /** Which agent's prompt directory to compose. Practice (2026-10-04)
  *  composes ONLY its own directory — see prompt-segments.ts. */
-export type AgentKind = "prober" | "teacher" | "practice" | "capstone";
+export type AgentKind = "prober" | "teacher" | "practice" | "lab";
 
 /** Reserve conversation builtins even when role/mechanics/settings gates hide them.
  * New builtin names must join this catalog; actual turn tools are reserved too. */
 export const CONVERSATION_TOOL_NAMES = Object.freeze([
 	...QUESTION_TOOLS, ...TOGGLEABLE_TOOLS, "probe_done", "read", "ls", "find", "grep", "mistakes",
 	"plan_init", "list_sessions", "list_propositions", "problem", "conclude", sendToUserTool.name,
-	// Twig's additional builtins (files, web, media and capstone) must stay
+	// Twig's additional builtins (files, web, media and lab) must stay
 	// reserved too: a plugin may never shadow a native tool.
 	"pdf", "pdf_extract", "pdf_info", "pdf_search", "pdf_view",
 	"epub_info", "epub_read", "epub_search", "show_image",
 	"web_fetch", "web_fetch_pdf", "web_search", "find_candidates",
-	"demo", "visual", "brief", "evaluate", "gap_report",
+	"demo", "visual", "read_notebook", "inspect_variables", "insert_cell", "update_mentor_cell", "delete_mentor_cell", "lab_summary",
 ] as const);
 
 // P2 (2026-09-19): segment discovery + override resolution live in ONE
@@ -114,7 +115,7 @@ const composedInstructions: Record<AgentKind, string> = {
 	prober: composeInstructions("prober"),
 	teacher: composeInstructions("teacher"),
 	practice: composeInstructions("practice"),
-	capstone: composeInstructions("capstone"),
+	lab: composeInstructions("lab"),
 };
 
 /** The full system prompt of one turn: the composed doctrine, then the
@@ -233,7 +234,7 @@ function makeQuestionStopper(kind: AgentKind) {
 }
 
 function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: AgentTool<any, any>[], nodeExists?: (nodeId: string) => boolean,
-	practice?: { gate: PracticeGate; graphNodes: PracticeToolContext["graphNodes"] }) {
+	practice?: { gate: PracticeGate; graphNodes: PracticeToolContext["graphNodes"] }, extraPromptSection?: string) {
 	// Practice never reaches the role fallback (the handler ALWAYS injects
 	// the session's conversation engine — practice rides the same
 	// conversation-spec resolution as teaching); the cast keeps AgentKind
@@ -246,7 +247,8 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	// wave); plugin instructions join AFTER it so the doctrine prefix stays
 	// cacheable and the manifest stays adjacent to the file tools.
 	const systemPrompt = systemPromptFor(kind, opts);
-	const guardedPrompt = narrationGuard ? `${systemPrompt}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}` : systemPrompt;
+	const withExtra = extraPromptSection ? `${systemPrompt}\n\n---\n\n${extraPromptSection}` : systemPrompt;
+	const guardedPrompt = narrationGuard ? `${withExtra}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}` : withExtra;
 	const sessionTools = opts.tools === undefined ? Object.values(healToolRecord(attachmentTools(opts.attachments ?? []))) : [];
 	const attachedImages = engine.model.input?.includes("image")
 		? attachmentImageParts(opts.attachments ?? [], engine.model)
@@ -262,9 +264,9 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 			? [withArgumentHeal(sendToUserTool)]
 			: []),
 	];
-	// Capstone is an app-owned session kind with no plugin agent surface
+	// Lab is an app-owned session kind with no plugin agent surface
 	// (PluginAgentKind covers prober/teacher/practice only).
-	const contributions = kind !== "capstone" && opts.tools === undefined && opts.chatId && opts.pluginContributions
+	const contributions = kind !== "lab" && opts.tools === undefined && opts.chatId && opts.pluginContributions
 		? opts.pluginContributions({ chatId: opts.chatId, agent: kind }, [...CONVERSATION_TOOL_NAMES, ...builtinTools.map(tool => tool.name)])
 		: undefined;
 	const questionLedger = contributions?.questionTypes?.length && opts.chatId
@@ -498,21 +500,20 @@ export function createPracticeAgent(ctx: PracticeToolContext, opts: AgentBuildOp
 }
 
 /**
- * The CAPSTONER (capstone sessions, 2026-11-01): built from turn 1 of a
- * kind:"capstone" session — no prober→teacher split, no plan/question
- * tools. Its registry is brief / review / evaluate / gap_report plus the
- * project-scoped read tools (tools/capstone.ts); the doctrine prompt
- * (prompts/capstone/) carries the method. No tool ends the turn natively —
- * the agent's closing words follow each result.
+ * The LAB MENTOR: built from turn 1 of a kind:"lab" session — no prober→teacher
+ * split, no plan/question tools. Its registry is notebook inspection/editing
+ * tools plus workspace-scoped read tools (tools/lab.ts).
  */
-export function createCapstoneAgent(ctx: CapstoneToolContext, opts: AgentBuildOptions = {}) {
-	const tools = opts.tools ?? capstoneTools(ctx);
-	return baseAgentOptions("capstone", opts, Object.values(tools));
+export function createLabAgent(ctx: LabToolContext, opts: AgentBuildOptions = {}) {
+	const supportsImages = ctx.supportsImages ?? (opts.engine ? (opts.engine.model.input?.includes("image") ?? false) : undefined);
+	const nudgeLevel = normalizeLabNudgeLevel(ctx.getNudgeLevel?.());
+	const tools = opts.tools ?? labTools({ ...ctx, ...(supportsImages !== undefined ? { supportsImages } : {}) });
+	return baseAgentOptions("lab", opts, Object.values(tools), undefined, undefined, formatNudgeGuidanceBanner(nudgeLevel));
 }
 
 export type ProberAgent = ReturnType<typeof createProberAgent>;
 export type TeacherAgent = ReturnType<typeof createTeacherAgent>;
 export type PracticeAgent = ReturnType<typeof createPracticeAgent>;
-export type CapstoneAgent = ReturnType<typeof createCapstoneAgent>;
-export type TeachingAgent = ProberAgent | TeacherAgent | PracticeAgent | CapstoneAgent;
+export type LabAgent = ReturnType<typeof createLabAgent>;
+export type TeachingAgent = ProberAgent | TeacherAgent | PracticeAgent | LabAgent;
 

@@ -24,6 +24,7 @@ import type {
 	GeneralSettings,
 	DictationSettings,
 	GraphSettings,
+	LabSettings,
 	ModelsSettings,
 	ModelSlot,
 	RoleModelOverride,
@@ -594,6 +595,37 @@ export function parseCustomModelOverridesBody(
 	return { ok: true, settings: out };
 }
 
+export function parseLabSettingsBody(body: unknown): SettingsBodyResult<LabSettings> {
+	const raw = asRecord(body);
+	if (!raw) return { ok: false, error: "Invalid JSON body" };
+	const settings: LabSettings = {};
+	if (raw.defaultRootDir !== undefined) {
+		if (typeof raw.defaultRootDir !== "string" || raw.defaultRootDir.includes("\0")) {
+			return { ok: false, error: "defaultRootDir must be a valid path string" };
+		}
+		const trimmed = raw.defaultRootDir.trim();
+		if (trimmed.length > 0) settings.defaultRootDir = trimmed;
+	}
+	if (raw.pythonPath !== undefined) {
+		if (typeof raw.pythonPath !== "string" || raw.pythonPath.includes("\0")) {
+			return { ok: false, error: "pythonPath must be a valid path string" };
+		}
+		const trimmed = raw.pythonPath.trim();
+		if (trimmed.length > 0) settings.pythonPath = trimmed;
+	}
+	if (raw.defaultNudgeLevel !== undefined) {
+		if (
+			raw.defaultNudgeLevel !== "nudge" &&
+			raw.defaultNudgeLevel !== "balanced" &&
+			raw.defaultNudgeLevel !== "direct"
+		) {
+			return { ok: false, error: "defaultNudgeLevel must be one of nudge, balanced, or direct" };
+		}
+		settings.defaultNudgeLevel = raw.defaultNudgeLevel;
+	}
+	return { ok: true, settings };
+}
+
 /** The section→parser map for PUT /api/settings/[section]. The custom endpoint
  *  is NOT a section — it connects via POST /api/custom-provider. */
 export const SETTINGS_SECTIONS = {
@@ -606,6 +638,7 @@ export const SETTINGS_SECTIONS = {
 	models: parseModelsSettingsBody,
 	dictation: parseDictationSettingsBody,
 	claudeCode: parseClaudeCodeSettingsBody,
+	lab: parseLabSettingsBody,
 } as const;
 
 export type SettingsSectionName = keyof typeof SETTINGS_SECTIONS;

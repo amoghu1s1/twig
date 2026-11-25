@@ -69,11 +69,22 @@ describe("session kind (practice sessions, 2026-10-04)", () => {
 		assert.equal(listed?.kind, "practice");
 	});
 
-	it("createChat(kind: 'capstone') stamps the marker on record + list", () => {
-		const chat = chatStore.createChat("capstone session", "capstone");
-		assert.equal(chat.kind, "capstone");
+	it("createChat(kind: 'lab', { lab }) stamps the marker and lab metadata on record + list", () => {
+		const labMeta = {
+			workspaceDir: "/tmp/lab-demo",
+			notebookFile: "notebook.ipynb",
+			language: "python" as const,
+		};
+		const chat = chatStore.createChat("lab session", "lab", { lab: labMeta });
+		assert.equal(chat.kind, "lab");
+		assert.deepEqual(chat.lab, labMeta);
 		const listed = chatStore.listChats().find((c) => c.id === chat.id);
-		assert.equal(listed?.kind, "capstone");
+		assert.equal(listed?.kind, "lab");
+		assert.deepEqual(listed?.lab, labMeta);
+
+		const updatedMeta = { ...labMeta, interpreterPath: "/usr/bin/python3" };
+		assert.equal(chatStore.saveLabMeta(chat.id, updatedMeta), true);
+		assert.deepEqual(chatStore.getChat(chat.id)?.lab, updatedMeta);
 	});
 
 	it("the summary projection NORMALIZES: absent record field reads as teach", () => {

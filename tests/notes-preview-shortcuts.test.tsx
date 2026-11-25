@@ -511,7 +511,7 @@ describe("ReadingsTray Alt+R toggle", () => {
 		assert.equal(document.querySelector('[data-testid="readings-tray"]'), null);
 	});
 
-	it("does not open on Alt+R when readings are disabled (practice/capstone)", async () => {
+	it("does not open on Alt+R when readings are disabled (practice/lab/capstone)", async () => {
 		await mount(
 			<ServerEventsProvider>
 				<ShortcutsShell>

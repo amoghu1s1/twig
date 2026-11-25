@@ -96,3 +96,31 @@ export {
 	recordChatMistakes,
 	retryMistake,
 } from "./mistakes.ts";
+export {
+	defaultLabsRootDir,
+	provisionLabWorkspace,
+	readLabNotebook,
+	writeLabNotebook,
+	listWorkspaceFiles,
+	readWorkspaceFile,
+	writeWorkspaceFile,
+	deleteWorkspaceFile,
+	createWorkspaceFolder,
+	renameWorkspaceFile,
+	type WriteLabNotebookResult,
+} from "./lab/workspace.ts";
+export {
+	discoverPythonEnvs,
+	probePythonInterpreter,
+	resolveDefaultPython,
+} from "./lab/python-envs.ts";
+export {
+	executeLabCell,
+	getLabKernelState,
+	inspectLabVariables,
+	interruptLabKernel,
+	restartLabKernel,
+	setLabInterpreter,
+	updateLabNudgeLevel,
+	shutdownLabKernel,
+} from "./lab/kernel-manager.ts";

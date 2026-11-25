@@ -10,6 +10,7 @@ import { isTurnRunning } from "./turn-liveness.ts";
 import { clearTurnFailure } from "./turn-runs.ts";
 import { discardChatDeliveries } from "./jobs.ts";
 import { sideChats } from "./side-chat.ts";
+import { shutdownLabKernel } from "./lab/kernel-manager.ts";
 
 /**
  * Server-side chat entries for the transport layer (app/api/chats*,
@@ -171,6 +172,8 @@ function finishChatDeletion(chatId: string, mode: ChatDeleteMode): Extract<ChatD
 function finishChatRecordDeletion(chatId: string): number {
 	const jobsRemoved = stores.jobStore.deleteJobsForChat(chatId);
 	const blobs = (stores.chatStore.getChat(chatId)?.attachments ?? []).map((a) => a.file);
+	// Shut down any live Lab kernel without deleting the user's workspace folder on disk.
+	void shutdownLabKernel(chatId);
 	if (stores.chatStore.deleteChat(chatId)) {
 		discardChatDeliveries(chatId);
 		clearTurnFailure(chatId);

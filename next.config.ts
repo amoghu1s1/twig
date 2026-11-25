@@ -98,6 +98,10 @@ const nextConfig: NextConfig = {
 			// the individual fragments.
 			"src/agent/prompts/readings/**/*.md",
 			"src/agent/prompts/discuss/**/*.md",
+			// Twig Lab prompts and the local Python kernel worker are read /
+			// spawned by path at run time, outside Turbopack's static module graph.
+			"src/agent/prompts/lab/*.md",
+			"src/server/lab/python_kernel.py",
 			// Wave E stage 2: resvg rasterizes visual-maker SVGs natively; same
 			// per-platform-binary story as the canvas above (one per build).
 			"node_modules/@resvg/resvg-js-*/**/*",

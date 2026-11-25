@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { SurfaceRegion, usePageSurfaceBoundary, useSurfaceChromeStyle } from "./plugin-surfaces";
-import { CornerDownLeftIcon, DumbbellIcon, HammerIcon } from "lucide-react";
+import { CornerDownLeftIcon, DumbbellIcon, FlaskConicalIcon } from "lucide-react";
 import { GraphView } from "@/components/graph-view";
 import { MinimalHome } from "@/components/minimal-home";
 import { SetupDialog } from "@/components/setup-dialog";
-import { CAPSTONE_PICK_HINT, ComposerActions, NodePickerControl } from "@/components/composer-actions";
+import { ComposerActions, LabFolderControl, NodePickerControl } from "@/components/composer-actions";
 import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
 import { DictationBar, joinDictation, useDictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
@@ -111,15 +111,15 @@ export function Home({
 	 *  may carry proposition picks from the chain table (the chip above
 	 *  the composer opens the picker; the picks seed the opening prompt).
 	 *  Not enforcing any input format — the picks are a convenience. */
-	const [mode, setMode] = useState<"teach" | "practice" | "capstone">("teach");
+	const [mode, setMode] = useState<"teach" | "practice" | "lab">("teach");
 	const [practiceProps, setPracticeProps] = useState<{ id: string; name: string; statement: string }[]>([]);
+	const [labWorkspaceDir, setLabWorkspaceDir] = useState("");
 	const [chainSelectOpen, setChainSelectOpen] = useState(false);
 	// Stable identity keeps the memoized graph view out of the composer's
 	// per-keystroke render path.
 	const closeChainSelect = useCallback(() => setChainSelectOpen(false), []);
 	// The chain table is CONTROLLED off this id set (the lifted pick).
 	const pickedIds = useMemo(() => new Set(practiceProps.map((p) => p.id)), [practiceProps]);
-	const capstoneNeedsPicks = mode === "capstone" && practiceProps.length === 0;
 
 	/* FINISH DICTATION FIRST (owner, 2026-10-01): Enter may arrive while a
 	 * run is live with the topic still deferred in the run's buffer — stop
@@ -140,9 +140,6 @@ export function Home({
 		// Context files alone are a valid opening: the session exists to read
 		// them. Without any text, the first file names the session.
 		if ((!t && images.length === 0 && attachments.files.length === 0) || startingRef.current) return;
-		// CAPSTONE (2026-11-01): picks are required — nothing is created
-		// without them (the pill says why; the send button is disabled).
-		if (capstoneNeedsPicks) return;
 		// Unconfigured: the send INTERCEPTS into the setup flow (the draft
 		// stays in the textarea; the learner sends it after Save).
 		if (!configured) {
@@ -178,6 +175,7 @@ export function Home({
 				title: t || attachments.files[0]?.file.name || IMAGE_ONLY_TITLE,
 				...(mode !== "teach" ? { kind: mode } : {}),
 				...(practiceProps.length > 0 ? { graphContext: { propositions: practiceProps } } : {}),
+				...(mode === "lab" && labWorkspaceDir.trim() ? { lab: { workspaceDir: labWorkspaceDir.trim() } } : {}),
 			}, fetch, JSON.stringify(catalog?.slots.strong),
 			attachments.files.length > 0 || images.length > 0
 				? {
@@ -258,10 +256,16 @@ export function Home({
 							<>
 								{(practiceProps.length > 0 || mode !== "teach") && (
 									<NodePickerControl
-										emptyLabel={mode === "capstone" ? CAPSTONE_PICK_HINT : undefined}
 										count={practiceProps.length}
 										onOpen={() => setChainSelectOpen(true)}
 										onClear={() => setPracticeProps([])}
+									/>
+								)}
+								{mode === "lab" && (
+									<LabFolderControl
+										workspaceDir={labWorkspaceDir}
+										onChange={setLabWorkspaceDir}
+										disabled={busy}
 									/>
 								)}
 								<ContextAttachControl draft={attachments} imageDraft={imageDraft.props} editorRef={topicInputRef} disabled={busy} />
@@ -321,7 +325,7 @@ export function Home({
 								void start();
 							}
 						}}
-						placeholder={mode === "practice" ? "What do you want to practice?" : mode === "capstone" ? "What would you build?" : "What do you want to learn?"}
+						placeholder={mode === "practice" ? "What do you want to practice?" : mode === "lab" ? "What do you want to build or explore in Python?" : "What do you want to learn?"}
 						autoFocus
 						className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
 					/>
@@ -330,7 +334,7 @@ export function Home({
 					<button
 						type="submit"
 						aria-label="Start session"
-						disabled={(!topic.trim() && !dictation.active && !imageDraft.hasImages && attachments.files.length === 0) || busy || capstoneNeedsPicks}
+						disabled={(!topic.trim() && !dictation.active && !imageDraft.hasImages && attachments.files.length === 0) || busy}
 						className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-40"
 					>
 						<CornerDownLeftIcon className="size-5" />
@@ -345,7 +349,7 @@ export function Home({
 						turns={[] as TurnUsage[]}
 						leadingSlot={
 							<div className="flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="home-mode-switch">
-								{(["teach", "practice", "capstone"] as const).map((m) => (
+								{(["teach", "practice", "lab"] as const).map((m) => (
 									<button
 										key={m}
 										type="button"
@@ -359,8 +363,8 @@ export function Home({
 										}
 									>
 										{m === "practice" ? <DumbbellIcon aria-hidden="true" className="size-3" /> : null}
-										{m === "capstone" ? <HammerIcon aria-hidden="true" className="size-3" /> : null}
-										{m === "teach" ? "Teach" : m === "practice" ? "Practice" : "Capstone"}
+										{m === "lab" ? <FlaskConicalIcon aria-hidden="true" className="size-3" /> : null}
+										{m === "teach" ? "Teach" : m === "practice" ? "Practice" : "Lab"}
 									</button>
 								))}
 							</div>

@@ -15,6 +15,7 @@
 - [ExtractionRunUsage](#extractionrunusage) — supporting declaration
 - [ExtractionStageUsage](#extractionstageusage) — supporting declaration
 - [ImageSnapshot](#imagesnapshot) — supporting declaration
+- [PersistedChatKind](#persistedchatkind) — supporting declaration
 - [SideChatAnchor](#sidechatanchor) — supporting declaration
 - [SideChatMessage](#sidechatmessage) — supporting declaration
 - [SideChatThread](#sidechatthread) — supporting declaration
@@ -232,16 +233,13 @@ is the client's own grouping fold (core/view.ts, Wave D) — a pending quiz
 is an unanswered question tool call, which is exactly what makes
 resume-mid-question free.
 
-The session's kind (practice sessions): "teach" is
-the default and ABSENT on pre-practice records (no migration — absence
-reads as teach); "practice" marks an adaptive-practice session — the
-practice agent, its two tools, no extraction, no graph writes.
-"capstone" marks a build-it session: the learner pitches a
-software project, builds it outside the app, and the capstone agent
-reviews it read-only against accepted criteria — also no extraction.
+The session's kind: "teach" is the default and ABSENT on pre-practice
+records (no migration — absence reads as teach); "practice" marks an
+adaptive-practice session; "lab" marks a guided interactive notebook lab
+backed by a workspace directory and persistent local kernel.
 
 ```ts
-export type ChatKind = "teach" | "practice" | "capstone";
+export type ChatKind = "teach" | "practice" | "lab";
 ```
 
 ## ChatListItem
@@ -297,7 +295,8 @@ export interface ChatRecord {
     updatedAt: string;
     messages: LhMessage[];
     imageSnapshots?: Record<string, ImageSnapshot>;
-    kind?: ChatKind;
+    kind?: PersistedChatKind;
+    lab?: LabSessionMeta;
     tree?: PlanTree;
     turns?: TurnUsage[];
     extractions?: ExtractionRunUsage[];
@@ -309,7 +308,7 @@ export interface ChatRecord {
 }
 ```
 
-**Related types:** [AttachmentRecord](contracts-chat.md#attachmentrecord), [ChatKind](contracts-chat.md#chatkind), [ChatSettings](contracts-chat.md#chatsettings), [ExtractionRunUsage](contracts-chat.md#extractionrunusage), [ImageSnapshot](contracts-chat.md#imagesnapshot), [LhMessage](native-messages.md#lhmessage), [PlanTree](contracts-plan.md#plantree), [SideChatThread](contracts-chat.md#sidechatthread), [TurnUsage](contracts-chat.md#turnusage).
+**Related types:** [AttachmentRecord](contracts-chat.md#attachmentrecord), [ChatSettings](contracts-chat.md#chatsettings), [ExtractionRunUsage](contracts-chat.md#extractionrunusage), [ImageSnapshot](contracts-chat.md#imagesnapshot), [LabSessionMeta](contracts-lab.md#labsessionmeta), [LhMessage](native-messages.md#lhmessage), [PersistedChatKind](contracts-chat.md#persistedchatkind), [PlanTree](contracts-plan.md#plantree), [SideChatThread](contracts-chat.md#sidechatthread), [TurnUsage](contracts-chat.md#turnusage).
 
 **Member index** (including nested object members; inherited members are defined in the linked base types):
 
@@ -320,6 +319,7 @@ export interface ChatRecord {
 - [messages](#chatrecord-messages)
 - [imageSnapshots](#chatrecord-imagesnapshots)
 - [kind](#chatrecord-kind)
+- [lab](#chatrecord-lab)
 - [tree](#chatrecord-tree)
 - [turns](#chatrecord-turns)
 - [extractions](#chatrecord-extractions)
@@ -372,7 +372,15 @@ imageSnapshots?: Record<string, ImageSnapshot>;
 The session's kind; an absent field reads as teach.
 
 ```ts
-kind?: ChatKind;
+kind?: PersistedChatKind;
+```
+
+### ChatRecord lab
+
+Bound workspace folder +.ipynb + interpreter metadata for kind === "lab".
+
+```ts
+lab?: LabSessionMeta;
 ```
 
 ### ChatRecord tree
@@ -533,7 +541,8 @@ export interface ChatSummary {
     title: string;
     createdAt: string;
     updatedAt: string;
-    kind: ChatKind;
+    kind: PersistedChatKind;
+    lab?: LabSessionMeta;
     messageCount: number;
     phase: Phase3;
     pendingQuestion: boolean;
@@ -542,7 +551,7 @@ export interface ChatSummary {
 }
 ```
 
-**Related types:** [ChatKind](contracts-chat.md#chatkind), [ChatSettings](contracts-chat.md#chatsettings), [Phase3](phases.md#phase3).
+**Related types:** [ChatSettings](contracts-chat.md#chatsettings), [LabSessionMeta](contracts-lab.md#labsessionmeta), [PersistedChatKind](contracts-chat.md#persistedchatkind), [Phase3](phases.md#phase3).
 
 **Member index** (including nested object members; inherited members are defined in the linked base types):
 
@@ -551,6 +560,7 @@ export interface ChatSummary {
 - [createdAt](#chatsummary-createdat)
 - [updatedAt](#chatsummary-updatedat)
 - [kind](#chatsummary-kind)
+- [lab](#chatsummary-lab)
 - [messageCount](#chatsummary-messagecount)
 - [phase](#chatsummary-phase)
 - [pendingQuestion](#chatsummary-pendingquestion)
@@ -586,7 +596,15 @@ updatedAt: string;
 Normalized kind (absent record field reads as teach).
 
 ```ts
-kind: ChatKind;
+kind: PersistedChatKind;
+```
+
+### ChatSummary lab
+
+Bound Lab metadata when kind === "lab".
+
+```ts
+lab?: LabSessionMeta;
 ```
 
 ### ChatSummary messageCount
@@ -796,6 +814,18 @@ width: number;
 ```ts
 height: number;
 ```
+
+## PersistedChatKind
+
+Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
+
+All persisted session kinds, including archived legacy capstone records.
+
+```ts
+export type PersistedChatKind = ChatKind | "capstone";
+```
+
+**Related types:** [ChatKind](contracts-chat.md#chatkind).
 
 ## SideChatAnchor
 

@@ -17,12 +17,9 @@
 export const FRAGMENT_RE = /^\d+-[\w.-]+\.md$/;
 
 /** Which agent's prompt directory to compose. */
-/** Practice (2026-10-04): composes ONLY its own directory — no shared
- *  teaching base, no shared fragments (the doctrine contradicts the
- *  teaching philosophy; its 00-base.md plays the base role). Capstone
- *  (2026-11-01) follows the same rule: its own directory plus a curated
- *  shared allowlist. */
-export type PromptAgent = "prober" | "teacher" | "practice" | "capstone";
+/** Practice (2026-10-04) and Lab compose ONLY their own directory plus a
+ *  curated shared allowlist — the teaching base does not apply. */
+export type PromptAgent = "prober" | "teacher" | "practice" | "lab";
 
 /** One segment of one agent's composed prompt. */
 export interface PromptSegmentInfo {
@@ -46,7 +43,7 @@ export interface PromptSegmentInfo {
  *  CURRENT source segment list. */
 export function isValidSegmentPath(segmentPath: string): boolean {
 	if (segmentPath === "system-prompt.md") return true;
-	const m = /^(prober|teacher|practice|capstone|shared)\/([\w.-]+\.md)$/.exec(segmentPath);
+	const m = /^(prober|teacher|practice|lab|shared)\/([\w.-]+\.md)$/.exec(segmentPath);
 	if (!m || m[2] === undefined) return false;
 	return FRAGMENT_RE.test(m[2]);
 }

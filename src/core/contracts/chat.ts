@@ -11,6 +11,7 @@ import type { LhMessage } from "../native-messages.ts";
 import type { Phase3 } from "../phases.ts";
 import type { PlanNodeStatus, PlanTree } from "./plan.ts";
 import type { EmissionStats } from "./graph.ts";
+import type { LabSessionMeta } from "./lab.ts";
 
 // ─── Chat records (the session store's on-disk format) ───────────────────────
 
@@ -22,14 +23,18 @@ import type { EmissionStats } from "./graph.ts";
  * is the client's own grouping fold (core/view.ts, Wave D) — a pending quiz
  * is an unanswered question tool call, which is exactly what makes
  * resume-mid-question free. */
-/** The session's kind (practice sessions): "teach" is
- *  the default and ABSENT on pre-practice records (no migration — absence
- *  reads as teach); "practice" marks an adaptive-practice session — the
- *  practice agent, its two tools, no extraction, no graph writes.
- *  "capstone" (2026-11-01) marks a build-it session: the learner pitches a
- *  software project, builds it outside the app, and the capstone agent
- *  reviews it read-only against accepted criteria — also no extraction. */
-export type ChatKind = "teach" | "practice" | "capstone";
+/** The session's kind: "teach" is the default and ABSENT on pre-practice
+ *  records (no migration — absence reads as teach); "practice" marks an
+ *  adaptive-practice session; "lab" marks a guided interactive notebook lab
+ *  backed by a workspace directory and persistent local kernel. */
+export type ChatKind = "teach" | "practice" | "lab";
+
+/** All persisted session kinds, including archived legacy capstone records. */
+export type PersistedChatKind = ChatKind | "capstone";
+
+export function isLegacyCapstone(kind: unknown): kind is "capstone" {
+	return kind === "capstone";
+}
 
 /** One persisted native session under data/chats/<id>.json. Messages retain
  * native agent history; transcript rendering groups them into a separate view.
@@ -43,7 +48,9 @@ export interface ChatRecord {
 	/** Session-local processed pictures; artifact records carry references only. */
 	imageSnapshots?: Record<string, ImageSnapshot>;
 	/** The session's kind; an absent field reads as teach. */
-	kind?: ChatKind;
+	kind?: PersistedChatKind;
+	/** Bound workspace folder + .ipynb + interpreter metadata for kind === "lab". */
+	lab?: LabSessionMeta;
 	/** The session's plan tree, written by the native plan tools. */
 	tree?: PlanTree;
 	/** Append-only usage log, separate from message history: one entry per billed
@@ -377,7 +384,9 @@ export interface ChatSummary {
 	createdAt: string;
 	updatedAt: string;
 	/** Normalized kind (absent record field reads as teach). */
-	kind: ChatKind;
+	kind: PersistedChatKind;
+	/** Bound Lab metadata when kind === "lab". */
+	lab?: LabSessionMeta;
 	messageCount: number;
 	/** Transcript-derived phase: probe ends at successful probe_done completion;
 	 * plan ends at the first node-tagged teaching question call, not its answer. */
@@ -449,8 +458,5 @@ export interface ArtifactPartProps {
 		 *  the modelSolution committed at POSE time, folded onto the part by
 		 *  projectView — the reveal is never re-authored. */
 		reveal?: unknown;
-		/** Capstone evaluate cards: true on the newest evaluation that went
-		 *  through (the view-seam join) — it is the one that stands. */
-		latest?: boolean;
 	};
 }

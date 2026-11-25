@@ -1,4 +1,4 @@
-import type { ChatKind } from "./contracts/chat.ts";
+import type { PersistedChatKind } from "./contracts/chat.ts";
 
 /** Source organization is presentation metadata, never graph/extraction identity.
  * A source has one parent; folders have stable IDs independent of names/paths. */
@@ -24,7 +24,7 @@ export interface SourceEntry {
 	id: string;
 	kind: "chat" | "notes" | "missing";
 	/** Read projection only; session records remain the source of truth. */
-	chatKind?: ChatKind;
+	chatKind?: PersistedChatKind;
 	label: string | null;
 	createdAt: string | null;
 	filePath?: string;
@@ -35,10 +35,10 @@ export interface SourceDirectory {
 }
 /** Chains browsing and practice picking share this presentation inventory.
  * Keep the full organization: hidden sessions still own their placements.
- * Practice and capstone never write the graph, so neither appears as a
- * source group. */
+ * Practice, Lab, and legacy capstone never write the graph, so none appear as
+ * a source group. */
 export function chainSourceDirectory(directory: SourceDirectory): SourceDirectory {
-	return { ...directory, sources: directory.sources.filter((s) => s.chatKind !== "practice" && s.chatKind !== "capstone") };
+	return { ...directory, sources: directory.sources.filter((s) => s.chatKind !== "practice" && s.chatKind !== "lab" && s.chatKind !== "capstone") };
 }
 export type OrganizationAction =
 	| { action: "create-folder"; name: string; parentId: string | null }

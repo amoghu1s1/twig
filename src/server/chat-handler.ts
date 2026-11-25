@@ -1,12 +1,14 @@
 import type { Usage } from "@earendil-works/pi-ai";
 import {
 	createPracticeAgent,
-	createCapstoneAgent,
+	createLabAgent,
 	createProberAgent,
 	createTeacherAgent,
 	type AgentBuildOptions,
 	type TeachingAgent,
 } from "../agent/teacher-agent.ts";
+import { inspectLabVariables } from "./lab/kernel-manager.ts";
+import { readLabNotebook, writeLabNotebook } from "./lab/workspace.ts";
 import { piEngineForSpec, type PiEngine } from "../agent/models.ts";
 import { connectionBackgroundAllowed as subscriptionBackgroundAllowed, connectionScopeCurrent, isSubscriptionProvider } from "../agent/subscription-connections.ts";
 import { nativeSubscriptionError } from "../agent/subscription-stream.ts";
@@ -123,7 +125,7 @@ function settlementErrorText(error: unknown): string {
 
 /** The compaction estimate's system-prompt share: doctrine + attachments manifest. */
 function systemPromptTokens(record: ChatRecord): number {
-	const kind = record.kind === "practice" || record.kind === "capstone" ? record.kind : "teacher";
+	const kind = record.kind === "practice" || record.kind === "lab" ? record.kind : "teacher";
 	return Math.ceil(systemPromptFor(kind, { attachments: sessionAttachments(record) }).length / 4);
 }
 
@@ -324,6 +326,9 @@ export async function handleChatInput(
 	const initialRecord = stores.chatStore.getChat(chatId);
 	if (!initialRecord) {
 		return Response.json({ error: "Unknown chat" }, { status: 404 });
+	}
+	if (initialRecord.kind === "capstone") {
+		return Response.json({ error: "Archived capstone sessions are read-only." }, { status: 400 });
 	}
 	let record = initialRecord;
 
@@ -536,7 +541,7 @@ export async function handleChatInput(
 			engine: compactionEngine,
 			canStart: () => !isTurnRunning(chatId) && connectionBackgroundAllowed(conversation.provider),
 			modelId: modelIdForCompaction,
-			kind: record.kind === "practice" || record.kind === "capstone" ? record.kind : hasProbeDone(record.messages) ? "teach" : "probe",
+			kind: record.kind === "practice" || record.kind === "lab" || record.kind === "capstone" ? record.kind : hasProbeDone(record.messages) ? "teach" : "probe",
 			includeReasoning: effective.compaction.includeReasoning,
 			thresholdTokens: effectiveThresholdTokens(
 				effective.compaction?.thresholdTokens,
@@ -884,12 +889,30 @@ export async function handleChatInput(
 	// uniform across kinds).
 	const constructed: TeachingAgent = buildAgent
 		? buildAgent({ ...agentOpts, teaching })
-		: record.kind === "capstone"
-			// CAPSTONE BRANCH (2026-11-01): built from turn 1 like practice; its
-			// registry is the brief/review/evaluate/gap_report tools plus the
-			// project-scoped read tools. Targets validate against the WHOLE graph.
-			? createCapstoneAgent(
-					{ chatId, chatStore: stores.chatStore, graphNodes: () => stores.graphStore.readNodes() },
+		: record.kind === "lab"
+			? createLabAgent(
+					{
+						chatId,
+						readNotebook: async () => {
+							const lab = stores.chatStore.getChat(chatId)?.lab;
+							if (!lab) throw new Error("No workspace folder is bound to this Lab session.");
+							return readLabNotebook(lab);
+						},
+						writeNotebook: async (notebook, expectedRevision) => {
+							const lab = stores.chatStore.getChat(chatId)?.lab;
+							if (!lab) throw new Error("No workspace folder is bound to this Lab session.");
+							const res = writeLabNotebook(lab, notebook, expectedRevision);
+							if (!res.ok) throw new Error("Notebook changed concurrently — re-read and retry.");
+							return { revision: res.revision };
+						},
+						inspectVariables: () => inspectLabVariables(chatId),
+						getWorkspaceRoot: async () => stores.chatStore.getChat(chatId)?.lab?.workspaceDir ?? null,
+						emitLabChanged: (payload) => emit("lab-changed", { chatId, ...payload }),
+						getNudgeLevel: () => stores.chatStore.getChat(chatId)?.lab?.nudgeLevel ?? effective.lab.defaultNudgeLevel ?? "nudge",
+						getMessages: () => stores.chatStore.getChat(chatId)?.messages ?? record.messages,
+						graphNodes: () => stores.graphStore.readNodes(),
+						...(graphToolsEnabled(effective) ? { graph: { chatStore: stores.chatStore, graphStore: stores.graphStore } } : {}),
+					},
 					agentOpts,
 				)
 			: record.kind === "practice"
@@ -1048,7 +1071,7 @@ export async function handleChatInput(
 				// PRACTICE (owner, 2026-10-04): practice sessions write nothing —
 				// no extraction, no graph, no coverage (v1: the session itself
 				// is the deliverable).
-				if ((!requestCycle || requestCycle.dispatched) && record.kind !== "practice" && record.kind !== "capstone" && extractionEnabled(effective.graph)) {
+				if ((!requestCycle || requestCycle.dispatched) && record.kind !== "practice" && record.kind !== "lab" && record.kind !== "capstone" && extractionEnabled(effective.graph)) {
 					// Fresh per-turn read of the graph section's chunk budget
 					// (extraction-UX redesign, 2026-09-24): the trigger compares
 					// against it and the pipeline's batches share it.
@@ -1102,7 +1125,7 @@ export async function handleChatInput(
 							engine: kickEngine,
 							canStart: () => !isTurnRunning(chatId) && connectionBackgroundAllowed(spec.provider),
 							modelId: kickModelId,
-							kind: freshRecord.kind === "practice" || freshRecord.kind === "capstone" ? freshRecord.kind : hasProbeDone(freshRecord.messages) ? "teach" : "probe",
+							kind: freshRecord.kind === "practice" || freshRecord.kind === "lab" || freshRecord.kind === "capstone" ? freshRecord.kind : hasProbeDone(freshRecord.messages) ? "teach" : "probe",
 							includeReasoning: fresh.compaction.includeReasoning,
 							thresholdTokens: effectiveThresholdTokens(
 								fresh.compaction?.thresholdTokens,

@@ -14,7 +14,7 @@ import { SetupDialog } from "@/components/setup-dialog";
 import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
 import { StatsBar } from "@/components/stats-bar";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
-import { CAPSTONE_PICK_HINT, ComposerActions, NodePickerControl } from "@/components/composer-actions";
+import { ComposerActions, LabFolderControl, NodePickerControl } from "@/components/composer-actions";
 import { ContextAttachControl, useAttachmentDraft, type AttachmentDraft } from "@/components/attachments";
 import { useImageDraft, type ImageDraftProps } from "@/components/draft-images";
 import { useImageLightbox } from "@/components/image-lightbox";
@@ -23,7 +23,7 @@ import { MapIcon, NotebookTextIcon } from "lucide-react";
 import { requestReading, useReadingMode } from "@/components/readings/api";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { SessionStarter } from "@/components/start-session";
-import type { ChatSettings, GraphSnapshot } from "@/src/core";
+import type { ChatSettings, GraphSnapshot, LabLanguage } from "@/src/core";
 
 /** The draft's pick set (owner round 10): the SAME shape the home pick
  *  bar lifts — resolved nodes as the learner SAW them at pick time. */
@@ -52,7 +52,7 @@ const DOCK = "mx-auto w-full max-w-[46rem] px-4";
 export async function startDraftSession(
 	text: string,
 	fetchLike: typeof fetch,
-	mode?: "practice" | "capstone",
+	mode?: "practice" | "lab",
 	picks?: readonly DraftPick[],
 	starter = new SessionStarter(),
 	settingsIdentity?: string,
@@ -60,16 +60,30 @@ export async function startDraftSession(
 	openingText?: string,
 	/** A file-only opening: the first attachment names the session. */
 	fallbackTitle?: string,
+	lab?: { workspaceDir?: string; interpreterPath?: string; language?: LabLanguage },
 ): Promise<string | null> {
 	const t = text.trim();
 	if (!t && !attach) return null;
-	// THE PICKS RIDE THE CREATE (owner round 10): a practice draft seeded
+	// THE PICKS RIDE THE CREATE (owner round 10): a practice/lab draft seeded
 	// from the pick bar creates its session WITH the graph context — the
-	// same contract as the home screen's practice send (the marker with
+	// same contract as the home screen's send (the marker with
 	// [id] name: statement lines, target validation's truth set).
 	return starter.start(
 		mode
-			? { title: t || fallbackTitle || IMAGE_ONLY_TITLE, kind: mode, ...(picks && picks.length > 0 ? { graphContext: { propositions: picks } } : {}) }
+			? {
+					title: t || fallbackTitle || IMAGE_ONLY_TITLE,
+					kind: mode,
+					...(picks && picks.length > 0 ? { graphContext: { propositions: picks } } : {}),
+					...(mode === "lab" && lab?.workspaceDir?.trim()
+						? {
+								lab: {
+									workspaceDir: lab.workspaceDir.trim(),
+									...(lab.interpreterPath ? { interpreterPath: lab.interpreterPath } : {}),
+									...(lab.language ? { language: lab.language } : {}),
+								},
+							}
+						: {}),
+				}
 			: { title: t || fallbackTitle || IMAGE_ONLY_TITLE },
 		fetchLike,
 		settingsIdentity,
@@ -94,6 +108,8 @@ export function DraftShell({
 	picks = [],
 	onOpenPicker,
 	onClearPicks,
+	labWorkspaceDir = "",
+	onLabWorkspaceDirChange,
 	overlay,
 	primerAction,
 	attachments,
@@ -104,10 +120,8 @@ export function DraftShell({
 	onChange: (v: string) => void;
 	onSend: () => void;
 	startError?: boolean;
-	/** The practice draft (owner, 2026-10-04): ?mode=practice — the
-	 *  created session carries kind:"practice" and the copy changes
-	 *  (the practice agent opens; no probing). */
-	mode?: "teach" | "practice" | "capstone";
+	/** The mode draft: ?mode=practice | ?mode=lab — teach is default. */
+	mode?: "teach" | "practice" | "lab";
 	/** The first-run CTA (fix wave chunk B): the same "Set up your models"
 	 *  affordance home carries, rendered above the draft shell — passed by
 	 *  NewSession, which owns the configured state and the SetupDialog. */
@@ -120,6 +134,8 @@ export function DraftShell({
 	picks?: DraftPick[];
 	onOpenPicker?: () => void;
 	onClearPicks?: () => void;
+	labWorkspaceDir?: string;
+	onLabWorkspaceDirChange?: (dir: string) => void;
 	/** THE PICKER SLOT (owner round 10b): the chain-table overlay hosts
 	 *  INSIDE the content column's relative container — the same law as
 	 *  the graph view (the overlay fills its column, never the sidebar).
@@ -155,7 +171,7 @@ export function DraftShell({
 	// round, owner 2026-10-01): the spoken text is deferred in the run's
 	// buffer — Enter must reach the finish-first send, not be gated out by
 	// an empty textarea. Nothing said → the send no-ops.
-	const canSend = (text.trim().length > 0 || dictation.active || Boolean(imageDraft?.hasImages) || Boolean(attachments?.files.length)) && !(mode === "capstone" && picks.length === 0);
+	const canSend = text.trim().length > 0 || dictation.active || Boolean(imageDraft?.hasImages) || Boolean(attachments?.files.length);
 	/* FINISH DICTATION FIRST (owner, 2026-10-01): stop the run, let the
 	 * last finals land through onChange, THEN call the parent's send —
 	 * which reads its REF mirror, so the post-await timing of React's
@@ -201,12 +217,12 @@ export function DraftShell({
 						<Conversation className="h-full min-w-0 flex-1" initial="instant">
 							<ConversationContent className="min-h-full gap-0 p-0">
 								<ConversationEmptyState
-									title={mode === "practice" ? "New practice session" : mode === "capstone" ? "New capstone" : "New session"}
+									title={mode === "practice" ? "New practice session" : mode === "lab" ? "New Lab session" : "New session"}
 									description={
 										mode === "practice"
 											? "Pick nodes from your knowledge graph, describe what you want to practice, or bring your own problem."
-											: mode === "capstone"
-												? "Pick the nodes you want to build with, then pitch what you would build."
+											: mode === "lab"
+												? "Open an interactive Python notebook backed by a real folder and guided mentor."
 												: "The teacher will open by probing what you already know."
 									}
 								/>
@@ -223,9 +239,15 @@ export function DraftShell({
 													{(picks.length > 0 || mode !== "teach") && (
 														<NodePickerControl
 															count={picks.length}
-															emptyLabel={mode === "capstone" ? CAPSTONE_PICK_HINT : undefined}
 															onOpen={onOpenPicker}
 															onClear={onClearPicks}
+														/>
+													)}
+													{mode === "lab" && onLabWorkspaceDirChange && (
+														<LabFolderControl
+															workspaceDir={labWorkspaceDir}
+															onChange={onLabWorkspaceDirChange}
+															disabled={busy}
 														/>
 													)}
 													{primerAction}
@@ -253,7 +275,7 @@ export function DraftShell({
 										// input (owner refinement round, 2026-09-24) — no lesson has
 										// started yet, so the composer must not read like one is in
 										// flight.
-										placeholder={mode === "practice" ? "What do you want to practice?" : mode === "capstone" ? "What would you build?" : "What do you want to learn?"}
+										placeholder={mode === "practice" ? "What do you want to practice?" : mode === "lab" ? "What do you want to build or explore in Python?" : "What do you want to learn?"}
 									/>
 								</div>
 								<StatsBar
@@ -280,7 +302,7 @@ export function DraftShell({
 	);
 }
 
-export function NewSession({ initialConfigured, mode = "teach" }: { initialConfigured: boolean; mode?: "teach" | "practice" | "capstone" }) {
+export function NewSession({ initialConfigured, mode = "teach" }: { initialConfigured: boolean; mode?: "teach" | "practice" | "lab" }) {
 	const router = useRouter();
 	const [text, setText] = useState("");
 	/* The draft MIRROR ("nothing gets lost" round, 2026-10-01): the shell's
@@ -311,6 +333,12 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 	const applyPicks = (next: DraftPick[]) => {
 		picksRef.current = next;
 		setPicks(next);
+	};
+	const [labWorkspaceDir, setLabWorkspaceDir] = useState("");
+	const labWorkspaceDirRef = useRef("");
+	const applyLabWorkspaceDir = (dir: string) => {
+		labWorkspaceDirRef.current = dir;
+		setLabWorkspaceDir(dir);
 	};
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const [snapshot, setSnapshot] = useState<GraphSnapshot | null>(null);
@@ -344,8 +372,6 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 			const draft = textRef.current.trim();
 			const images = imageDraft.imagesRef.current;
 			if ((!draft && images.length === 0 && attachments.files.length === 0) || startingRef.current) return;
-			// CAPSTONE: picks are required — nothing is created without them.
-			if (mode === "capstone" && picksRef.current.length === 0) return;
 			if (!configured) {
 				setSetupOpen(true);
 				return;
@@ -378,8 +404,20 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 						},
 					}
 				: undefined;
-			void startDraftSession(draft, fetch, mode === "teach" ? undefined : mode, mode === "teach" ? undefined : picksRef.current,
-				starterRef.current, JSON.stringify(catalog?.slots.strong), attach, draft, attachments.files[0]?.file.name)
+			void startDraftSession(
+				draft,
+				fetch,
+				mode === "teach" ? undefined : mode,
+				mode === "teach" ? undefined : picksRef.current,
+				starterRef.current,
+				JSON.stringify(catalog?.slots.strong),
+				attach,
+				draft,
+				attachments.files[0]?.file.name,
+				mode === "lab" && labWorkspaceDirRef.current.trim()
+					? { workspaceDir: labWorkspaceDirRef.current.trim() }
+					: undefined,
+			)
 				.then((target) => {
 					if (target) router.push(target);
 					else { startingRef.current = false; setBusy(false); }
@@ -404,6 +442,8 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				picks={picks}
 				onOpenPicker={openPicker}
 				onClearPicks={() => applyPicks([])}
+				labWorkspaceDir={labWorkspaceDir}
+				onLabWorkspaceDirChange={applyLabWorkspaceDir}
 				attachments={attachments}
 				imageDraft={{ ...imageDraft.props, onOpen: lightbox.open }}
 				primerAction={

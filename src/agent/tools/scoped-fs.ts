@@ -8,16 +8,15 @@ import { findTool } from "./find.ts";
 import { grepTool } from "./grep.ts";
 
 /**
- * PROJECT-SCOPED FILE TOOLS (capstone sessions, 2026-11-01): the same
- * read-only read / ls / find / grep the other agents carry, wrapped so
- * every path argument is confined to ONE directory — the learner's
- * project, fixed when the brief was accepted. Relative paths resolve
- * against it; an absent path means the project root (not the home
+ * PROJECT-SCOPED FILE TOOLS: the same read-only read / ls / find / grep
+ * the other agents carry, wrapped so every path argument is confined to ONE
+ * directory — the session's workspace directory. Relative paths resolve
+ * against it; an absent path means the workspace root (not the home
  * directory); anything that resolves outside it — `..`, an absolute path,
  * a `~` path, or a symlink whose target lies outside — is refused.
  *
  * The check is on the REAL path (symlinks resolved) of the final target,
- * so a symlink inside the project cannot be used to read outside it. The
+ * so a symlink inside the workspace cannot be used to read outside it. The
  * underlying walks (find / grep) do not follow symlinked directories, and
  * the glob/pattern arguments only match paths relative to the walked
  * root, so confining `path` confines the whole call.
@@ -67,11 +66,11 @@ function scoped(tool: AgentTool<any>, getRoot: ProjectRootProvider): AgentTool<a
 	return {
 		...tool,
 		description:
-			`${tool.description} SCOPED to the learner's project directory (fixed when the brief is accepted): relative paths resolve ` +
-			"against it, an omitted path means the project root, and nothing outside it can be read. Unavailable until the brief is accepted.",
+			`${tool.description} SCOPED to the session's workspace directory: relative paths resolve ` +
+			"against it, an omitted path means the workspace root, and nothing outside it can be read.",
 		execute: async (toolCallId, params, signal, onUpdate) => {
 			const root = await getRoot();
-			if (root === null) throw new Error("No project directory yet — file access unlocks when the brief is accepted (the brief tool).");
+			if (root === null) throw new Error("No workspace directory is bound to this session.");
 			const input = { ...(params as Record<string, unknown>) };
 			const requested = typeof input.path === "string" ? input.path : undefined;
 			input.path = await confineToRoot(root, requested);
@@ -80,8 +79,7 @@ function scoped(tool: AgentTool<any>, getRoot: ProjectRootProvider): AgentTool<a
 	};
 }
 
-/** The scoped read / ls / find / grep set; the root is read at CALL time
- *  so the tools unlock in the same turn the brief is accepted. */
+/** The scoped read / ls / find / grep set; the root is read at call time. */
 export function projectFsTools(getRoot: ProjectRootProvider): Record<string, AgentTool<any>> {
 	return {
 		read: scoped(readTool, getRoot),

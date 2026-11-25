@@ -51,6 +51,8 @@ describe("standalone JavaScript tracing exclusions and native workaround policy"
 			"node_modules/@silvia-odwyer/photon-node/**/*",
 			"src/agent/prompts/readings/**/*.md",
 			"src/agent/prompts/discuss/**/*.md",
+			"src/agent/prompts/lab/*.md",
+			"src/server/lab/python_kernel.py",
 			"node_modules/@resvg/resvg-js-*/**/*",
 			"node_modules/@earendil-works/pi-ai/dist/providers/data/**/*",
 			"node_modules/@earendil-works/pi-ai/dist/auth/oauth/{load,github-copilot,xai,device-code}.js",

@@ -72,7 +72,10 @@ export type { ComposerToken } from "./composer-tokens.ts";
 // the deleted server projection to the client side. Pure, browser-safe.
 export * from "./view.ts";
 export * from "./tool-parts.ts";
-export * from "./capstone-parts.ts";
+export * from "./lab-ipynb.ts";
+export * from "./lab-nudge.ts";
+export * from "./lab-summary.ts";
+export * from "./lab-python.ts";
 export * from "./answer-presentation.ts";
 export * from "./svg-source.ts";
 export * from "./prices.ts";

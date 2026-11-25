@@ -8,7 +8,7 @@ import {
 	CircleXIcon,
 	CompassIcon,
 	DumbbellIcon,
-	HammerIcon,
+	FlaskConicalIcon,
 	KeyboardIcon,
 	MessageSquareIcon,
 	NotebookPenIcon,
@@ -37,10 +37,10 @@ import {
 	KEYBOARD_ACTIONS,
 	loadOverrides,
 	READING_KIND_LABEL,
-	type ChatKind,
 	type ChatListItem,
 	type GraphNode,
 	type GraphSnapshot,
+	type PersistedChatKind,
 	type ReadingSummary,
 } from "@/src/core";
 
@@ -91,8 +91,9 @@ const SECTION_LABELS: Record<PaletteCategory, string> = {
 
 const DEFAULT_RANK_LIMIT = 50;
 
-export function sessionKindLabel(kind: ChatKind | undefined): string {
+export function sessionKindLabel(kind: PersistedChatKind | undefined): string {
 	if (kind === "practice") return "Practice";
+	if (kind === "lab") return "Lab";
 	if (kind === "capstone") return "Capstone";
 	return "Teaching";
 }
@@ -141,13 +142,13 @@ export function builtInPaletteActions(shortcuts: Partial<Record<string, string |
 			execution: { kind: "route", href: "/chat/new?mode=practice" },
 		},
 		{
-			id: "action:new-capstone",
+			id: "action:new-lab",
 			category: "action",
-			title: "New capstone session",
+			title: "New Lab session",
 			badge: "Action",
-			iconKey: "new-capstone",
-			searchFields: ["New capstone session", "create capstone project build"],
-			execution: { kind: "route", href: "/chat/new?mode=capstone" },
+			iconKey: "new-lab",
+			searchFields: ["New Lab session", "create python notebook lab coding project"],
+			execution: { kind: "route", href: "/chat/new?mode=lab" },
 		},
 		{
 			id: "action:open-settings",
@@ -385,8 +386,8 @@ function PaletteRowIcon({ item }: { item: PaletteItem }) {
 			return <PlusIcon className={cls} />;
 		case "new-practice":
 			return <DumbbellIcon className={cls} />;
-		case "new-capstone":
-			return <HammerIcon className={cls} />;
+		case "new-lab":
+			return <FlaskConicalIcon className={cls} />;
 		case "settings":
 			return <SettingsIcon className={cls} />;
 		case "graph":

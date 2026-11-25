@@ -41,6 +41,7 @@ import {
 	type CustomModel,
 	type CustomModelOverride,
 	type GraphSettings,
+	type LabSettings,
 	type MistakeAnalysisSettings,
 	type ModelSlot,
 	type ModelSlotName,
@@ -106,6 +107,8 @@ export interface EffectiveSettings {
 	/** Compaction (owner round 14): resolved concrete — absent record
 	 *  section resolves to the factory 150k. */
 	compaction: Required<CompactionSettings>;
+	/** Lab workspace root + preferred interpreter defaults. */
+	lab: Required<LabSettings>;
 	/** Custom endpoint, resolved concrete: baseUrl defaults "", models and
 	 *  user pins default to empty. */
 	customProvider: { baseUrl: string; models: CustomModel[]; overrides: Record<string, CustomModelOverride>; manualModels: string[] };
@@ -264,6 +267,11 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 		compaction: {
 			thresholdTokens: record?.compaction?.thresholdTokens ?? FACTORY_SETTINGS.compaction.thresholdTokens,
 			includeReasoning: record?.compaction?.includeReasoning ?? FACTORY_SETTINGS.compaction.includeReasoning,
+		},
+		lab: {
+			defaultRootDir: record?.lab?.defaultRootDir ?? FACTORY_SETTINGS.lab.defaultRootDir,
+			pythonPath: record?.lab?.pythonPath ?? FACTORY_SETTINGS.lab.pythonPath,
+			defaultNudgeLevel: record?.lab?.defaultNudgeLevel ?? FACTORY_SETTINGS.lab.defaultNudgeLevel,
 		},
 		customProvider: {
 			baseUrl: record?.customProvider?.baseUrl ?? "",

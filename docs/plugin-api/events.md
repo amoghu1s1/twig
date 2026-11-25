@@ -76,6 +76,11 @@ export interface ServerEvents {
         topic: string;
         data?: unknown;
     };
+    "lab-changed": {
+        chatId: string;
+        revision?: string;
+        focusCellId?: string;
+    };
 }
 ```
 
@@ -109,6 +114,10 @@ export interface ServerEvents {
 - ["plugin-message".pluginId](#serverevents-plugin-messagepluginid)
 - ["plugin-message".topic](#serverevents-plugin-messagetopic)
 - ["plugin-message".data](#serverevents-plugin-messagedata)
+- ["lab-changed"](#serverevents-lab-changed)
+- ["lab-changed".chatId](#serverevents-lab-changedchatid)
+- ["lab-changed".revision](#serverevents-lab-changedrevision)
+- ["lab-changed".focusCellId](#serverevents-lab-changedfocuscellid)
 
 ### ServerEvents "turn-started"
 
@@ -341,6 +350,38 @@ topic: string;
 
 ```ts
 data?: unknown;
+```
+
+### ServerEvents "lab-changed"
+
+Lab workspace notebook or metadata changed (e.g., mentor inserted a cell
+or cell execution persisted). Notify-then-fetch: Lab UI refetches
+/api/labs/:id/notebook and optionally highlights focusCellId.
+
+```ts
+"lab-changed": {
+    chatId: string;
+    revision?: string;
+    focusCellId?: string;
+};
+```
+
+### ServerEvents "lab-changed".chatId
+
+```ts
+chatId: string;
+```
+
+### ServerEvents "lab-changed".revision
+
+```ts
+revision?: string;
+```
+
+### ServerEvents "lab-changed".focusCellId
+
+```ts
+focusCellId?: string;
 ```
 
 ## ServerEventType
