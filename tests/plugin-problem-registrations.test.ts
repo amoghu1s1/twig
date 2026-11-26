@@ -49,7 +49,8 @@ test("unregister aborts exact registration ownership without reviving captured c
 
 test("native and plugin poses atomically share one gate and the existing conclude tool", async t => {
   const { host, ctx } = await fixture(t); ctx.registerProblemType(definition());
-  const contributions = host.agentContributions({ chatId: "chat", agent: "practice" }, []), gate = { problemActive: false };
+  const gate: { problemActive: boolean; concludedThisTurn?: boolean; lastConcludeOutcome?: string } = { problemActive: false };
+  const contributions = host.agentContributions({ chatId: "chat", agent: "practice" }, []);
   const plugin = pluginProblemTools(contributions.problemTypes!, "chat", gate)[0]!;
   const result = await plugin.execute("code-call", input);
   assert.equal(gate.problemActive, true); assert.equal((result as { terminate?: boolean }).terminate, true);
@@ -61,6 +62,9 @@ test("native and plugin poses atomically share one gate and the existing conclud
   assert.equal(activeProblemOf(messages)?.pluginProblem?.typeId, "code");
   await concludeTool(gate).execute("end", { outcome: "solved", verdict: "Done", rung: null, missClass: null, retest: false });
   assert.equal(gate.problemActive, false);
+  // Pause law blocks same-turn pose after non-voided conclude; a fresh turn (or voided replacement) allows posing again.
+  assert.equal((await native.execute("native-call-blocked", { statement: "Native", mode: "recall", modelSolution: "x" })).isError, true);
+  gate.concludedThisTurn = false;
   assert.equal((await native.execute("native-call", { statement: "Native", mode: "recall", modelSolution: "x" })).isError, undefined);
 });
 

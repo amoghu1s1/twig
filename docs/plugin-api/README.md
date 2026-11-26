@@ -30,6 +30,7 @@ The SDK is **type-only**. Call the contexts supplied by LearnHarness, not runtim
 - [contracts-lab](contracts-lab.md)
 - [contracts-models](contracts-models.md)
 - [contracts-plan](contracts-plan.md)
+- [contracts-practice](contracts-practice.md)
 - [events](events.md)
 - [highlights](highlights.md)
 - [native-messages](native-messages.md)
@@ -228,6 +229,13 @@ These are reachable through public data, event, inheritance or helper-type relat
 - [PlanEdge](contracts-plan.md#planedge) — `contracts-plan`
 - [PlanNode](contracts-plan.md#plannode) — `contracts-plan`
 - [PlanTree](contracts-plan.md#plantree) — `contracts-plan`
+- [PRACTICE_COACHING_LEVELS](contracts-practice.md#practice_coaching_levels) — `contracts-practice`
+- [PRACTICE_DEPTHS](contracts-practice.md#practice_depths) — `contracts-practice`
+- [PRACTICE_PRESENTATIONS](contracts-practice.md#practice_presentations) — `contracts-practice`
+- [PracticeCoachingLevel](contracts-practice.md#practicecoachinglevel) — `contracts-practice`
+- [PracticeDepth](contracts-practice.md#practicedepth) — `contracts-practice`
+- [PracticePresentation](contracts-practice.md#practicepresentation) — `contracts-practice`
+- [PracticeSessionMeta](contracts-practice.md#practicesessionmeta) — `contracts-practice`
 - [ServerEvent](events.md#serverevent) — `events`
 - [ServerEvents](events.md#serverevents) — `events`
 - [ServerEventType](events.md#servereventtype) — `events`
@@ -269,4 +277,4 @@ These are reachable through public data, event, inheritance or helper-type relat
 
 Standard JavaScript/DOM types (`Promise`, `AbortSignal`, `File`, `HTMLElement`, and utility types) use their standard contracts. Pi model/messages/tools and TypeBox schemas use the exact peer versions declared by the bundled SDK's `package.json`. Supply those peers when typechecking; they are development types, not permission to import private LearnHarness runtime modules.
 
-Coverage: **140 public types**, **67 supporting declarations**, **939 declared member signatures/variants**. Generation contains no build timestamps or absolute source paths.
+Coverage: **140 public types**, **74 supporting declarations**, **945 declared member signatures/variants**. Generation contains no build timestamps or absolute source paths.

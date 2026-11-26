@@ -110,7 +110,12 @@ describe("send_to_user model gate", () => {
 					assert.equal(typeof output!.prepareArguments, "function", "standard argument healing is wired");
 				}
 				const composed = composeInstructions(kind as keyof typeof factories);
-				assert.equal(agent.state.systemPrompt, guarded ? `${composed}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}` : composed);
+				if (kind === "practice") {
+					assert.ok(agent.state.systemPrompt.startsWith(composed), "practice prompt starts with base + doctrine");
+					assert.ok(!agent.state.systemPrompt.includes(SEND_TO_USER_DELIVERY_RULE), "never injects send_to_user rule into practice");
+				} else {
+					assert.equal(agent.state.systemPrompt, guarded ? `${composed}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}` : composed);
+				}
 			}
 		});
 	}

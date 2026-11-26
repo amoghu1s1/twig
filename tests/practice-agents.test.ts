@@ -120,20 +120,33 @@ describe("the practice tool gating law", () => {
 		assert.equal(result.terminate, undefined);
 	});
 
-	it("THE BKT INCIDENT — a mid-turn conclude → pose pair works (the gate is turn-scoped, not record-frozen)", async () => {
-		// One turn, one toolset: the record froze at the write-ahead with
-		// the old problem active. The gates used to re-read that frozen
-		// record per execute, so the pose after a successful conclude
-		// always died on "a problem is already active" until the model
-		// gave up ("the problem slot is stuck").
+	it("PracticeGate enforces pause law: same-turn conclude(solved) → pose is REJECTED, whereas conclude(voided) → pose succeeds", async () => {
 		const gate = createPracticeGate(ctxOf(activeProblemRecord()));
 		const tools = { problem: problemTool(gate), conclude: concludeTool(gate) };
 		const conclude = await tools.conclude.execute("call_c1", CONCLUDE_INPUT as never);
-		assert.equal(conclude.isError, undefined, "the conclude acks against the seeded record");
-		const pose = await tools.problem.execute("call_p2", PROBLEM_INPUT as never);
-		assert.equal(pose.isError, undefined, "the freed gate lets the next problem through — SAME turn");
-		const greedy = await tools.problem.execute("call_p3", PROBLEM_INPUT as never);
-		assert.equal(greedy.isError, true, "the gate re-arms on the successful pose");
+		assert.equal(conclude.isError, undefined, "conclude acks against the seeded record");
+		const blockedPose = await tools.problem.execute("call_p2", PROBLEM_INPUT as never);
+		assert.equal(blockedPose.isError, true, "same-turn pose after non-voided conclude is blocked by pause law");
+		assert.match(
+			(blockedPose.details as { problems: string[] }).problems[0]!,
+			/already concluded in this turn/i,
+		);
+
+		// Replacing a flagged/bad question (outcome: "voided") MAY immediately pose a replacement in the same turn.
+		const replacementGate = createPracticeGate(ctxOf(activeProblemRecord()));
+		const replacementTools = { problem: problemTool(replacementGate), conclude: concludeTool(replacementGate) };
+		const voidConclude = await replacementTools.conclude.execute("call_void", {
+			outcome: "voided",
+			verdict: "Problem was malformed.",
+			rung: null,
+			missClass: null,
+			retest: false,
+		} as never);
+		assert.equal(voidConclude.isError, undefined);
+		const pose = await replacementTools.problem.execute("call_p2", PROBLEM_INPUT as never);
+		assert.equal(pose.isError, undefined, "voided conclude lets the replacement pose through — SAME turn");
+		const greedy = await replacementTools.problem.execute("call_p3", PROBLEM_INPUT as never);
+		assert.equal(greedy.isError, true, "the gate re-arms on the successful replacement pose");
 	});
 });
 
@@ -200,7 +213,7 @@ describe("the practice agent", () => {
 		const tools = practiceTools(ctxOf([]));
 		assert.deepEqual(
 			Object.keys(tools).sort(),
-			["conclude", "find", "grep", "ls", "problem", "read"],
+			["conclude", "find", "grep", "ls", "practice_check", "practice_code", "practice_match", "practice_summary", "problem", "read"],
 		);
 	});
 
@@ -213,7 +226,22 @@ describe("the practice agent", () => {
 		// not apply the teacher/prober user tool-toggle filter.
 		assert.deepEqual(
 			Object.keys(tools).sort(),
-			["conclude", "find", "grep", "list_propositions", "list_sessions", "ls", "pdf", "problem", "read", "research"],
+			[
+				"conclude",
+				"find",
+				"grep",
+				"list_propositions",
+				"list_sessions",
+				"ls",
+				"pdf",
+				"practice_check",
+				"practice_code",
+				"practice_match",
+				"practice_summary",
+				"problem",
+				"read",
+				"research",
+			],
 		);
 		const withSearch = practiceTools({ ...ctxOf([]), jobs: { ...jobs, searchAvailable: () => true }, graph });
 		assert.ok(withSearch.research, "a live engine also keeps research");
@@ -302,10 +330,10 @@ describe("persistent practice nudges", () => {
 			assert.ok(prompt.includes(`**${rung} —`));
 		}
 		assert.match(prompt, /Concluding ends your turn; the next problem is posed only when the learner explicitly moves on/);
-		assert.match(prompt, /After the conclude's result/);
-		assert.match(prompt, /END YOUR TURN\. Do not make further tool calls in that reply, and never pose another problem there/);
-		assert.match(prompt, /A clarification question is never the go-ahead; when in doubt, answer and wait/);
-		assert.match(prompt, /The learner may discard a problem without concluding it/);
+		assert.match(prompt, /After `conclude`, speak any helpful closing words/);
+		assert.match(prompt, /Only pose the next problem when the learner explicitly moves on/);
+		assert.match(prompt, /Answer clarification questions about the finished problem concisely and wait/);
+		assert.match(prompt, /the learner discarded that problem without revealing the solution/);
 	});
 
 	it("aligns the conclude description with the canonical ack without changing outcomes or the runtime pause mechanism", async () => {
@@ -317,7 +345,7 @@ describe("persistent practice nudges", () => {
 		assert.match(description, /Nothing may conclude unless a problem is active/);
 		assert.doesNotMatch(description, /turn CONTINUES|reveal, then pose the next problem/);
 		assert.deepEqual(concludeInputObject.properties.outcome.anyOf.map((outcome) => outcome.const), [
-			"solved", "solvedWithHints", "movedOn", "surrendered", "dismissed",
+			"solved", "solvedWithHints", "movedOn", "surrendered", "dismissed", "voided",
 		]);
 		const result = await tool.execute("call_persistent_nudges", CONCLUDE_INPUT as never);
 		assert.equal((result.content[0] as { text: string }).text, CONCLUDE_ACK_TEXT);
@@ -349,7 +377,7 @@ describe("practice prompt composition (own directory + the formatting appendix)"
 		assert.match(prompt, /one confidently-delivered hallucination poisons that/);
 		assert.match(prompt, /If you doubt it, check it/);
 		// practice's own fact-check law (the rarely-needed framing is dead)
-		assert.match(prompt, /grades the learner against a lie/);
+		assert.match(prompt, /If you are unsure of any fact you are putting into a problem, solution, verdict, or hint/);
 		assert.ok(!prompt.includes("exceptions, not habits"), "the rarely-needed framing is gone");
 		assert.ok(!prompt.includes("no research tool here"), "the stale line is gone");
 		// the thinking-fields doctrine composes into practice too (one law)

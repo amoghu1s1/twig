@@ -297,6 +297,7 @@ export interface ChatRecord {
     imageSnapshots?: Record<string, ImageSnapshot>;
     kind?: PersistedChatKind;
     lab?: LabSessionMeta;
+    practice?: PracticeSessionMeta;
     tree?: PlanTree;
     turns?: TurnUsage[];
     extractions?: ExtractionRunUsage[];
@@ -309,7 +310,7 @@ export interface ChatRecord {
 }
 ```
 
-**Related types:** [AttachmentRecord](contracts-chat.md#attachmentrecord), [ChatHighlight](highlights.md#chathighlight), [ChatSettings](contracts-chat.md#chatsettings), [ExtractionRunUsage](contracts-chat.md#extractionrunusage), [ImageSnapshot](contracts-chat.md#imagesnapshot), [LabSessionMeta](contracts-lab.md#labsessionmeta), [LhMessage](native-messages.md#lhmessage), [PersistedChatKind](contracts-chat.md#persistedchatkind), [PlanTree](contracts-plan.md#plantree), [SideChatThread](contracts-chat.md#sidechatthread), [TurnUsage](contracts-chat.md#turnusage).
+**Related types:** [AttachmentRecord](contracts-chat.md#attachmentrecord), [ChatHighlight](highlights.md#chathighlight), [ChatSettings](contracts-chat.md#chatsettings), [ExtractionRunUsage](contracts-chat.md#extractionrunusage), [ImageSnapshot](contracts-chat.md#imagesnapshot), [LabSessionMeta](contracts-lab.md#labsessionmeta), [LhMessage](native-messages.md#lhmessage), [PersistedChatKind](contracts-chat.md#persistedchatkind), [PlanTree](contracts-plan.md#plantree), [PracticeSessionMeta](contracts-practice.md#practicesessionmeta), [SideChatThread](contracts-chat.md#sidechatthread), [TurnUsage](contracts-chat.md#turnusage).
 
 **Member index** (including nested object members; inherited members are defined in the linked base types):
 
@@ -321,6 +322,7 @@ export interface ChatRecord {
 - [imageSnapshots](#chatrecord-imagesnapshots)
 - [kind](#chatrecord-kind)
 - [lab](#chatrecord-lab)
+- [practice](#chatrecord-practice)
 - [tree](#chatrecord-tree)
 - [turns](#chatrecord-turns)
 - [extractions](#chatrecord-extractions)
@@ -383,6 +385,14 @@ Bound workspace folder +.ipynb + interpreter metadata for kind === "lab".
 
 ```ts
 lab?: LabSessionMeta;
+```
+
+### ChatRecord practice
+
+Practice v2 dials (coaching, depth, presentation, verifySolutions) for kind === "practice".
+
+```ts
+practice?: PracticeSessionMeta;
 ```
 
 ### ChatRecord tree
@@ -555,6 +565,7 @@ export interface ChatSummary {
     updatedAt: string;
     kind: PersistedChatKind;
     lab?: LabSessionMeta;
+    practice?: PracticeSessionMeta;
     messageCount: number;
     phase: Phase3;
     pendingQuestion: boolean;
@@ -563,7 +574,7 @@ export interface ChatSummary {
 }
 ```
 
-**Related types:** [ChatSettings](contracts-chat.md#chatsettings), [LabSessionMeta](contracts-lab.md#labsessionmeta), [PersistedChatKind](contracts-chat.md#persistedchatkind), [Phase3](phases.md#phase3).
+**Related types:** [ChatSettings](contracts-chat.md#chatsettings), [LabSessionMeta](contracts-lab.md#labsessionmeta), [PersistedChatKind](contracts-chat.md#persistedchatkind), [Phase3](phases.md#phase3), [PracticeSessionMeta](contracts-practice.md#practicesessionmeta).
 
 **Member index** (including nested object members; inherited members are defined in the linked base types):
 
@@ -573,6 +584,7 @@ export interface ChatSummary {
 - [updatedAt](#chatsummary-updatedat)
 - [kind](#chatsummary-kind)
 - [lab](#chatsummary-lab)
+- [practice](#chatsummary-practice)
 - [messageCount](#chatsummary-messagecount)
 - [phase](#chatsummary-phase)
 - [pendingQuestion](#chatsummary-pendingquestion)
@@ -617,6 +629,14 @@ Bound Lab metadata when kind === "lab".
 
 ```ts
 lab?: LabSessionMeta;
+```
+
+### ChatSummary practice
+
+Practice v2 dials when kind === "practice".
+
+```ts
+practice?: PracticeSessionMeta;
 ```
 
 ### ChatSummary messageCount
