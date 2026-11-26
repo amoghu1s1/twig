@@ -18,12 +18,20 @@ import { ComposerActions, LabFolderControl, NodePickerControl } from "@/componen
 import { ContextAttachControl, useAttachmentDraft, type AttachmentDraft } from "@/components/attachments";
 import { useImageDraft, type ImageDraftProps } from "@/components/draft-images";
 import { useImageLightbox } from "@/components/image-lightbox";
-import { IMAGE_ONLY_TITLE } from "@/src/core";
+import { PracticeDraftDials } from "@/components/practice-toolbar";
+import {
+	DEFAULT_PRACTICE_META,
+	IMAGE_ONLY_TITLE,
+	normalizePracticeMeta,
+	type ChatSettings,
+	type GraphSnapshot,
+	type LabLanguage,
+	type PracticeSessionMeta,
+} from "@/src/core";
 import { MapIcon, NotebookTextIcon } from "lucide-react";
 import { requestReading, useReadingMode } from "@/components/readings/api";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { SessionStarter } from "@/components/start-session";
-import type { ChatSettings, GraphSnapshot, LabLanguage } from "@/src/core";
 
 /** The draft's pick set (owner round 10): the SAME shape the home pick
  *  bar lifts — resolved nodes as the learner SAW them at pick time. */
@@ -61,6 +69,7 @@ export async function startDraftSession(
 	/** A file-only opening: the first attachment names the session. */
 	fallbackTitle?: string,
 	lab?: { workspaceDir?: string; interpreterPath?: string; language?: LabLanguage },
+	practice?: Partial<PracticeSessionMeta>,
 ): Promise<string | null> {
 	const t = text.trim();
 	if (!t && !attach) return null;
@@ -74,6 +83,7 @@ export async function startDraftSession(
 					title: t || fallbackTitle || IMAGE_ONLY_TITLE,
 					kind: mode,
 					...(picks && picks.length > 0 ? { graphContext: { propositions: picks } } : {}),
+					...(mode === "practice" && practice ? { practice } : {}),
 					...(mode === "lab" && lab?.workspaceDir?.trim()
 						? {
 								lab: {
@@ -110,6 +120,8 @@ export function DraftShell({
 	onClearPicks,
 	labWorkspaceDir = "",
 	onLabWorkspaceDirChange,
+	practiceMeta,
+	onPracticeMetaChange,
 	overlay,
 	primerAction,
 	attachments,
@@ -136,6 +148,8 @@ export function DraftShell({
 	onClearPicks?: () => void;
 	labWorkspaceDir?: string;
 	onLabWorkspaceDirChange?: (dir: string) => void;
+	practiceMeta?: PracticeSessionMeta;
+	onPracticeMetaChange?: (next: PracticeSessionMeta) => void;
 	/** THE PICKER SLOT (owner round 10b): the chain-table overlay hosts
 	 *  INSIDE the content column's relative container — the same law as
 	 *  the graph view (the overlay fills its column, never the sidebar).
@@ -231,6 +245,13 @@ export function DraftShell({
 						<div className="h-24 bg-gradient-to-t from-background via-background/85 to-transparent" />
 						<div className="bg-background pb-4">
 							<div className={DOCK}>
+								{mode === "practice" && practiceMeta && onPracticeMetaChange && (
+									<PracticeDraftDials
+										meta={practiceMeta}
+										onChange={onPracticeMetaChange}
+										disabled={busy}
+									/>
+								)}
 								<ComposerActions
 									picker={
 										<>
@@ -340,6 +361,26 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 		labWorkspaceDirRef.current = dir;
 		setLabWorkspaceDir(dir);
 	};
+	const [practiceMeta, setPracticeMeta] = useState<PracticeSessionMeta>(DEFAULT_PRACTICE_META);
+	const practiceMetaRef = useRef<PracticeSessionMeta>(DEFAULT_PRACTICE_META);
+	const applyPracticeMeta = (next: PracticeSessionMeta) => {
+		practiceMetaRef.current = next;
+		setPracticeMeta(next);
+	};
+	useEffect(() => {
+		if (mode !== "practice") return;
+		let cancelled = false;
+		void fetch("/api/settings")
+			.then((r) => (r.ok ? r.json() : null))
+			.then((data: { practice?: Partial<PracticeSessionMeta> } | null) => {
+				if (cancelled || !data?.practice) return;
+				applyPracticeMeta(normalizePracticeMeta(data.practice));
+			})
+			.catch(() => {});
+		return () => {
+			cancelled = true;
+		};
+	}, [mode]);
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const [snapshot, setSnapshot] = useState<GraphSnapshot | null>(null);
 	const openPicker = () => {
@@ -417,6 +458,7 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				mode === "lab" && labWorkspaceDirRef.current.trim()
 					? { workspaceDir: labWorkspaceDirRef.current.trim() }
 					: undefined,
+				mode === "practice" ? practiceMetaRef.current : undefined,
 			)
 				.then((target) => {
 					if (target) router.push(target);
@@ -444,6 +486,8 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				onClearPicks={() => applyPicks([])}
 				labWorkspaceDir={labWorkspaceDir}
 				onLabWorkspaceDirChange={applyLabWorkspaceDir}
+				practiceMeta={practiceMeta}
+				onPracticeMetaChange={applyPracticeMeta}
 				attachments={attachments}
 				imageDraft={{ ...imageDraft.props, onOpen: lightbox.open }}
 				primerAction={

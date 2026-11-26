@@ -7,6 +7,7 @@ import {
 	ChevronDownIcon,
 	ChevronRightIcon,
 	CircleAlertIcon,
+	DumbbellIcon,
 	RotateCcwIcon,
 	SearchIcon,
 	TrashIcon,
@@ -21,9 +22,11 @@ import {
 	type MistakeGroupBy,
 	type MistakeKind,
 	type MistakeRecord,
+	type MistakeSeedItem,
 } from "@/src/core";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { BrailleSpinner } from "@/components/braille-spinner";
+import { SessionStarter } from "@/components/start-session";
 import { TopBar } from "@/components/top-bar";
 import { useServerEvent } from "@/components/server-events";
 import { cn } from "@/lib/utils";
@@ -70,6 +73,7 @@ export function MistakesPage() {
 	const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set());
 	const [scanNote, setScanNote] = useState<{ found: number; retry: number } | null>(null);
 	const [busy, setBusy] = useState(false);
+	const [practicing, setPracticing] = useState(false);
 	const [loadError, setLoadError] = useState<string | null>(null);
 
 	const load = useCallback(async () => {
@@ -160,6 +164,44 @@ export function MistakesPage() {
 		}
 	};
 
+	const practiceFiltered = async () => {
+		if (filtered.length === 0 || practicing) return;
+		setPracticing(true);
+		setLoadError(null);
+		try {
+			const seeded: MistakeSeedItem[] = filtered.slice(0, 15).map((r) => ({
+				id: r.id,
+				question: r.question,
+				...(r.analysis?.errorType ? { errorType: r.analysis.errorType } : {}),
+				...(r.analysis?.topic ? { topic: r.analysis.topic } : {}),
+				...(r.analysis?.whatYouDid ? { whatYouDid: r.analysis.whatYouDid } : {}),
+				...(r.analysis?.rule ? { rule: r.analysis.rule } : {}),
+				...(r.sessionTitle ? { sessionTitle: r.sessionTitle } : {}),
+			}));
+			const title =
+				errorType
+					? `Practice: ${ERROR_TYPE_LABELS[errorType]}`
+					: seeded.length === 1 && seeded[0]?.topic
+						? `Practice: ${seeded[0].topic}`
+						: `Practice mistakes (${seeded.length})`;
+			const openingPrompt =
+				"Start a practice session targeting my filtered mistakes in the session context. Pose fresh problems that test the underlying rules without repeating the old questions verbatim.";
+			const url = await new SessionStarter().start(
+				{ title, kind: "practice", mistakesContext: seeded },
+				fetch,
+				undefined,
+				undefined,
+				openingPrompt,
+			);
+			const bridge = (window as unknown as { lh?: { navigate?: (u: string) => void } }).lh;
+			if (bridge?.navigate) bridge.navigate(url);
+			else window.location.assign(url);
+		} catch (err) {
+			setLoadError(err instanceof Error ? err.message : "Couldn't start a practice session.");
+			setPracticing(false);
+		}
+	};
+
 	const analyzing = progress.active > 0;
 	const allVisibleOpen = filtered.length > 0 && filtered.every((r) => open.has(r.id));
 
@@ -195,12 +237,31 @@ export function MistakesPage() {
 							<button
 								type="button"
 								data-testid="mistakes-scan"
-								disabled={busy}
+								disabled={busy || practicing}
 								onClick={() => void scan(false)}
 								className="flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-accent disabled:opacity-40"
 							>
 								<SearchIcon className="size-3.5 text-muted-foreground" />
 								Scan past sessions
+							</button>
+							<button
+								type="button"
+								data-testid="mistakes-practice-filtered"
+								disabled={busy || practicing || filtered.length === 0}
+								title={
+									filtered.length > 15
+										? `Seeds practice with the 15 most recent of ${filtered.length} matching mistakes`
+										: "Start a practice session targeting the current filtered mistakes"
+								}
+								onClick={() => void practiceFiltered()}
+								className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+							>
+								<DumbbellIcon className="size-3.5" />
+								{practicing
+									? "Starting…"
+									: filtered.length > 0
+										? `Practice filtered (${Math.min(filtered.length, 15)})`
+										: "Practice filtered"}
 							</button>
 						</div>
 					</div>

@@ -1,10 +1,12 @@
-import type { LabLanguage } from "@/src/core";
+import type { LabLanguage, MistakeSeedItem, PracticeSessionMeta } from "@/src/core";
 import { clearOpeningPrompt, OPENING_PROMPT_FAILURE, stashOpeningPrompt } from "./opening-prompt";
 
 interface SessionCreation {
 	title: string;
 	kind?: "practice" | "lab";
 	graphContext?: { propositions: readonly { id: string; name: string; statement: string }[] };
+	mistakesContext?: readonly MistakeSeedItem[];
+	practice?: Partial<PracticeSessionMeta>;
 	lab?: { workspaceDir?: string; interpreterPath?: string; language?: LabLanguage };
 }
 
