@@ -6,7 +6,8 @@ import { VisualCard } from "@/components/artifacts/visual-card";
 import { ImageCard } from "@/components/artifacts/image-card";
 import { ProbeDoneCard } from "@/components/artifacts/probe-done-card";
 import { ToolCallCard } from "@/components/artifacts/tool-call-card";
-import { ProblemCard, ConcludeCard } from "@/components/practice-cards";
+import { ProblemCard, PracticeCheckCard, PracticeMatchCard, PracticeCodeCard, ConcludeCard } from "@/components/practice-cards";
+import { PracticeSummaryCard } from "@/components/practice-summary-card";
 import { LabCellMutationCard, LabSummaryCard } from "@/components/lab/lab-tool-cards";
 import { ReadingOfferCard } from "@/components/readings/offer-card";
 
@@ -48,6 +49,10 @@ export const artifactRenderers: Record<string, ComponentType<ArtifactPartProps>>
 	// (the commitment lives in the call's arguments and never renders);
 	// the conclusion carries the outcome + verdict + the reveal.
 	problem: ProblemCard,
+	practice_check: PracticeCheckCard,
+	practice_match: PracticeMatchCard,
+	practice_code: PracticeCodeCard,
+	practice_summary: PracticeSummaryCard,
 	conclude: ConcludeCard,
 	// Twig Lab (notebook workspace tools): quiet trace cards for reading/inspecting,
 	// and jump-to-cell action cards for mentor cell mutations.

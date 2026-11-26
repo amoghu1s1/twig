@@ -2,6 +2,7 @@
 
 import { createContext, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
+import type { ImageContent } from "@earendil-works/pi-ai";
 import { useChatSession } from "@/components/session";
 import { usePlugins } from "./plugins";
 import { PluginSubmissionRunner, SubmissionModelEpoch, type SubmissionAttempt } from "./plugin-submission-runner";
@@ -115,10 +116,16 @@ import { SessionOutlineChip, type SessionHeadingItem } from "@/components/sessio
 import { SessionTurnRail, extractSessionTurns } from "@/components/session-turn-rail";
 import { SentenceReader, SentenceReaderButton, type SentenceReaderPassage } from "@/components/sentence-reader";
 import { PracticeDock } from "@/components/practice-dock";
+import { PracticeCheckDock } from "@/components/practice-check-dock";
+import { PracticeMatchDock } from "@/components/practice-match-dock";
+import { PracticeCodeDock } from "@/components/practice-code-dock";
+import { PracticeToolbar } from "@/components/practice-toolbar";
+import { PracticeProgressStrip } from "@/components/practice-progress-strip";
+import { MistakesContextCard, type MistakesContextData } from "@/components/mistakes-context-card";
 import { PluginProblemDock, type PluginProblemDockProps } from "./plugin-problem-dock";
 import { PluginProblemSubmitted } from "./plugin-problem-submitted";
 import { readPluginProblemSubmission, pluginProblemById } from "@/src/core";
-import { ThinkingCard, ProblemCard, type PracticeThinkingData } from "@/components/practice-cards";
+import { ThinkingCard, ProblemCard, PracticeStructuredSubmitCard, type PracticeThinkingData } from "@/components/practice-cards";
 import { GraphContextCard, type GraphContextData } from "@/components/graph-context-card";
 import { TopBar } from "@/components/top-bar";
 import { ReadingsTray, useReadingsTray } from "@/components/readings/readings-tray";
@@ -148,18 +155,27 @@ import { Button } from "@/components/ui/button";
 import {
 	activeProblemOf,
 	CODE_EXERCISE_TOOL,
+	isPracticePoseTool,
+	normalizePracticeMeta,
 	pendingQuestionOf,
 	malformedQuestionsOf,
 	dismissedAnswer,
 	dismissedCodeAnswer,
 	endsInFailedTurn,
 	parseCodeExerciseInput,
+	PRACTICE_CHECK_TOOL,
+	PRACTICE_CODE_TOOL,
+	PRACTICE_MATCH_TOOL,
+	PRACTICE_WRAP_UP_TEXT,
 	findPendingToolCall,
 	phaseAt3,
 	phaseTimeline,
 	teachStepIndex,
 	toolQuestionKind,
 	questionNeedsReveal,
+	type PracticeSessionMeta,
+	type PracticeStructuredSubmitDetails,
+	type PracticeThinkingAction,
 } from "@/src/core";
 import { ReadingThinkingField } from "@/components/reading-thinking";
 import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/thinking-block";
@@ -342,6 +358,7 @@ export function Chat({
 	initialAttachments = [],
 	embedded = false,
 	externalPromptDraft,
+	initialPracticeMeta,
 	legacyArchived = false,
 }: {
 	chatId: string;
@@ -376,9 +393,29 @@ export function Chat({
 	embedded?: boolean;
 	/** Imperative prompt draft injection from Lab cell actions ("Ask mentor"). */
 	externalPromptDraft?: { id: number; text: string };
+	/** Practice v2 per-session dials persisted on ChatRecord.practice. */
+	initialPracticeMeta?: PracticeSessionMeta;
 	/** Pre-existing capstone sessions remain viewable in read-only mode. */
 	legacyArchived?: boolean;
 }) {
+	const [practiceMeta, setPracticeMeta] = useState<PracticeSessionMeta>(() => normalizePracticeMeta(initialPracticeMeta));
+	useEffect(() => {
+		if (initialPracticeMeta) setPracticeMeta(normalizePracticeMeta(initialPracticeMeta));
+	}, [initialPracticeMeta]);
+	const updatePracticeDial = useCallback(
+		(patch: Partial<PracticeSessionMeta>) => {
+			setPracticeMeta((prev) => {
+				const next = normalizePracticeMeta({ ...prev, ...patch });
+				void fetch(`/api/chats/${encodeURIComponent(chatId)}/practice`, {
+					method: "PATCH",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify(patch),
+				}).catch(() => {});
+				return next;
+			});
+		},
+		[chatId],
+	);
 	// Reattach plumbing (background-turn runner wave): the hook holds the
 	// settled terminal's callback — a stable ref assigned below, once
 	// syncFromServer exists (refs, not closures: no stale capture).
@@ -747,10 +784,38 @@ export function Chat({
 	// the dock stays mounted (the problem is still active until the agent
 	// concludes).
 	const submitThinking = useCallback(
-		(text: string) => {
+		(text: string, action?: PracticeThinkingAction, images?: ImageContent[]) => {
 			const problem = activeProblemRef.current;
 			if (!problem) return;
-			void send({ type: "thinking", problemCallId: problem.toolCallId, text });
+			const occurrence = activeProblemOccurrenceOf(submissionLive.current.nativeMessages) ?? undefined;
+			void send({
+				type: "thinking",
+				problemCallId: problem.toolCallId,
+				text,
+				...(action ? { action } : {}),
+				...(images?.length ? { images } : {}),
+				...(images?.length && occurrence ? { occurrence } : {}),
+			});
+		},
+		[send],
+	);
+	const submitStructured = useCallback(
+		(submission: {
+			format: "check" | "match" | "code";
+			payload: Record<string, unknown>;
+			passed: boolean;
+			thinking?: string;
+			summaryText: string;
+		}) => {
+			const problem = activeProblemRef.current;
+			if (!problem) return;
+			const occurrence = activeProblemOccurrenceOf(submissionLive.current.nativeMessages) ?? undefined;
+			void send({
+				type: "practice-structured-submit",
+				problemCallId: problem.toolCallId,
+				...submission,
+				...(occurrence ? { occurrence } : {}),
+			});
 		},
 		[send],
 	);
@@ -1337,13 +1402,17 @@ export function Chat({
 			!activeProblem &&
 			!compacting &&
 			!busy &&
-			nativeMessages.some(
-				(m) => (m as { role?: string }).role === "assistant" &&
-					Array.isArray((m as { content?: unknown[] }).content) &&
-					(m as { content: Array<{ type?: string; name?: string }> }).content.some(
-						(b) => b.type === "toolCall" && b.name === "problem",
-					),
-			),
+			nativeMessages.some((m) => {
+				if ((m as { role?: string }).role === "assistant" && Array.isArray((m as { content?: unknown[] }).content)) {
+					return (m as { content: Array<{ type?: string; name?: string }> }).content.some(
+						(b) => b.type === "toolCall" && typeof b.name === "string" && isPracticePoseTool(b.name),
+					);
+				}
+				if ((m as { role?: string }).role === "toolResult" && !(m as { isError?: boolean }).isError) {
+					return Boolean((m as { details?: { pluginProblem?: unknown } }).details?.pluginProblem);
+				}
+				return false;
+			}),
 		[kind, pending, pluginOwnsDock, activeProblem, compacting, busy, nativeMessages],
 	);
 	const sendNext = useCallback(() => {
@@ -2339,6 +2408,17 @@ export function Chat({
 					<PluginSessionTopBarActions readContext={actionContext} captureContext={captureActionContext} refreshRef={refreshPluginActions} />
 				</TopBar>
 				)}
+				{!embedded && kind === "practice" && (
+					<>
+						<PracticeToolbar
+							meta={practiceMeta}
+							onChange={updatePracticeDial}
+							onWrapUp={() => { void send({ type: "text", text: PRACTICE_WRAP_UP_TEXT }); }}
+							wrapUpDisabled={busy || compacting || Boolean(activeProblem) || Boolean(pending)}
+						/>
+						<PracticeProgressStrip messages={nativeMessages} />
+					</>
+				)}
 
 				<SessionFind
 					scopeRef={sessionFindScopeRef}
@@ -2409,6 +2489,8 @@ export function Chat({
 										switch (part.type) {
 											case "data-graph-context":
 												return <GraphContextCard key={pi} data={part.data as GraphContextData} />;
+											case "data-mistakes-context":
+												return <MistakesContextCard key={pi} data={part.data as MistakesContextData} />;
 											case "data-compaction":
 												return <CompactionMomentDivider key={pi} data={part.data as CompactionDividerData} />;
 											case "data-compaction-cut":
@@ -2419,6 +2501,8 @@ export function Chat({
 											}
 											case "data-practice-thinking":
 												return <ThinkingCard key={pi} data={part.data as PracticeThinkingData} />;
+											case "data-practice-structured-submit":
+												return <PracticeStructuredSubmitCard key={pi} data={part.data as PracticeStructuredSubmitDetails} />;
 											case "data-reading-discussion":
 												return <ReadingDiscussedLine key={pi} data={part.data as ReadingDiscussionMarkerDetails} />;
 											case "data-practice-next":
@@ -2761,6 +2845,7 @@ export function Chat({
 					onSaveQuestionDraft={(form) => { if (pending) saveQuestionDraft(pending.key, { form }); }}
 					workingRef={workingRef}
 					practice={activeProblem}
+					activeProblemToolName={activeProblemOccurrence?.toolName}
 					pluginPractice={activeProblem?.pluginProblem && activeProblemOccurrence ? {
 						snapshot: activeProblem.pluginProblem, occurrence: activeProblemOccurrence, chatId, draft: pluginProblemDraft(activeProblem.pluginProblem),
 						available: pluginProblemAvailability?.problemId === activeProblem.pluginProblem.problemId && pluginProblemAvailability.status === "available",
@@ -2769,6 +2854,7 @@ export function Chat({
 					} : undefined}
 					compactionRunning={compacting}
 					onSubmitThinking={submitThinking}
+					onSubmitStructured={submitStructured}
 					chatId={chatId}
 					onModelChange={recordSelectedModel}
 					plan={hasPlan ? <PlanMarginalia messages={messages} /> : undefined}
@@ -3171,9 +3257,10 @@ export function DockOverlay({
 	initialQuestionDraft,
 	onSaveQuestionDraft,
 	workingRef,
-	practice, pluginPractice,
+	practice, activeProblemToolName, pluginPractice,
 	compactionRunning,
 	onSubmitThinking,
+	onSubmitStructured,
 	requiresReveal,
 	readingThinking,
 	readingThinkingRevision,
@@ -3229,9 +3316,17 @@ export function DockOverlay({
 	 *  {toolCallId, input} — dock ownership exactly like a pending
 	 *  question (the composer is replaced); null in teaching sessions. */
 	practice: { toolCallId: string; input: unknown } | null;
+	activeProblemToolName?: string;
 	pluginPractice?: Omit<PluginProblemDockProps, "expanded" | "onExpand">;
-	/** (commit, text) — the practice dock's two submit lanes. */
-	onSubmitThinking: (text: string) => void;
+	/** (text, action?, images?) — Practice v2 dock submission lanes. */
+	onSubmitThinking: (text: string, action?: PracticeThinkingAction, images?: ImageContent[]) => void;
+	onSubmitStructured?: (submission: {
+		format: "check" | "match" | "code";
+		payload: Record<string, unknown>;
+		passed: boolean;
+		thinking?: string;
+		summaryText: string;
+	}) => void;
 	/** Teach-phase pending question: arrives collapsed behind the reveal button (W5). */
 	requiresReveal: boolean;
 	/** The reading-thinking draft (owner 2026-10-03) — owned by ChatView so
@@ -3726,6 +3821,48 @@ export function DockOverlay({
 								/>
 							) : pluginPractice ? (
 								<PluginProblemDock {...pluginPractice} viewReader={customViewReader} expanded={expanded} onExpand={() => { setExpanded(true); void suppressFoldDuringReveal(); }} />
+							) : practice && activeProblemToolName === PRACTICE_CHECK_TOOL ? (
+								<PracticeCheckDock
+									problemCallId={practice.toolCallId}
+									input={practice.input}
+									expanded={expanded}
+									onExpand={() => {
+										setExpanded(true);
+										void suppressFoldDuringReveal();
+									}}
+									onSubmitStructured={(sub) => onSubmitStructured?.(sub)}
+									onAction={(action, text) => onSubmitThinking(text, action)}
+									onEscape={dictationCancel}
+									compactionRunning={compactionRunning}
+								/>
+							) : practice && activeProblemToolName === PRACTICE_MATCH_TOOL ? (
+								<PracticeMatchDock
+									problemCallId={practice.toolCallId}
+									input={practice.input}
+									expanded={expanded}
+									onExpand={() => {
+										setExpanded(true);
+										void suppressFoldDuringReveal();
+									}}
+									onSubmitStructured={(sub) => onSubmitStructured?.(sub)}
+									onAction={(action, text) => onSubmitThinking(text, action)}
+									onEscape={dictationCancel}
+									compactionRunning={compactionRunning}
+								/>
+							) : practice && activeProblemToolName === PRACTICE_CODE_TOOL ? (
+								<PracticeCodeDock
+									problemCallId={practice.toolCallId}
+									input={practice.input}
+									expanded={expanded}
+									onExpand={() => {
+										setExpanded(true);
+										void suppressFoldDuringReveal();
+									}}
+									onSubmitStructured={(sub) => onSubmitStructured?.(sub)}
+									onAction={(action, text) => onSubmitThinking(text, action)}
+									onEscape={dictationCancel}
+									compactionRunning={compactionRunning}
+								/>
 							) : practice ? (
 								<PracticeDock
 									viewReader={practiceViewReader}

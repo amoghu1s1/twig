@@ -1,39 +1,35 @@
 "use client";
 
-import { ToolContentResponse } from "@/components/ai-elements/message";
-import { StatusBadge } from "@/components/ui/status-badge";
-import type { ArtifactPartProps } from "@/src/core";
-
-/**
- * The practice transcript cards (practice sessions, owner design
- * 2026-10-04): three quiet records in the stream —
- *
- * - ProblemCard — a posed problem: the statement, compact-expandable
- *   (like every card here; the dock is the working surface, this is the
- *   record). The commitment NEVER renders — only the call's statement.
- * - ConcludeCard — the conclusion: outcome badge + verdict + the reveal
- *   (the committed solution, shown when the problem ended). A dismissal
- *   synthesis (outcome:"dismissed") renders as one muted line.
- * - ThinkingCard — the learner's own submission, user-side: the register
- *   is the two buttons' (Nudge = working trace, Commit = answer). The
- *   UNIFIED ThinkingBlock (owner round 2026-10-05): the quiz quote-block
- *   language in a faint user-side shell, never collapsible.
- */
-
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-
+import { ToolContentResponse } from "@/components/ai-elements/message";
+import { SvgImage } from "@/components/artifacts/svg-image";
+import { HighlightedCode } from "@/components/highlighted-code";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { ThinkingBlock } from "@/components/thinking-block";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
 import { INTERACTION_LAYER_Z_BASE } from "@/components/host-dialog";
 import { useInteractionLayers } from "@/components/interaction-layers";
+import {
+	CODE_LANGUAGE_LABELS,
+	parsePracticeCheckInput,
+	parsePracticeCodeInput,
+	parsePracticeMatchInput,
+	type ArtifactPartProps,
+	type PracticeStructuredSubmitDetails,
+	type PracticeThinkingAction,
+} from "@/src/core";
 
-/* TARGET NAMES (owner round 17, 2026-10-06): targets are normalized to
- * opaque node ids at the record seam (owner round 9 — the mastery trace
- * groups on them), so the drawer resolves names at render time. One
- * lazy module-cached fetch of the graph view (the id → name map is a
- * few KB); failures degrade to raw ids — observability never breaks the
- * card. */
+/**
+ * Practice v2 transcript cards:
+ * - ProblemCard / PracticeCheckCard / PracticeMatchCard / PracticeCodeCard — posed
+ *   statements & visible prompts ONLY (commitments like modelSolution, correctAnswer,
+ *   and correctMapping NEVER render here).
+ * - ConcludeCard — outcome badge + verdict + verbatim committed modelSolution reveal
+ *   (dismissed and voided render as quiet single-line notices).
+ * - ThinkingCard / PracticeStructuredSubmitCard — learner's own submissions & actions.
+ */
+
 let nodeNameMapPromise: Promise<Record<string, string>> | null = null;
 export function nodeNameMap(): Promise<Record<string, string>> {
 	nodeNameMapPromise ??= fetch("/api/graph")
@@ -49,20 +45,15 @@ export function nodeNameMap(): Promise<Record<string, string>> {
 	return nodeNameMapPromise;
 }
 
-/** The practice-thinking marker's details (native-messages.ts). */
 export interface PracticeThinkingData {
 	problemCallId: string;
-	/** Legacy records (pre 2026-10-05) carry the old two-lane flag; ignored. */
 	commit?: boolean;
+	action?: PracticeThinkingAction;
 	text: string;
 	images?: readonly Readonly<import("@earendil-works/pi-ai").ImageContent>[];
 }
 
 export function ProblemCard({ part }: ArtifactPartProps) {
-	// Always open, no chevron (owner round, 2026-10-05): the record IS the
-	// statement — same container + eyebrow discipline as the answered card
-	// and the dock (which mirrors this in Slice D). The commitment never
-	// renders — only the call's statement.
 	const input = (part.input ?? {}) as { statement?: string };
 	const statement = typeof input.statement === "string" ? input.statement : "";
 	return (
@@ -75,19 +66,116 @@ export function ProblemCard({ part }: ArtifactPartProps) {
 	);
 }
 
+export function PracticeCheckCard({ part }: ArtifactPartProps) {
+	const parsed = parsePracticeCheckInput(part.input);
+	if (!parsed) {
+		const fallback = typeof (part.input as { statement?: unknown } | undefined)?.statement === "string"
+			? (part.input as { statement: string }).statement
+			: "";
+		return (
+			<div data-testid="practice-check-card" className="lh-card-enter my-1 rounded-xl border bg-card p-4">
+				<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Quick check</div>
+				<div className="lh-prose text-[15px]">
+					<ToolContentResponse>{fallback}</ToolContentResponse>
+				</div>
+			</div>
+		);
+	}
+	return (
+		<div data-testid="practice-check-card" className="lh-card-enter my-1 rounded-xl border bg-card p-4">
+			<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+				Quick check{parsed.multiSelect ? " · Multi-select" : ""}
+			</div>
+			<div className="lh-prose text-[15px]">
+				<ToolContentResponse>{parsed.statement}</ToolContentResponse>
+			</div>
+			{parsed.svg && (
+				<div className="my-2">
+					<SvgImage svg={parsed.svg} />
+				</div>
+			)}
+			<ul className="mt-2.5 space-y-1 text-xs text-muted-foreground">
+				{parsed.options.map((opt, idx) => (
+					<li key={idx} className="rounded-md border border-border/60 bg-background/40 px-2.5 py-1.5">
+						<ToolContentResponse>{opt.label}</ToolContentResponse>
+					</li>
+				))}
+			</ul>
+		</div>
+	);
+}
+
+export function PracticeMatchCard({ part }: ArtifactPartProps) {
+	const parsed = parsePracticeMatchInput(part.input);
+	if (!parsed) {
+		const fallback = typeof (part.input as { statement?: unknown } | undefined)?.statement === "string"
+			? (part.input as { statement: string }).statement
+			: "";
+		return (
+			<div data-testid="practice-match-card" className="lh-card-enter my-1 rounded-xl border bg-card p-4">
+				<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Classify &amp; Match</div>
+				<div className="lh-prose text-[15px]">
+					<ToolContentResponse>{fallback}</ToolContentResponse>
+				</div>
+			</div>
+		);
+	}
+	return (
+		<div data-testid="practice-match-card" className="lh-card-enter my-1 rounded-xl border bg-card p-4">
+			<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Classify &amp; Match</div>
+			<div className="lh-prose text-[15px]">
+				<ToolContentResponse>{parsed.statement}</ToolContentResponse>
+			</div>
+			<div className="mt-2.5 flex flex-wrap gap-1.5">
+				{parsed.categories.map((cat) => (
+					<span key={cat.id} className="rounded-full border border-border/70 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+						{cat.label}
+					</span>
+				))}
+			</div>
+			<ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+				{parsed.items.map((item) => (
+					<li key={item.id} className="rounded-md border border-border/60 bg-background/40 px-2.5 py-1.5">
+						<ToolContentResponse>{item.prompt}</ToolContentResponse>
+					</li>
+				))}
+			</ul>
+		</div>
+	);
+}
+
+export function PracticeCodeCard({ part }: ArtifactPartProps) {
+	const parsed = parsePracticeCodeInput(part.input);
+	const raw = (part.input ?? {}) as { statement?: string; language?: string; starterCode?: string };
+	const statement = parsed?.statement ?? (typeof raw.statement === "string" ? raw.statement : "");
+	const language = parsed?.language ?? "python";
+	const starterCode = parsed?.starterCode ?? (typeof raw.starterCode === "string" ? raw.starterCode : "");
+	return (
+		<div data-testid="practice-code-card" className="lh-card-enter my-1 rounded-xl border bg-card p-4">
+			<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+				Code · {CODE_LANGUAGE_LABELS[language]}
+			</div>
+			<div className="lh-prose text-[15px]">
+				<ToolContentResponse>{statement}</ToolContentResponse>
+			</div>
+			{starterCode.trim().length > 0 && (
+				<pre className="mt-2.5 overflow-x-auto rounded-lg border border-border/60 bg-background/60 p-2.5 font-mono text-xs">
+					<HighlightedCode code={starterCode} language={language} />
+				</pre>
+			)}
+		</div>
+	);
+}
+
 const OUTCOME_LABEL: Record<string, string> = {
 	solved: "Solved",
 	solvedWithHints: "Solved with hints",
 	movedOn: "Moved on",
 	surrendered: "Surrendered",
 	dismissed: "Dismissed",
+	voided: "Voided",
 };
 
-/* The outcome chips (owner round 3, 2026-10-05): the EXACT register of the
- * quiz cards' correct/incorrect bubbles. Colors per outcome — solved reads
- * green (the "correct" twin), solved-with-hints amber (succeeded with
- * cost), surrendered red (the problem beat the learner), moved on muted
- * (the agent's call, not a verdict against him). */
 const OUTCOME_COLOR: Record<string, string | undefined> = {
 	solved: "var(--lh-success)",
 	solvedWithHints: "var(--lh-warning)",
@@ -95,20 +183,12 @@ const OUTCOME_COLOR: Record<string, string | undefined> = {
 };
 
 export function ConcludeCard({ part }: ArtifactPartProps) {
-	// The conclusion redesigned (owner round, 2026-10-05): the SOLUTION is
-	// the hero — the modelSolution committed at pose time (part.reveal, the
-	// view-seam join), shown verbatim, never re-authored. The verdict sits
-	// below in the quiz-explanation register (small, muted, low-key).
-	// Nothing collapsible. Legacy inputs (pre-slim records) that carry
-	// their own solutionReveal fall back to it.
 	const input = (part.input ?? {}) as { outcome?: string; verdict?: string; solutionReveal?: string };
 	const outcome = typeof input.outcome === "string" ? input.outcome : "";
 	const verdict = typeof input.verdict === "string" ? input.verdict : "";
 	const reveal =
 		typeof part.reveal === "string" ? part.reveal : typeof input.solutionReveal === "string" ? input.solutionReveal : "";
 
-	// The dismissal synthesis: no verdict, no reveal — one muted line (the
-	// learner clicked; the record needs only the fact).
 	if (outcome === "dismissed") {
 		return (
 			<div data-testid="conclude-card" className="my-1 px-1 text-sm text-muted-foreground/70">
@@ -117,26 +197,27 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 		);
 	}
 
+	if (outcome === "voided") {
+		return (
+			<div data-testid="conclude-card" className="my-1 px-1 text-sm text-muted-foreground/70">
+				Problem replaced.
+			</div>
+		);
+	}
+
 	return (
 		<div data-testid="conclude-card" className="lh-card-enter relative my-1 rounded-xl border bg-card p-4">
-			{/* The heading row (owner round 3, 2026-10-05): plain 'Concluded'
-			    eyebrow + the outcome in the quiz cards' EXACT chip register —
-			    no more two same-weight headings stacked. */}
 			<div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 				Concluded
-				{(OUTCOME_LABEL[outcome] ?? "") !== "" && outcome !== "dismissed" && (
+				{(OUTCOME_LABEL[outcome] ?? "") !== "" && (
 					<StatusBadge text={OUTCOME_LABEL[outcome] ?? ""} color={OUTCOME_COLOR[outcome]} />
 				)}
 			</div>
-			{/* The verdict — plain prose under the heading, no 'Verdict:' label
-			    (owner round 3): the same quiet 50% register as quiz explanations. */}
 			{verdict.length > 0 && (
 				<div className="text-sm text-foreground/50">
 					<ToolContentResponse>{verdict}</ToolContentResponse>
 				</div>
 			)}
-			{/* Then the divider, then the labeled model solution (Slice G: the
-			    hero is the pose's commitment, verbatim). */}
 			{reveal.length > 0 && (
 				<>
 					<div className="my-3 border-t" />
@@ -156,19 +237,6 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 	);
 }
 
-/* THE METADATA POPOVER (owner round 17 refinement, 2026-10-06 — full
- * transparency): a quiet METADATA trigger at the very bottom of the
- * conclude card (no divider — it just sits there); click opens the
- * info-box register of the graph-view node cards (rounded-xl border
- * bg-card p-4 shadow-lg, opening BELOW the trigger — always); any scroll or
- * click outside closes it (plus Esc, claimed from the layered chain
- * per the popover law). Shows every field the agent filled in both the
- * problem call (mode, targets — names resolved lazily) and the
- * conclude call (outcome, rung, miss class, retest). Statement and
- * modelSolution stay out — they are the visible card. The data keeps
- * the original SMALL register (text-xs rows, mono values — owner
- * correction: the 15px pass was way too large); the trigger matches
- * the eyebrow size; the box opens BELOW the trigger, always. */
 function MetadataPopover({
 	concludeInput,
 	problemInput,
@@ -181,15 +249,11 @@ function MetadataPopover({
 	const rootRef = useRef<HTMLDivElement | null>(null);
 	const panelRef = useRef<HTMLDivElement | null>(null);
 	const interactions = useInteractionLayers();
-	// The portal's anchor (owner fix, 2026-10-06): the box is placed from
-	// the trigger's viewport rect AT OPEN TIME — any scroll closes the
-	// box, so there is nothing to track.
 	const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
 	const [names, setNames] = useState<Record<string, string> | null>(null);
 	const targets = Array.isArray(problemInput.target)
 		? problemInput.target.filter((t): t is string => typeof t === "string")
 		: [];
-	// Resolve names only when there is something to resolve.
 	useEffect(() => {
 		if (!open || targets.length === 0 || names) return;
 		let alive = true;
@@ -202,11 +266,11 @@ function MetadataPopover({
 	}, [open, targets.length, names]);
 
 	const popupLayer = usePopoverDismiss(rootRef, open, () => setOpen(false), { layerRootRef: panelRef });
-	// ANY scroll closes it (owner law): capture-phase, so every scroller
-	// in the tree counts — the transcript's own scroll included.
 	useEffect(() => {
 		if (!open) return;
-		const close = () => { if (interactions.isElementEligible(panelRef.current)) setOpen(false); };
+		const close = () => {
+			if (interactions.isElementEligible(panelRef.current)) setOpen(false);
+		};
 		window.addEventListener("scroll", close, { capture: true, passive: true });
 		return () => window.removeEventListener("scroll", close, { capture: true });
 	}, [open, interactions]);
@@ -229,8 +293,6 @@ function MetadataPopover({
 						if (v) return false;
 						const r = triggerRef.current?.getBoundingClientRect();
 						if (r) {
-							// Below the trigger, always; clamped so the 320px box
-							// never leaves the viewport's right edge.
 							const left = Math.max(8, Math.min(r.left, window.innerWidth - 328));
 							setAnchor({ top: r.bottom + 8, left });
 						}
@@ -248,42 +310,41 @@ function MetadataPopover({
 					<div
 						ref={panelRef}
 						data-testid="metadata-box"
-						// PORTALED TO BODY (owner fix, 2026-10-06): the transcript's
-						// MessageContent boxes carry overflow-hidden — an absolutely
-						// positioned child clips at its own message block's edge (the
-						// cut-off bug). A fixed-position portal sits on top of
-						// EVERYTHING, the dialogs' law. Node-card info-box register;
-						// opening BELOW the trigger — always.
-						style={{ position: "fixed", top: anchor.top, left: anchor.left, zIndex: INTERACTION_LAYER_Z_BASE + popupLayer.order }}
+						style={{
+							position: "fixed",
+							top: anchor.top,
+							left: anchor.left,
+							zIndex: INTERACTION_LAYER_Z_BASE + popupLayer.order,
+						}}
 						className="w-80 max-w-[calc(100vw-1rem)] rounded-xl border bg-card p-4 text-left shadow-lg"
 					>
-				<dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
-						<dt className="text-muted-foreground">Mode</dt>
-						<dd className="font-mono">{mode || "—"}</dd>
-						<dt className="text-muted-foreground">Targets</dt>
-						<dd className="font-mono">
-							{targets.length === 0 ? (
-								"untagged"
-							) : (
-								<span>
-									{targets.map((t, i) => (
-										<span key={t}>
-											{i > 0 && ", "}
-											{names?.[t] ?? t}
-										</span>
-									))}
-								</span>
-							)}
-						</dd>
-						<dt className="text-muted-foreground">Outcome</dt>
-						<dd className="font-mono">{outcome || "—"}</dd>
-						<dt className="text-muted-foreground">Hint rung</dt>
-						<dd className="font-mono">{rung || "none"}</dd>
-						<dt className="text-muted-foreground">Miss class</dt>
-						<dd className="font-mono">{miss || "none"}</dd>
-						<dt className="text-muted-foreground">Retest</dt>
-						<dd className="font-mono">{retest === undefined ? "—" : retest ? "yes" : "no"}</dd>
-					</dl>
+						<dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
+							<dt className="text-muted-foreground">Mode</dt>
+							<dd className="font-mono">{mode || "—"}</dd>
+							<dt className="text-muted-foreground">Targets</dt>
+							<dd className="font-mono">
+								{targets.length === 0 ? (
+									"untagged"
+								) : (
+									<span>
+										{targets.map((t, i) => (
+											<span key={t}>
+												{i > 0 && ", "}
+												{names?.[t] ?? t}
+											</span>
+										))}
+									</span>
+								)}
+							</dd>
+							<dt className="text-muted-foreground">Outcome</dt>
+							<dd className="font-mono">{outcome || "—"}</dd>
+							<dt className="text-muted-foreground">Hint rung</dt>
+							<dd className="font-mono">{rung || "none"}</dd>
+							<dt className="text-muted-foreground">Miss class</dt>
+							<dd className="font-mono">{miss || "none"}</dd>
+							<dt className="text-muted-foreground">Retest</dt>
+							<dd className="font-mono">{retest === undefined ? "—" : retest ? "yes" : "no"}</dd>
+						</dl>
 					</div>,
 					interactions.getPortalContainer(triggerRef.current)!,
 				)}
@@ -291,10 +352,53 @@ function MetadataPopover({
 	);
 }
 
+const ACTION_LABELS: Partial<Record<PracticeThinkingAction, string>> = {
+	hint: "HINT REQUESTED",
+	"show-solution": "SHOW SOLUTION",
+	"step-down": "REQUESTED EASIER STEP",
+	"flag-bad": "FLAGGED BAD QUESTION",
+};
+
 export function ThinkingCard({ data }: { data: PracticeThinkingData }) {
-	// The unified row (owner rounds, 2026-10-05): one style, one label —
-	// 50%-italic quote block on expand. Legacy records' commit flag is
-	// deliberately unread (one lane now). A TRANSCRIPT row (owner round,
-	// 2026-10-07): full-width band + rail, arriving expanded.
-	return <ThinkingBlock testId="thinking-card" label="YOUR THINKING" text={data.text} images={data.images} defaultOpen />;
+	const actionLabel = data.action && data.action !== "submit" ? ACTION_LABELS[data.action] : undefined;
+	if (actionLabel && !data.text.trim() && !(data.images && data.images.length > 0)) {
+		return (
+			<div
+				data-testid="thinking-card"
+				className="my-1 flex items-center gap-2 border-l-[calc(3ch-14px)] border-muted-foreground/30 bg-card px-[14px] py-1.5 font-ui text-xs uppercase tracking-wide text-muted-foreground"
+			>
+				<span>{actionLabel}</span>
+			</div>
+		);
+	}
+	return (
+		<ThinkingBlock
+			testId="thinking-card"
+			label={actionLabel ? `YOUR THINKING · ${actionLabel}` : "YOUR THINKING"}
+			text={data.text}
+			images={data.images}
+			defaultOpen
+		/>
+	);
+}
+
+export function PracticeStructuredSubmitCard({ data }: { data: PracticeStructuredSubmitDetails }) {
+	return (
+		<div
+			data-testid="practice-structured-submit-card"
+			className="my-2 w-full border-l-[calc(3ch-14px)] border-muted-foreground/30 bg-card py-2 pl-[14px] pr-4 text-xs"
+		>
+			<div className="mb-1 flex items-center gap-2 font-ui font-medium uppercase tracking-wide text-muted-foreground">
+				<span>Your answer</span>
+				<StatusBadge
+					text={data.passed ? "Passed" : "Missed"}
+					color={data.passed ? "var(--lh-success)" : "var(--lh-error)"}
+				/>
+			</div>
+			<div className="whitespace-pre-wrap text-sm text-foreground">{data.summaryText}</div>
+			{data.thinking?.trim() && (
+				<div className="mt-1.5 text-muted-foreground italic">{data.thinking.trim()}</div>
+			)}
+		</div>
+	);
 }

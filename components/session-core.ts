@@ -19,11 +19,14 @@ import {
 	needsContinuation,
 	activeProblemOf,
 	activeProblemOccurrenceOf,
+	concludedByAutoSolvePair,
 	pendingQuestionOf,
 	failedResponseAtEnd,
+	foldPracticeLedger,
 	measuredContextTokens,
 	newAnswerResult,
 	newNextMessage,
+	newPracticeStructuredSubmitMessage,
 	newProblemDismissedMarker,
 	newThinkingMessage,
 	newUserMessage,
@@ -950,7 +953,30 @@ export class SessionModel {
 			// The practice submissions (2026-10-04): the marker lands
 			// optimistically — the card renders from its details the
 			// moment the button fires.
-			optimistic.push({ ...newThinkingMessage(input.problemCallId, input.text, input.images), id: localId() });
+			optimistic.push({ ...newThinkingMessage(input.problemCallId, input.text, input.images, input.action), id: localId() });
+		} else if (input.type === "practice-structured-submit") {
+			const history = this.nativeHistory();
+			const ledger = foldPracticeLedger(history);
+			const cleanFirstPass =
+				input.passed === true &&
+				(ledger.activeProblem?.attempts ?? 0) === 0 &&
+				(ledger.activeProblem?.hints ?? 0) === 0;
+			optimistic.push({
+				...newPracticeStructuredSubmitMessage({
+					problemCallId: input.problemCallId,
+					format: input.format,
+					payload: input.payload,
+					passed: input.passed,
+					...(input.thinking ? { thinking: input.thinking } : {}),
+					summaryText: input.summaryText,
+				}),
+				id: localId(),
+			});
+			if (cleanFirstPass) {
+				for (const m of concludedByAutoSolvePair(input.problemCallId, input.summaryText)) {
+					optimistic.push({ ...m, id: localId() });
+				}
+			}
 		} else if (input.type === "next") {
 			// The move-on signal (owner round 16): the NEXT PROBLEM line
 			// renders the instant the chip/Enter fires.
