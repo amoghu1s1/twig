@@ -27,6 +27,7 @@ import type {
 	LabSettings,
 	ModelsSettings,
 	ModelSlot,
+	PracticeSettings,
 	RoleModelOverride,
 } from "../core/settings.ts";
 import {
@@ -47,6 +48,11 @@ import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { isSearchEngineId, SEARCH_ENGINES } from "../core/search.ts";
 import { isDictationLanguage } from "../core/dictation.ts";
 import { parseFileAccessSettings } from "../core/file-access.ts";
+import {
+	isPracticeCoachingLevel,
+	isPracticeDepth,
+	isPracticePresentation,
+} from "../core/contracts/practice.ts";
 
 /** Parsed-or-rejected — `ok: false` carries the 400's error message. */
 export type SettingsBodyResult<T> =
@@ -626,6 +632,37 @@ export function parseLabSettingsBody(body: unknown): SettingsBodyResult<LabSetti
 	return { ok: true, settings };
 }
 
+export function parsePracticeSettingsBody(body: unknown): SettingsBodyResult<PracticeSettings> {
+	const raw = asRecord(body);
+	if (!raw) return { ok: false, error: "Invalid JSON body" };
+	const settings: PracticeSettings = {};
+	if (raw.defaultCoaching !== undefined) {
+		if (!isPracticeCoachingLevel(raw.defaultCoaching)) {
+			return { ok: false, error: "defaultCoaching must be one of socratic, balanced, or direct" };
+		}
+		settings.defaultCoaching = raw.defaultCoaching;
+	}
+	if (raw.defaultDepth !== undefined) {
+		if (!isPracticeDepth(raw.defaultDepth)) {
+			return { ok: false, error: "defaultDepth must be one of recall, adaptive, or deep" };
+		}
+		settings.defaultDepth = raw.defaultDepth;
+	}
+	if (raw.defaultPresentation !== undefined) {
+		if (!isPracticePresentation(raw.defaultPresentation)) {
+			return { ok: false, error: "defaultPresentation must be one of auto, theory, or applied" };
+		}
+		settings.defaultPresentation = raw.defaultPresentation;
+	}
+	if (raw.defaultVerifySolutions !== undefined) {
+		if (typeof raw.defaultVerifySolutions !== "boolean") {
+			return { ok: false, error: "defaultVerifySolutions must be true or false" };
+		}
+		settings.defaultVerifySolutions = raw.defaultVerifySolutions;
+	}
+	return { ok: true, settings };
+}
+
 /** The section→parser map for PUT /api/settings/[section]. The custom endpoint
  *  is NOT a section — it connects via POST /api/custom-provider. */
 export const SETTINGS_SECTIONS = {
@@ -639,6 +676,7 @@ export const SETTINGS_SECTIONS = {
 	dictation: parseDictationSettingsBody,
 	claudeCode: parseClaudeCodeSettingsBody,
 	lab: parseLabSettingsBody,
+	practice: parsePracticeSettingsBody,
 } as const;
 
 export type SettingsSectionName = keyof typeof SETTINGS_SECTIONS;

@@ -68,7 +68,9 @@ import { SIDE_CONTEXT_BUDGET_ERROR, sideBudgetRetryDrops, sideContextWindow } fr
 import { registerTurn, rememberTurnFailure, unregisterTurn } from "./turn-runs.ts";
 import { persistTurn, triggerExtraction, TurnPersistenceError } from "./turn-service.ts";
 import { mistakesAfterTurn } from "./mistakes.ts";
-import { hasProbeDone, hasUnresolvedQuestion, pendingPluginQuestionOf, pluginQuestionCallsOf, questionCallsOf } from "../core/native-messages.ts";
+import { activeProblemOf, hasProbeDone, hasUnresolvedQuestion, pendingPluginQuestionOf, pluginQuestionCallsOf, questionCallsOf } from "../core/native-messages.ts";
+import { verifyPracticeProblem } from "../agent/subagents/practice-verifier.ts";
+import { normalizePracticeMeta } from "../core/contracts/practice.ts";
 import { samePluginQuestionOccurrence } from "../core/plugin-questions.ts";
 import { systemPromptFor } from "../agent/teacher-agent.ts";
 import { attachComposerImages, sessionAttachments } from "./attachments.ts";
@@ -700,7 +702,10 @@ export async function handleChatInput(
 	// the sibling question permanently pre-fix). Nothing else can generate
 	// while a question dangles (job wakes wait, continuation folds refuse,
 	// the composer gates), so adjacency holds by construction.
-	if ((input.type === "answer" || input.type === "plugin-question-answer") && hasUnresolvedQuestion([...record.messages, ...appends])) {
+	if (
+		((input.type === "answer" || input.type === "plugin-question-answer") && hasUnresolvedQuestion([...record.messages, ...appends])) ||
+		(input.type === "practice-structured-submit" && activeProblemOf([...record.messages, ...appends]) === null)
+	) {
 		const merged = [...record.messages, ...appends];
 		try { stores.chatStore.saveMessages(chatId, merged); inputSaved = true; }
 		catch (err) {
@@ -916,29 +921,45 @@ export async function handleChatInput(
 					agentOpts,
 				)
 			: record.kind === "practice"
-				? createPracticeAgent(
-						{
-							chatId,
-							chatStore: stores.chatStore,
-							// TARGET VALIDATION (owner round 9): the practice tools read the
-							// WHOLE graph fresh per pose — targets validate against every
-							// proposition, not just the session's picks (pickless sessions
-							// and future graph-tools poses stay valid).
-							graphNodes: () => stores.graphStore.readNodes(),
-							// THE RARELY-NEEDED SET (owner round 10): research + pdf jobs
-							// (same runner/gating as the teacher's — research honestly
-							// absent when no engine is live) and the map readers behind
-							// the SAME settings gate as the prober's.
-							jobs: {
+				? (() => {
+						const practiceDefaults = {
+							coaching: effective.practice.defaultCoaching,
+							depth: effective.practice.defaultDepth,
+							presentation: effective.practice.defaultPresentation,
+							verifySolutions: effective.practice.defaultVerifySolutions,
+						};
+						const resolvePracticeMeta = () =>
+							normalizePracticeMeta(stores.chatStore.getChat(chatId)?.practice, practiceDefaults);
+						const cheapSlot = effective.models.cheap;
+						const verifierEngine =
+							cheapSlot && providerKeyPresent(cheapSlot.provider)
+								? piEngineForSpec(cheapSlot)
+								: undefined;
+						return createPracticeAgent(
+							{
 								chatId,
-								jobStore: stores.jobStore,
-								spawn: (job, input) => void jobRunner.runJob(job.id, input),
-								searchAvailable,
+								chatStore: stores.chatStore,
+								graphNodes: () => stores.graphStore.readNodes(),
+								jobs: {
+									chatId,
+									jobStore: stores.jobStore,
+									spawn: (job, input) => void jobRunner.runJob(job.id, input),
+									searchAvailable,
+								},
+								getPracticeMeta: resolvePracticeMeta,
+								...(verifierEngine
+									? {
+											verifyProblem: async (req, signal) => {
+												if (!resolvePracticeMeta().verifySolutions) return { ok: true };
+												return verifyPracticeProblem(verifierEngine, req, signal);
+											},
+									  }
+									: {}),
+								...(graphToolsEnabled(effective) ? { graph: { chatStore: stores.chatStore, graphStore: stores.graphStore } } : {}),
 							},
-							...(graphToolsEnabled(effective) ? { graph: { chatStore: stores.chatStore, graphStore: stores.graphStore } } : {}),
-						},
-						agentOpts,
-					)
+							agentOpts,
+						);
+					})()
 				: teaching
 					? createTeacherAgent(
 							{

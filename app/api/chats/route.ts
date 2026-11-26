@@ -1,15 +1,30 @@
-import { chainsForSelection, formatChainLine } from "@/src/core";
-import { newGraphContextMessage, type GraphContextPick, type LabLanguage, type LabSessionMeta } from "@/src/core";
-import { compactionInFlight, createChat, isTurnRunning, listChats, provisionLabWorkspace, readSettingsRecord, stores, titleFromPrompt } from "@/src/server";
-import type { ChatListItem } from "@/src/core";
+import {
+	chainsForSelection,
+	formatChainLine,
+	neighborContextForSelection,
+	newGraphContextMessage,
+	newMistakesContextMessage,
+	normalizePracticeMeta,
+	resolveSettings,
+	type ChatListItem,
+	type GraphContextPick,
+	type LabLanguage,
+	type LabSessionMeta,
+	type LhMessage,
+	type MistakeSeedItem,
+	type PracticeSessionMeta,
+} from "@/src/core";
+import {
+	compactionInFlight,
+	createChat,
+	isTurnRunning,
+	listChats,
+	provisionLabWorkspace,
+	readSettingsRecord,
+	stores,
+	titleFromPrompt,
+} from "@/src/server";
 
-/** The session picker's list: record-derived summaries (phase, pending
- *  question) + live liveness — a running turn marks the session busy
- *  (contracts.ts ChatListItem; the store can't see liveness, the route is
- *  the merge point). Owner, minimal-color round: background jobs NO LONGER
- *  count — the sidebar's Background agents section is their channel now
- *  (a running spinner per row would double-signal them), so busy means
- *  exactly "a teach turn is in flight". */
 export async function GET() {
 	const chats: ChatListItem[] = listChats().map((c) => ({
 		...c,
@@ -19,11 +34,34 @@ export async function GET() {
 	return Response.json({ chats });
 }
 
+function parseMistakeSeeds(raw: unknown): MistakeSeedItem[] {
+	if (!Array.isArray(raw)) return [];
+	const out: MistakeSeedItem[] = [];
+	for (const item of raw) {
+		if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+		const r = item as Record<string, unknown>;
+		if (typeof r.id !== "string" || typeof r.question !== "string" || !r.question.trim()) continue;
+		out.push({
+			id: r.id,
+			question: r.question,
+			...(typeof r.errorType === "string" && r.errorType ? { errorType: r.errorType } : {}),
+			...(typeof r.topic === "string" && r.topic ? { topic: r.topic } : {}),
+			...(typeof r.whatYouDid === "string" && r.whatYouDid ? { whatYouDid: r.whatYouDid } : {}),
+			...(typeof r.rule === "string" && r.rule ? { rule: r.rule } : {}),
+			...(typeof r.sessionTitle === "string" && r.sessionTitle ? { sessionTitle: r.sessionTitle } : {}),
+		});
+		if (out.length >= 15) break;
+	}
+	return out;
+}
+
 export async function POST(req: Request) {
 	const body = (await req.json().catch(() => ({}))) as {
 		title?: unknown;
 		kind?: unknown;
 		graphContext?: unknown;
+		mistakesContext?: unknown;
+		practice?: unknown;
 		lab?: unknown;
 	};
 	const title = typeof body.title === "string" ? body.title : "";
@@ -57,14 +95,26 @@ export async function POST(req: Request) {
 		}
 	}
 
-	const chat = createChat(resolvedTitle, kind, labMeta ? { lab: labMeta } : undefined);
-	// PER-SESSION MODELS (owner, 2026-09-28): a session owns its model +
-	// thinking level from birth — stamped verbatim from the STRONG slot,
-	// the new-session default. From here the strong slot never reaches
-	// this session again: in-session picks write the session's own record
-	// (PUT /api/chats/:id/settings). No strong slot configured (fresh BYOK
-	// boot) → no stamp; the turn gate's 503 models_not_configured envelope
-	// refuses honestly until the setup flow fills the slot.
+	let practiceMeta: PracticeSessionMeta | undefined;
+	if (kind === "practice") {
+		const effective = resolveSettings(readSettingsRecord());
+		const defaults: PracticeSessionMeta = {
+			coaching: effective.practice.defaultCoaching,
+			depth: effective.practice.defaultDepth,
+			presentation: effective.practice.defaultPresentation,
+			verifySolutions: effective.practice.defaultVerifySolutions,
+		};
+		const rawPractice = body.practice && typeof body.practice === "object" && !Array.isArray(body.practice)
+			? (body.practice as Partial<PracticeSessionMeta>)
+			: undefined;
+		practiceMeta = normalizePracticeMeta(rawPractice, defaults);
+	}
+
+	const chat = createChat(
+		resolvedTitle,
+		kind,
+		labMeta ? { lab: labMeta } : practiceMeta ? { practice: practiceMeta } : undefined,
+	);
 	const strong = readSettingsRecord()?.models?.strong;
 	if (strong?.model) {
 		stores.chatStore.saveSettings(chat.id, {
@@ -72,32 +122,53 @@ export async function POST(req: Request) {
 			thinkingLevel: strong.thinkingLevel,
 		});
 	}
-	// The session's map context (owner, 2026-10-04): the picked
-	// propositions ride the CREATION — message[0] is a graph-context
-	// marker (a separate custom message BEFORE the learner's first user
-	// message), carrying the picks plus the reasoning chains among them.
-	// The picks carry their own name/statement (what the learner saw at
-	// pick time); the chains derive from the CURRENT graph snapshot.
+
 	const rawPicks = (body.graphContext as { propositions?: unknown } | undefined)?.propositions;
 	const picks: GraphContextPick[] = Array.isArray(rawPicks)
 		? rawPicks
 				.filter(
-						(p): p is GraphContextPick =>
-							typeof p === "object" &&
-							p !== null &&
-							typeof (p as GraphContextPick).id === "string" &&
-							typeof (p as GraphContextPick).name === "string" &&
-							typeof (p as GraphContextPick).statement === "string",
-					)
-					.slice(0, 64)
-			: [];
+					(p): p is GraphContextPick =>
+						typeof p === "object" &&
+						p !== null &&
+						typeof (p as GraphContextPick).id === "string" &&
+						typeof (p as GraphContextPick).name === "string" &&
+						typeof (p as GraphContextPick).statement === "string",
+				)
+				.slice(0, 64)
+		: [];
+
+	const initialMessages: LhMessage[] = [];
 	if (picks.length > 0) {
-		const byId = new Map(stores.graphStore.readNodes().map((n) => [n.id, n]));
+		const allNodes = stores.graphStore.readNodes();
+		const allChains = stores.graphStore.readChains();
+		const byId = new Map(allNodes.map((n) => [n.id, n]));
 		const pickedNodes = picks.map((p) => byId.get(p.id)).filter((n) => n !== undefined);
-		const chainLines = chainsForSelection(pickedNodes, stores.graphStore.readChains()).map((c) =>
+		const chainLines = chainsForSelection(pickedNodes, allChains).map((c) =>
 			formatChainLine(c, Object.fromEntries(byId)),
 		);
-		stores.chatStore.saveMessages(chat.id, [newGraphContextMessage(picks, chainLines)]);
+		if (kind === "practice") {
+			const { neighbors, neighborChains } = neighborContextForSelection(pickedNodes, allNodes, allChains, 12);
+			initialMessages.push(newGraphContextMessage(picks, chainLines, neighbors, neighborChains));
+		} else {
+			initialMessages.push(newGraphContextMessage(picks, chainLines));
+		}
 	}
-	return Response.json({ id: chat.id, title: chat.title, ...(chat.lab ? { lab: chat.lab } : {}) });
+
+	if (kind === "practice") {
+		const mistakeSeeds = parseMistakeSeeds(body.mistakesContext);
+		if (mistakeSeeds.length > 0) {
+			initialMessages.push(newMistakesContextMessage(mistakeSeeds));
+		}
+	}
+
+	if (initialMessages.length > 0) {
+		stores.chatStore.saveMessages(chat.id, initialMessages);
+	}
+
+	return Response.json({
+		id: chat.id,
+		title: chat.title,
+		...(chat.lab ? { lab: chat.lab } : {}),
+		...(chat.practice ? { practice: chat.practice } : {}),
+	});
 }

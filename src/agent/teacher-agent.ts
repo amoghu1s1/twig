@@ -31,7 +31,9 @@ import {
 import { quizInputObject, quizInputProblems } from "../core/question-core.ts";
 import { QUESTION_TOOLS, TOGGLEABLE_TOOLS, type EnabledTools } from "../core/pending.ts";
 import type { PluginToolContext } from "../core/plugins.ts";
-import { toLlmMessages, nativeInputCause, needsContinuation, isEmptyAssistantCompletion, PRACTICE_PROBLEM_TOOL, type LhMessage } from "../core/native-messages.ts";
+import { toLlmMessages, nativeInputCause, needsContinuation, isEmptyAssistantCompletion, isPracticePoseTool, type LhMessage } from "../core/native-messages.ts";
+import { normalizePracticeMeta } from "../core/contracts/practice.ts";
+import { foldPracticeLedger, formatPracticeLedgerForPrompt } from "../core/practice-ledger.ts";
 import type { ChatGPTRequestCycle } from "./chatgpt-request-cycle.ts";
 import { usageWasAdmitted } from "./subscription-request-cycle.ts";
 import { PluginQuestionLedger, type NativePluginQuestionContribution } from "./plugin-question-tools.ts";
@@ -68,7 +70,7 @@ export type AgentKind = "prober" | "teacher" | "practice" | "lab";
  * New builtin names must join this catalog; actual turn tools are reserved too. */
 export const CONVERSATION_TOOL_NAMES = Object.freeze([
 	...QUESTION_TOOLS, ...TOGGLEABLE_TOOLS, "probe_done", "read", "ls", "find", "grep", "mistakes",
-	"plan_init", "list_sessions", "list_propositions", "problem", "conclude", sendToUserTool.name,
+	"plan_init", "list_sessions", "list_propositions", "problem", "practice_check", "practice_match", "practice_code", "practice_summary", "conclude", sendToUserTool.name,
 	// Twig's additional builtins (files, web, media and lab) must stay
 	// reserved too: a plugin may never shadow a native tool.
 	"pdf", "pdf_extract", "pdf_info", "pdf_search", "pdf_view",
@@ -220,7 +222,7 @@ function makeQuestionStopper(kind: AgentKind) {
 			context.message.content
 				.filter((c) => c.type === "toolCall" && c.name !== undefined && (
 					(QUESTION_TOOLS as readonly string[]).includes(c.name) ||
-					(kind === "practice" && c.name === PRACTICE_PROBLEM_TOOL)
+					(kind === "practice" && isPracticePoseTool(c.name))
 				))
 				.map((c) => c.id!),
 		);
@@ -496,7 +498,17 @@ export function createPracticeAgent(ctx: PracticeToolContext, opts: AgentBuildOp
 	// Explicit test registries bypass all builtin construction and contributions.
 	if (opts.tools !== undefined) return baseAgentOptions("practice", opts, Object.values(opts.tools));
 	const gate = createPracticeGate(ctx);
-	return baseAgentOptions("practice", opts, Object.values(practiceTools(ctx, gate)), undefined, { gate, graphNodes: ctx.graphNodes });
+	const record = ctx.chatStore.getChat(ctx.chatId);
+	const ledger = foldPracticeLedger(record?.messages ?? []);
+	const meta = normalizePracticeMeta(ctx.getPracticeMeta?.());
+	return baseAgentOptions(
+		"practice",
+		opts,
+		Object.values(practiceTools(ctx, gate)),
+		undefined,
+		{ gate, graphNodes: ctx.graphNodes },
+		formatPracticeLedgerForPrompt(ledger, meta),
+	);
 }
 
 /**

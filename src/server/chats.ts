@@ -2,7 +2,8 @@ import { abortExtraction, extractionStatuses } from "../agent/subagents/extracti
 import { isJobLive } from "../agent/subagents/aborts.ts";
 import { coverageOf } from "../core/coverage.ts";
 import { deleteChatTraces, type ChatDeleteMode, type ChatDeletionStats } from "../core/graph-deletion.ts";
-import { titleFromPrompt } from "../core/contracts.ts";
+import { emit } from "../core/events.ts";
+import { normalizePracticeMeta, titleFromPrompt, type PracticeSessionMeta } from "../core/contracts.ts";
 import { newHighlightId, type ChatHighlight, type CreateHighlightInput, type HighlightColor } from "../core/highlights.ts";
 import { graphRevision } from "./graph.ts";
 import { removeBlobsUnreferenced } from "../store/attachments.ts";
@@ -27,6 +28,23 @@ import { shutdownLabKernel } from "./lab/kernel-manager.ts";
 
 export const { createChat, getChat, listChats } = stores.chatStore;
 export { titleFromPrompt };
+
+/** Update Practice v2 dials on a practice chat and announce record-changed. */
+export function updatePracticeMeta(
+	chatId: string,
+	patch: Partial<PracticeSessionMeta>,
+	defaults?: Partial<PracticeSessionMeta>,
+): PracticeSessionMeta | null {
+	const record = stores.chatStore.getChat(chatId);
+	if (!record || record.kind !== "practice") return null;
+	const next = normalizePracticeMeta(
+		{ ...(record.practice ?? {}), ...patch },
+		defaults,
+	);
+	if (!stores.chatStore.savePracticeMeta(chatId, next)) return null;
+	emit("record-changed", { chatId });
+	return next;
+}
 
 /** The saved notes ("" when none); null when the chat is unknown. */
 export function readChatNotes(chatId: string): string | null {

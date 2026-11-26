@@ -22,6 +22,7 @@ import type {
 	ImageSnapshot,
 	LabSessionMeta,
 	PlanTree,
+	PracticeSessionMeta,
 	SideChatThread,
 	TurnUsage,
 } from "../core/contracts.ts";
@@ -46,7 +47,11 @@ function chatFile(id: string): string {
  *  phase, busy, pendingQuestion) is already announced by turn-started /
  *  turn-settled, which the sidebar refetches on. Silence here is law,
  *  not oversight. */
-function createChat(title: string, kind?: "practice" | "lab", opts?: { lab?: LabSessionMeta }): ChatRecord {
+function createChat(
+	title: string,
+	kind?: "practice" | "lab",
+	opts?: { lab?: LabSessionMeta; practice?: PracticeSessionMeta },
+): ChatRecord {
 	const now = new Date().toISOString();
 	const record: ChatRecord = {
 		id: `chat_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`,
@@ -58,6 +63,7 @@ function createChat(title: string, kind?: "practice" | "lab", opts?: { lab?: Lab
 		// (absence reads as teach — pre-practice records never migrate).
 		...(kind === "practice" || kind === "lab" ? { kind } : {}),
 		...(kind === "lab" && opts?.lab ? { lab: opts.lab } : {}),
+		...(kind === "practice" && opts?.practice ? { practice: opts.practice } : {}),
 	};
 	fs.mkdirSync(PATHS.chats, { recursive: true });
 	writeChat(record);
@@ -207,6 +213,15 @@ function saveLabMeta(id: string, lab: LabSessionMeta): boolean {
 	const record = getChat(id);
 	if (!record) return false;
 	record.lab = lab;
+	writeChat(record);
+	return true;
+}
+
+/** Update Practice dials metadata without bumping updatedAt. */
+function savePracticeMeta(id: string, practice: PracticeSessionMeta): boolean {
+	const record = getChat(id);
+	if (!record) return false;
+	record.practice = practice;
 	writeChat(record);
 	return true;
 }
@@ -363,6 +378,7 @@ export const chatStore: ChatStore = {
 	rewindMessages,
 	saveSettings,
 	saveLabMeta,
+	savePracticeMeta,
 	renameChat,
 	saveNotes,
 	updateSideChats,
