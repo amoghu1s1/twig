@@ -41,8 +41,8 @@ export function AnkiRows({ graph, onSectionChange }: { graph: GraphSettings | un
 	}, []);
 	useEffect(() => { void refresh(); }, [refresh]);
 	const send = async (rebuild: boolean) => {
-		// A rebuild deletes the LearnHarness cards in Anki, review history included.
-		if (rebuild && !window.confirm("Delete every LearnHarness card in Anki (and its review history) and write new ones?")) return;
+		// A rebuild deletes the Twig cards in Anki, review history included.
+		if (rebuild && !window.confirm("Delete every Twig card in Anki (and its review history) and write new ones?")) return;
 		setSending(true);
 		setNote(rebuild ? "Deleting old cards and writing new ones…" : "Writing cards and sending to Anki…");
 		try {

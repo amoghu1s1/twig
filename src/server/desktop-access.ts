@@ -58,7 +58,7 @@ export function browserHostAllowed(host: string | null, env: Record<string, stri
  * Proxy's truncated body clone. Check before any route-specific work. */
 export function apiRequestRefusal(request: Request, env: Record<string, string | undefined> = process.env): string | undefined {
 	if (browserOnlyMode(env)) return browserAPIRefusal(request, env);
-	if (!desktopAPIAuthorized(request.headers, env)) return "Desktop API access requires the trusted LearnHarness window.";
+	if (!desktopAPIAuthorized(request.headers, env)) return "Desktop API access requires the trusted Twig window.";
 }
 
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -74,6 +74,6 @@ export function browserAPIRefusal(request: Request, env: Record<string, string |
 	const site = request.headers.get("sec-fetch-site");
 	const origin = request.headers.get("origin");
 	if ((site !== null && site !== "same-origin") || (origin !== null && origin !== subscriptionRequestOrigin(request))) {
-		return "Cross-site requests to the LearnHarness API are not allowed.";
+		return "Cross-site requests to the Twig API are not allowed.";
 	}
 }

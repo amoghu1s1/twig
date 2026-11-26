@@ -588,7 +588,7 @@ export async function verifyPluginBrowser(url, options = {}) {
 		assert.equal(documentResponse?.status(), 200, "The caller's live app must serve its home screen");
 		await openPlugins();
 		const warning = await page.$eval('[data-testid="section-plugins"]', element => element.textContent);
-		for (const copy of ["trusted local code", "broad file and network access", "not sandboxed", "restarting LearnHarness", "disabled by default"]) assert.ok(warning.includes(copy), `Missing trust/default-state warning: ${copy}`);
+		for (const copy of ["trusted local code", "broad file and network access", "not sandboxed", "restarting Twig", "disabled by default"]) assert.ok(warning.includes(copy), `Missing trust/default-state warning: ${copy}`);
 		assert.equal(await page.$eval(TOGGLE, element => element.getAttribute("aria-checked")), "false", "verifyPluginServer must leave the runtime fixture disabled");
 		assert.ok((await page.$eval(ROW, element => element.textContent)).includes("Disabled"), "Package row must show the disabled status");
 		assert.equal(await page.$$eval(SIDEBAR_LINK, elements => elements.length), 0, "A disabled package must not expose a sidebar view");

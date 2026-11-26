@@ -23,7 +23,7 @@ export async function GET(request: Request) {
 		return new Response(ankiSync.importFile(), {
 			headers: {
 				"Content-Type": "text/plain; charset=utf-8",
-				"Content-Disposition": 'attachment; filename="learnharness-anki.txt"',
+				"Content-Disposition": 'attachment; filename="twig-anki.txt"',
 			},
 		});
 	}

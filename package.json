@@ -3,8 +3,21 @@
 	"version": "0.7.2",
 	"license": "AGPL-3.0-only",
 	"author": {
-		"name": "Amos Blomqvist",
-		"email": "255718537+amosblomqvist@users.noreply.github.com"
+		"name": "amoghu1s1",
+		"email": "amoghu1s1@users.noreply.github.com"
+	},
+	"contributors": [
+		{
+			"name": "Amos Blomqvist",
+			"email": "255718537+amosblomqvist@users.noreply.github.com"
+		}
+	],
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/amoghu1s1/twig.git"
+	},
+	"bugs": {
+		"url": "https://github.com/amoghu1s1/twig/issues"
 	},
 	"homepage": "https://github.com/amoghu1s1/twig",
 	"desktopName": "twig.desktop",

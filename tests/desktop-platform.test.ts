@@ -226,8 +226,8 @@ describe("desktop packaging policy", () => {
 
 	it("deb has public maintainer metadata and a matching desktop identity", () => {
 		const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-		assert.equal(pkg.author.name, "Amos Blomqvist");
-		assert.equal(pkg.author.email, "255718537+amosblomqvist@users.noreply.github.com");
+		assert.equal(pkg.author.name, "amoghu1s1");
+		assert.equal(pkg.author.email, "amoghu1s1@users.noreply.github.com");
 		assert.equal(pkg.homepage, "https://github.com/amoghu1s1/twig");
 		assert.equal(pkg.desktopName, "twig.desktop");
 	});

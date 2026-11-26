@@ -6,7 +6,7 @@ import type { FrontendPlugin } from "@/components/plugin-manager";
 import { Button } from "@/components/ui/button";
 import { SettingsRow, SettingsSection, Toggle } from "./controls";
 
-export const PLUGIN_TRUST_WARNING = "Only enable plugins you trust. Plugins run trusted local code with broad file and network access; they are not sandboxed. A broken plugin may require restarting LearnHarness.";
+export const PLUGIN_TRUST_WARNING = "Only enable plugins you trust. Plugins run trusted local code with broad file and network access; they are not sandboxed. A broken plugin may require restarting Twig.";
 
 export function PluginsSection({ onOpenSettings, origin = "community" }: { onOpenSettings?: (pluginId: string) => void; origin?: "core" | "community" }) {
 	const { manager, snapshot } = usePlugins();
@@ -21,7 +21,7 @@ export function PluginsSection({ onOpenSettings, origin = "community" }: { onOpe
 				<li>Clone or copy the plugin into the directory below, using its plugin ID as the folder name.</li>
 				<li>For source projects, follow the repository’s dependency setup and run <code>npm run build</code>. Prebuilt packages already contain <code>dist/manifest.json</code> and need no build.</li>
 				<li>Refresh the list, then enable the plugin. New plugins are disabled by default.</li>
-				<li>Restart LearnHarness after changing loaded code. Preserve <code>data/</code> beside <code>dist/</code> when updating.</li>
+				<li>Restart Twig after changing loaded code. Preserve <code>data/</code> beside <code>dist/</code> when updating.</li>
 			</ol>
 		</details>
 		<div data-testid="plugin-authoring-help" className="space-y-2 border-t border-border/60 pt-3">

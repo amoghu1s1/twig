@@ -389,7 +389,7 @@ export function parsePluginManifest(value: unknown, folder: string, appVersion: 
 	const required = version(m.minAppVersion), actual = version(appVersion);
 	for (let i = 0; i < 3; i++) {
 		if (actual[i]! > required[i]!) break;
-		if (actual[i]! < required[i]!) throw new Error(`Requires LearnHarness ${m.minAppVersion} or newer`);
+		if (actual[i]! < required[i]!) throw new Error(`Requires Twig ${m.minAppVersion} or newer`);
 	}
 	for (const key of ["description", "author"] as const) {
 		if (m[key] !== undefined && typeof m[key] !== "string") throw new Error(`Manifest ${key} must be a string`);

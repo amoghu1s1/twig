@@ -12,8 +12,7 @@
   <a href="https://github.com/amoghu1s1/twig/releases">Download</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="docs/README.md">Documentation</a> ·
-  <a href="https://github.com/amoghu1s1/twig/issues">Issues</a> ·
-  <a href="https://discord.gg/5tCHHQEB2e">Discord</a>
+  <a href="https://github.com/amoghu1s1/twig/issues">Issues</a>
 </p>
 
 <p align="center">

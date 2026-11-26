@@ -707,7 +707,7 @@ describe("plugin frontend surface and native importer", () => {
 	});
 	it("Settings explains trusted local code, broad access, restart recovery and directory install/refresh", () => {
 		const html = renderToStaticMarkup(<PluginsSection />);
-		for (const copy of ["trusted local code", "broad file and network access", "not sandboxed", "restarting LearnHarness", "disabled by default", "Refresh plugins", "How to install a plugin", "Build a plugin", "Download authoring skill", "npm run build", "Prebuilt packages", "Preserve", "data/"]) assert.ok(html.includes(copy), copy);
+		for (const copy of ["trusted local code", "broad file and network access", "not sandboxed", "restarting Twig", "disabled by default", "Refresh plugins", "How to install a plugin", "Build a plugin", "Download authoring skill", "npm run build", "Prebuilt packages", "Preserve", "data/"]) assert.ok(html.includes(copy), copy);
 		const document = parseHTML(html).document;
 		const help = document.querySelector('[data-testid="plugin-install-help"]')!;
 		assert.equal(help.hasAttribute("open"), false);
