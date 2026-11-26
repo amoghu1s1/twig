@@ -43,10 +43,15 @@ import { pluginProblemForCall, readPluginProblemSubmission, type PluginProblemSn
 import { CLAUDE_CODE_PROVIDER } from "./contracts/claude-code.ts";
 import {
 	CONCLUDE_ACK_TEXT,
+	FLAG_BAD_TEXT,
 	HANDOFF_TEXT,
+	HINT_REQUEST_LABEL,
 	NEXT_PROBLEM_TEXT,
+	SHOW_SOLUTION_TEXT,
+	STEP_DOWN_TEXT,
 	THINKING_LABEL,
 } from "./contracts/chat.ts";
+import type { MistakeSeedItem, PracticeThinkingAction } from "./contracts/practice.ts";
 import { compactAnswer, type AnswerData } from "./answers.ts";
 import type { QuestionAnswerData } from "./question-core.ts";
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
@@ -76,11 +81,13 @@ export interface LhMarkerMessage {
 	role: "custom";
 	customType:
 		| "graph-context"
+		| "mistakes-context"
 		| "probe-handoff"
 		| "subagent-steer"
 		| "subagent-abort"
 		| "plan-block"
 		| "practice-thinking"
+		| "practice-structured-submit"
 		| "plugin-problem-submission"
 		| "practice-next"
 		| "problem-dismissed"
@@ -324,7 +331,22 @@ export function newPlanBlockMessage(
 /** The practice agent's two tools (the conclude-before-next-problem gate's
  *  vocabulary — the tool-execute layer owns the tools themselves). */
 export const PRACTICE_PROBLEM_TOOL = "problem";
+export const PRACTICE_CHECK_TOOL = "practice_check";
+export const PRACTICE_MATCH_TOOL = "practice_match";
+export const PRACTICE_CODE_TOOL = "practice_code";
 export const PRACTICE_CONCLUDE_TOOL = "conclude";
+export const PRACTICE_SUMMARY_TOOL = "practice_summary";
+
+export const NATIVE_PRACTICE_POSE_TOOLS: ReadonlySet<string> = new Set([
+	PRACTICE_PROBLEM_TOOL,
+	PRACTICE_CHECK_TOOL,
+	PRACTICE_MATCH_TOOL,
+	PRACTICE_CODE_TOOL,
+]);
+
+export function isPracticePoseTool(name: string): boolean {
+	return NATIVE_PRACTICE_POSE_TOOLS.has(name);
+}
 
 /** One picked proposition of the graph-context marker (the learner's map
  *  pick — name + statement as the learner SAW them at pick time). */
@@ -337,11 +359,14 @@ export interface GraphContextPick {
 /** The session's map context (owner, 2026-10-04): a SEPARATE custom
  *  message BEFORE the learner's first user message — the picked
  *  propositions plus the reasoning chains among them (pre-formatted
- *  lines, formatChainLine shape). The model reads `content` (flattened
- *  to a user message by toLlmMessages like every marker); `details`
- *  feeds the transcript's collapsible GraphContextCard. No more seed
- *  text glued into the first prompt. */
-export function newGraphContextMessage(picks: readonly GraphContextPick[], chains: readonly string[]): LhMarkerMessage {
+ *  lines, formatChainLine shape), and optional 1-hop nearby context for
+ *  discrimination. */
+export function newGraphContextMessage(
+	picks: readonly GraphContextPick[],
+	chains: readonly string[],
+	neighbors: readonly GraphContextPick[] = [],
+	neighborChains: readonly string[] = [],
+): LhMarkerMessage {
 	// IDS FIRST (owner round 9, 2026-10-05 — the mastery-trace contract):
 	// each proposition is introduced ONCE with its id, name, and statement;
 	// the problem tool's `target` field takes these ids (names normalize to
@@ -361,31 +386,127 @@ export function newGraphContextMessage(picks: readonly GraphContextPick[], chain
 	if (chains.length > 0) {
 		lines.push("", "Reasoning chains among them (premises → conclusion):", ...chains.map((c) => `- ${c}`));
 	}
+	if (neighbors.length > 0) {
+		lines.push(
+			"",
+			"[Nearby context — NOT targets; use only as confusables for discrimination problems (never pass these ids in target)]:",
+			...neighbors.map((n) => `- [${n.id}] ${n.name}: ${n.statement}`),
+		);
+		if (neighborChains.length > 0) {
+			lines.push("", "Connecting chains with nearby context:", ...neighborChains.map((c) => `- ${c}`));
+		}
+	}
 	return {
 		id: newMessageId(),
 		role: "custom",
 		customType: "graph-context",
 		content: lines.join("\n"),
 		display: true,
-		details: { propositions: picks, chains },
+		details: {
+			propositions: picks,
+			chains,
+			...(neighbors.length > 0 ? { neighbors, neighborChains } : {}),
+		},
+		timestamp: Date.now(),
+	};
+}
+
+/** Seeded mistakes context (Practice v2): injected when launching Practice from MistakesPage. */
+export function newMistakesContextMessage(mistakes: readonly MistakeSeedItem[]): LhMarkerMessage {
+	const lines = [
+		"[Session context] — seeded from the learner's Mistakes log. Generate fresh-surface problems targeting these specific blind spots and rules (never repeat the original questions verbatim):",
+		"",
+		...mistakes.map((m, i) => {
+			const meta = [m.topic, m.errorType, m.sessionTitle].filter(Boolean).join(" · ");
+			const header = `${i + 1}. ${meta ? `[${meta}] ` : ""}${m.question.replace(/\s+/g, " ").slice(0, 220)}`;
+			const details = [
+				m.whatYouDid ? `   What broke: ${m.whatYouDid}` : "",
+				m.rule ? `   Rule to remember: ${m.rule}` : "",
+			].filter(Boolean);
+			return [header, ...details].join("\n");
+		}),
+	];
+	return {
+		id: newMessageId(),
+		role: "custom",
+		customType: "mistakes-context",
+		content: lines.join("\n"),
+		display: true,
+		details: { mistakes: mistakes.map((m) => ({ ...m })) },
 		timestamp: Date.now(),
 	};
 }
 
 /** The learner's thinking submission (ONE send lane, owner round
- *  2026-10-05): the register is no longer declared by a button — the
- *  model READS the text to tell working traces from claimed answers. The
- *  content label is the single "Your thinking"; `details` keeps the raw
- *  payload for the transcript card. One problem may carry many
- *  submissions. */
-export function newThinkingMessage(problemCallId: string, text: string, images?: readonly ImageContent[]): LhMarkerMessage {
+ *  2026-10-05) plus Practice v2 structured dock actions (hint, show-solution,
+ *  step-down, flag-bad). */
+export function newThinkingMessage(
+	problemCallId: string,
+	text: string,
+	images?: readonly ImageContent[],
+	action?: PracticeThinkingAction,
+): LhMarkerMessage {
+	const trimmed = text.trim();
+	let content: string;
+	switch (action) {
+		case "hint":
+			content = trimmed ? `${HINT_REQUEST_LABEL}\n${THINKING_LABEL}:\n${text}` : HINT_REQUEST_LABEL;
+			break;
+		case "show-solution":
+			content = trimmed ? `${SHOW_SOLUTION_TEXT}\n${THINKING_LABEL}:\n${text}` : SHOW_SOLUTION_TEXT;
+			break;
+		case "step-down":
+			content = trimmed ? `${STEP_DOWN_TEXT}\n${THINKING_LABEL}:\n${text}` : STEP_DOWN_TEXT;
+			break;
+		case "flag-bad":
+			content = trimmed ? `${FLAG_BAD_TEXT}\nLearner note:\n${text}` : FLAG_BAD_TEXT;
+			break;
+		default:
+			content = `${THINKING_LABEL}:\n${text}`;
+			break;
+	}
 	return {
 		id: newMessageId(),
 		role: "custom",
 		customType: "practice-thinking",
-		content: `${THINKING_LABEL}:\n${text}`,
+		content,
 		display: true,
-		details: { problemCallId, text, ...(images?.length ? { images: images.map(image => ({ ...image })) } : {}) },
+		details: {
+			problemCallId,
+			text,
+			...(action && action !== "submit" ? { action } : {}),
+			...(images?.length ? { images: images.map(image => ({ ...image })) } : {}),
+		},
+		timestamp: Date.now(),
+	};
+}
+
+export interface PracticeStructuredSubmitDetails {
+	problemCallId: string;
+	format: "check" | "match" | "code";
+	payload: Record<string, unknown>;
+	passed: boolean;
+	thinking?: string;
+	summaryText: string;
+}
+
+export function newPracticeStructuredSubmitMessage(
+	details: PracticeStructuredSubmitDetails,
+): LhMarkerMessage {
+	const lines = [
+		`[Structured submission — ${details.format}, ${details.passed ? "PASSED" : "MISSED"}]`,
+		details.summaryText,
+	];
+	if (details.thinking?.trim()) {
+		lines.push(`${THINKING_LABEL}:\n${details.thinking.trim()}`);
+	}
+	return {
+		id: newMessageId(),
+		role: "custom",
+		customType: "practice-structured-submit",
+		content: lines.join("\n"),
+		display: true,
+		details,
 		timestamp: Date.now(),
 	};
 }
@@ -477,6 +598,62 @@ export function concludedByDismissalPair(
 	];
 }
 
+/** Auto-conclude pair for clean first-try structured/code Practice submissions
+ *  (zero extra LLM latency; reveals committed modelSolution immediately). */
+export function concludedByAutoSolvePair(
+	problemCallId: string,
+	verdict: string,
+): [LhMessage & AssistantMessage, LhMessage & ToolResultMessage] {
+	const callId = `call_auto_conc_${problemCallId}`;
+	const now = Date.now();
+	const syntheticStamps = {
+		api: "faux",
+		provider: "synthetic",
+		model: "synthetic-conclude",
+		usage: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 0,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+		stopReason: "toolUse",
+	} as const;
+	return [
+		{
+			id: newMessageId(),
+			role: "assistant",
+			content: [
+				{
+					type: "toolCall",
+					id: callId,
+					name: PRACTICE_CONCLUDE_TOOL,
+					arguments: {
+						outcome: "solved",
+						verdict,
+						rung: null,
+						missClass: null,
+						retest: false,
+					},
+				},
+			],
+			timestamp: now,
+			...syntheticStamps,
+		},
+		{
+			id: newMessageId(),
+			role: "toolResult",
+			toolCallId: callId,
+			toolName: PRACTICE_CONCLUDE_TOOL,
+			content: [{ type: "text", text: CONCLUDE_ACK_TEXT }],
+			details: { outcome: "solved", problemCallId, autoConcluded: true },
+			isError: false,
+			timestamp: now,
+		},
+	];
+}
+
 /** The active-problem fold (the conclude-before-next-problem gate): the
  *  NEWEST problem tool call with nothing concluding after it — either a
  *  conclude call or a dismissal marker deactivates. The ack result at pose
@@ -553,7 +730,7 @@ export function practiceProblemForCall(messages: readonly LhMessage[], occurrenc
 	const owner = messages.find(message => message.id === occurrence.messageId && message.role === "assistant") as (AssistantMessage & { id: string }) | undefined;
 	const call = owner?.content[occurrence.contentIndex];
 	if (call?.type !== "toolCall" || call.id !== occurrence.toolCallId || call.name !== occurrence.toolName) return null;
-	if (call.name === PRACTICE_PROBLEM_TOOL) return { input: call.arguments };
+	if (isPracticePoseTool(call.name)) return { input: call.arguments };
 	const pluginProblem = pluginProblemForCall(messages, occurrence);
 	return pluginProblem ? { input: pluginProblem.input, pluginProblem } : null;
 }
@@ -1029,10 +1206,10 @@ export function nativeInputCause(message: AgentMessage, history: readonly AgentM
 	if (message.role === "system" || message.role === "assistant") return "neutral";
 	if (message.role === "custom") {
 		if (["probe-handoff", "subagent-steer", "subagent-abort"].includes(message.customType)) return "automatic";
-		if (["practice-thinking", "plugin-problem-submission", "practice-next"].includes(message.customType)) return "learner";
+		if (["practice-thinking", "practice-structured-submit", "plugin-problem-submission", "practice-next"].includes(message.customType)) return "learner";
 		// reading-discussion: a held note riding a run it never starts (docs/readings.md §14).
 		// side-question markers are held context that never starts a run either.
-		return ["graph-context", "plan-block", "problem-dismissed", "compaction", "reading-discussion", "side-question", "side-question-told"].includes(message.customType) ? "neutral" : "unrecognizable";
+		return ["graph-context", "mistakes-context", "plan-block", "problem-dismissed", "compaction", "reading-discussion", "side-question", "side-question-told"].includes(message.customType) ? "neutral" : "unrecognizable";
 	}
 	if (message.role === "toolResult") {
 		const pluginAnswer = readPluginQuestionAnswer(message.details);
@@ -1125,7 +1302,7 @@ export function needsContinuation(record: readonly LhMessage[]): boolean {
 	// "Problem posed" result later). Without this fold a reload after a
 	// pose would wake a phantom continuation turn.
 	const posedProblem = results.some(
-		(m) => !m.isError && ((m.toolName === PRACTICE_PROBLEM_TOOL && m.details == null) ||
+		(m) => !m.isError && ((isPracticePoseTool(m.toolName) && m.details == null) ||
 			(content as AssistantMessage["content"]).some((call, contentIndex) => call.type === "toolCall" && call.id === m.toolCallId && call.name === m.toolName &&
 				!!pluginProblemForCall(messages, { messageId: owner.id, contentIndex, toolCallId: call.id, toolName: call.name }))),
 	);

@@ -35,6 +35,20 @@ import { healEncodedArguments } from "./argument-heal.ts";
 import { CODE_EXERCISE_TOOL, codeExerciseDisplayInputSchema, codeExerciseInputProblems, type CodeExerciseDisplayInput } from "./code-exercise.ts";
 import { probeDoneInputSchema, type ProbeDoneInput } from "./contracts/probe.ts";
 import { readPluginQuestionSnapshot, type PluginQuestionSnapshot } from "./plugin-questions.ts";
+import {
+	practiceCheckInputProblems,
+	practiceCheckInputSchema,
+	practiceCodeInputProblems,
+	practiceCodeInputSchema,
+	practiceMatchInputProblems,
+	practiceMatchInputSchema,
+	repairPracticeCheckDisplay,
+	repairPracticeCodeDisplay,
+	repairPracticeMatchDisplay,
+	type PracticeCheckInput,
+	type PracticeCodeInput,
+	type PracticeMatchInput,
+} from "./practice-formats.ts";
 
 /** View metadata, not model arguments, owns plugin question role/position. */
 export function posedPluginQuestionOfPart(part: { pluginQuestion?: unknown }): PluginQuestionSnapshot | undefined {
@@ -158,4 +172,28 @@ export function parseQuestionInput(tool: string, input: unknown): QuizToolInput 
 /** probe_done parse — the core-owned schema the tool itself declares. */
 export function parseProbeDoneInput(input: unknown): ProbeDoneInput | undefined {
 	return boundaryParse<ProbeDoneInput>(probeDoneInputSchema, input);
+}
+
+export function parsePracticeCheckInput(input: unknown): PracticeCheckInput | undefined {
+	const healed = healEncodedArguments(input, practiceCheckInputSchema);
+	const cleaned = boundaryParse<PracticeCheckInput>(practiceCheckInputSchema, healed);
+	if (!cleaned) return undefined;
+	if (practiceCheckInputProblems(cleaned).length > 0) return undefined;
+	return repairPracticeCheckDisplay(cleaned);
+}
+
+export function parsePracticeMatchInput(input: unknown): PracticeMatchInput | undefined {
+	const healed = healEncodedArguments(input, practiceMatchInputSchema);
+	const cleaned = boundaryParse<PracticeMatchInput>(practiceMatchInputSchema, healed);
+	if (!cleaned) return undefined;
+	if (practiceMatchInputProblems(cleaned).length > 0) return undefined;
+	return repairPracticeMatchDisplay(cleaned);
+}
+
+export function parsePracticeCodeInput(input: unknown): PracticeCodeInput | undefined {
+	const healed = healEncodedArguments(input, practiceCodeInputSchema);
+	const cleaned = boundaryParse<PracticeCodeInput>(practiceCodeInputSchema, healed);
+	if (!cleaned) return undefined;
+	if (practiceCodeInputProblems(cleaned).length > 0) return undefined;
+	return repairPracticeCodeDisplay(cleaned);
 }

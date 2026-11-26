@@ -91,3 +91,72 @@ export function formatChainLine(
 		? `${premises} → ${nameOf(chain.conclusion)}`
 		: `${nameOf(chain.conclusion)} (no premises)`;
 }
+
+export interface NeighborContextPick {
+	id: string;
+	name: string;
+	statement: string;
+}
+
+/**
+ * Strict 1-hop reasoning-chain neighbors for a picked proposition set:
+ * finds stored chains touching at least one picked node AND at least one
+ * unpicked node, ranks those outside nodes by how many connecting chains they
+ * share with the selection (then id ascending), caps at `maxNeighbors`, and
+ * returns the selected neighbor nodes plus the formatted connecting chains
+ * whose endpoints all lie inside `picked ∪ selectedNeighbors`.
+ */
+export function neighborContextForSelection(
+	pickedNodes: ReadonlyArray<Pick<GraphNode, "id">>,
+	allNodes: ReadonlyArray<Pick<GraphNode, "id" | "name" | "statement">>,
+	allChains: ReadonlyArray<Pick<{ id: string; premises: string[]; conclusion: string }, "id" | "premises" | "conclusion">>,
+	maxNeighbors = 12,
+): { neighbors: NeighborContextPick[]; neighborChains: string[] } {
+	if (pickedNodes.length === 0 || maxNeighbors <= 0) {
+		return { neighbors: [], neighborChains: [] };
+	}
+	const pickedIds = new Set(pickedNodes.map((n) => n.id));
+	const byId = new Map(allNodes.map((n) => [n.id, n]));
+	const touchCounts = new Map<string, number>();
+	const candidateChains: Array<{ id: string; premises: string[]; conclusion: string; outsideIds: string[] }> = [];
+
+	for (const chain of allChains) {
+		const endpoints = [...new Set([...chain.premises, chain.conclusion])];
+		const touchesPicked = endpoints.some((id) => pickedIds.has(id));
+		if (!touchesPicked) continue;
+		const outsideIds = endpoints.filter((id) => !pickedIds.has(id) && byId.has(id));
+		if (outsideIds.length === 0) continue;
+		candidateChains.push({
+			id: chain.id,
+			premises: [...chain.premises].sort(),
+			conclusion: chain.conclusion,
+			outsideIds,
+		});
+		for (const id of outsideIds) {
+			touchCounts.set(id, (touchCounts.get(id) ?? 0) + 1);
+		}
+	}
+
+	if (touchCounts.size === 0) {
+		return { neighbors: [], neighborChains: [] };
+	}
+
+	const rankedNeighborIds = [...touchCounts.entries()]
+		.sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+		.slice(0, maxNeighbors)
+		.map(([id]) => id);
+	const neighborSet = new Set(rankedNeighborIds);
+
+	const neighbors: NeighborContextPick[] = rankedNeighborIds.map((id) => {
+		const n = byId.get(id)!;
+		return { id: n.id, name: n.name, statement: n.statement };
+	});
+
+	const nodeNameMap = Object.fromEntries(allNodes.map((n) => [n.id, { name: n.name }]));
+	const neighborChains = candidateChains
+		.filter((c) => c.outsideIds.every((id) => neighborSet.has(id)))
+		.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+		.map((c) => formatChainLine(c, nodeNameMap));
+
+	return { neighbors, neighborChains };
+}

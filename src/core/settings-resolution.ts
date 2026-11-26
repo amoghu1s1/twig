@@ -45,6 +45,7 @@ import {
 	type MistakeAnalysisSettings,
 	type ModelSlot,
 	type ModelSlotName,
+	type PracticeSettings,
 	type RoleModelOverride,
 	type UserSettings,
 } from "./settings.ts";
@@ -109,6 +110,8 @@ export interface EffectiveSettings {
 	compaction: Required<CompactionSettings>;
 	/** Lab workspace root + preferred interpreter defaults. */
 	lab: Required<LabSettings>;
+	/** Practice v2 default session dials. */
+	practice: Required<PracticeSettings>;
 	/** Custom endpoint, resolved concrete: baseUrl defaults "", models and
 	 *  user pins default to empty. */
 	customProvider: { baseUrl: string; models: CustomModel[]; overrides: Record<string, CustomModelOverride>; manualModels: string[] };
@@ -272,6 +275,12 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			defaultRootDir: record?.lab?.defaultRootDir ?? FACTORY_SETTINGS.lab.defaultRootDir,
 			pythonPath: record?.lab?.pythonPath ?? FACTORY_SETTINGS.lab.pythonPath,
 			defaultNudgeLevel: record?.lab?.defaultNudgeLevel ?? FACTORY_SETTINGS.lab.defaultNudgeLevel,
+		},
+		practice: {
+			defaultCoaching: record?.practice?.defaultCoaching ?? FACTORY_SETTINGS.practice.defaultCoaching,
+			defaultDepth: record?.practice?.defaultDepth ?? FACTORY_SETTINGS.practice.defaultDepth,
+			defaultPresentation: record?.practice?.defaultPresentation ?? FACTORY_SETTINGS.practice.defaultPresentation,
+			defaultVerifySolutions: record?.practice?.defaultVerifySolutions ?? FACTORY_SETTINGS.practice.defaultVerifySolutions,
 		},
 		customProvider: {
 			baseUrl: record?.customProvider?.baseUrl ?? "",

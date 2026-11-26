@@ -32,6 +32,14 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { CacheRetention } from "@earendil-works/pi-ai";
 import { CLAUDE_CODE_PROVIDER } from "./contracts/claude-code.ts";
 import type { LabNudgeLevel } from "./contracts/lab.ts";
+import {
+	isPracticeCoachingLevel,
+	isPracticeDepth,
+	isPracticePresentation,
+	type PracticeCoachingLevel,
+	type PracticeDepth,
+	type PracticePresentation,
+} from "./contracts/practice.ts";
 import { providerLabel } from "./provider-label.ts";
 import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
@@ -555,6 +563,14 @@ export interface LabSettings {
 	defaultNudgeLevel?: LabNudgeLevel;
 }
 
+/** Practice v2 default session dials (delta section). */
+export interface PracticeSettings {
+	defaultCoaching?: PracticeCoachingLevel;
+	defaultDepth?: PracticeDepth;
+	defaultPresentation?: PracticePresentation;
+	defaultVerifySolutions?: boolean;
+}
+
 /** THE record. Every section optional (delta); unknown top-level keys are
  *  preserved verbatim by the sanitizer (forward-compat with newer records). */
 export interface UserSettings {
@@ -572,6 +588,7 @@ export interface UserSettings {
 	graph?: GraphSettings;
 	compaction?: CompactionSettings;
 	lab?: LabSettings;
+	practice?: PracticeSettings;
 	[key: string]: unknown;
 }
 
@@ -607,6 +624,7 @@ export interface FactorySettings {
 	graph: Required<GraphSettings>;
 	compaction: Required<CompactionSettings>;
 	lab: Required<LabSettings>;
+	practice: Required<PracticeSettings>;
 }
 
 export const FACTORY_SETTINGS: FactorySettings = {
@@ -632,6 +650,12 @@ export const FACTORY_SETTINGS: FactorySettings = {
 	graph: { enabled: true, rendering: true, extractionChunkTokens: 4096, ankiSync: false, obsidianSync: false },
 	compaction: { thresholdTokens: 150_000, includeReasoning: false },
 	lab: { defaultRootDir: "", pythonPath: "", defaultNudgeLevel: "nudge" },
+	practice: {
+		defaultCoaching: "balanced",
+		defaultDepth: "adaptive",
+		defaultPresentation: "auto",
+		defaultVerifySolutions: false,
+	},
 };
 
 /** The chunk budget's validated floor (GraphSettings.extractionChunkTokens
@@ -986,6 +1010,16 @@ function sanitizeLab(raw: Record<string, unknown>): LabSettings {
 	return out;
 }
 
+function sanitizePractice(raw: Record<string, unknown>): PracticeSettings {
+	const out: PracticeSettings = {};
+	if (isPracticeCoachingLevel(raw.defaultCoaching)) out.defaultCoaching = raw.defaultCoaching;
+	if (isPracticeDepth(raw.defaultDepth)) out.defaultDepth = raw.defaultDepth;
+	if (isPracticePresentation(raw.defaultPresentation)) out.defaultPresentation = raw.defaultPresentation;
+	const verify = boolOrDrop(raw.defaultVerifySolutions);
+	if (verify !== undefined) out.defaultVerifySolutions = verify;
+	return out;
+}
+
 /**
  * Coerce arbitrary JSON (disk file, network body) into a valid delta record:
  * known fields validated strictly (invalid ones drop/clamp per module doc),
@@ -1035,6 +1069,9 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	}
 	if (r.lab !== undefined && r.lab !== null && typeof r.lab === "object" && !Array.isArray(r.lab)) {
 		out.lab = sanitizeLab(r.lab as Record<string, unknown>);
+	}
+	if (r.practice !== undefined && r.practice !== null && typeof r.practice === "object" && !Array.isArray(r.practice)) {
+		out.practice = sanitizePractice(r.practice as Record<string, unknown>);
 	}
 	// Unknown top-level keys ride along untouched (forward-compat). One
 	// known-DEAD key is stripped instead of riding: `chat` (the old

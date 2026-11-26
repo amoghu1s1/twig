@@ -13,6 +13,7 @@ import type { Phase3 } from "../phases.ts";
 import type { PlanNodeStatus, PlanTree } from "./plan.ts";
 import type { EmissionStats } from "./graph.ts";
 import type { LabSessionMeta } from "./lab.ts";
+import type { PracticeSessionMeta } from "./practice.ts";
 
 // ─── Chat records (the session store's on-disk format) ───────────────────────
 
@@ -52,6 +53,8 @@ export interface ChatRecord {
 	kind?: PersistedChatKind;
 	/** Bound workspace folder + .ipynb + interpreter metadata for kind === "lab". */
 	lab?: LabSessionMeta;
+	/** Practice v2 dials (coaching, depth, presentation, verifySolutions) for kind === "practice". */
+	practice?: PracticeSessionMeta;
 	/** The session's plan tree, written by the native plan tools. */
 	tree?: PlanTree;
 	/** Append-only usage log, separate from message history: one entry per billed
@@ -336,6 +339,17 @@ export const HANDOFF_TEXT =
  *  not declared by a button. */
 export const THINKING_LABEL = "Your thinking";
 
+/** Model-facing labels for structured Practice v2 dock actions. */
+export const HINT_REQUEST_LABEL = "[HINT REQUEST] — the learner asked for a hint on the active problem";
+export const SHOW_SOLUTION_TEXT =
+	"[SHOW SOLUTION] — the learner wants to end this problem and see the committed model solution.";
+export const STEP_DOWN_TEXT =
+	"[EASIER / STEP DOWN] — the learner wants to drop this problem and try an easier step on the same target.";
+export const FLAG_BAD_TEXT =
+	"[FLAG BAD QUESTION] — the learner flagged the active problem as unclear, ambiguous, or broken.";
+export const PRACTICE_WRAP_UP_TEXT =
+	"[WRAP UP] — the learner wants to end this practice session. Call `practice_summary` grounded in the session ledger to summarize what was solid, what needs more practice, and what needs remedial teaching.";
+
 /** The conclude tool's ack — shared by the executed call (agent layer) and
  *  the dismissal-synthesized pair (input-events), so a concluded problem
  *  reads identically to the model however it concluded. Owner round 16:
@@ -392,6 +406,8 @@ export interface ChatSummary {
 	kind: PersistedChatKind;
 	/** Bound Lab metadata when kind === "lab". */
 	lab?: LabSessionMeta;
+	/** Practice v2 dials when kind === "practice". */
+	practice?: PracticeSessionMeta;
 	messageCount: number;
 	/** Transcript-derived phase: probe ends at successful probe_done completion;
 	 * plan ends at the first node-tagged teaching question call, not its answer. */

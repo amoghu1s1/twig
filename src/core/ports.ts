@@ -25,6 +25,7 @@ import type {
 	JobKind,
 	JobRecord,
 	LabSessionMeta,
+	PracticeSessionMeta,
 	PluginJobMetadata,
 	ExtractionRunUsage,
 	PlanTree,
@@ -61,7 +62,7 @@ export interface PluginTaskRecordStore {
 export interface ChatStore {
 	/** Create a session record; kind "practice" / "lab" marks that
 	 *  session kind (absent = teach, the default). */
-	createChat(title: string, kind?: "practice" | "lab", opts?: { lab?: LabSessionMeta }): ChatRecord;
+	createChat(title: string, kind?: "practice" | "lab", opts?: { lab?: LabSessionMeta; practice?: PracticeSessionMeta }): ChatRecord;
 	/** The full record, or null if unknown id / corrupt file. */
 	getChat(id: string): ChatRecord | null;
 	/** All sessions, newest activity first (the sidebar's list view). */
@@ -91,6 +92,8 @@ export interface ChatStore {
 	saveSettings(id: string, settings: ChatSettings): void;
 	/** Persist updated Lab workspace/interpreter metadata without bumping updatedAt. */
 	saveLabMeta(id: string, lab: LabSessionMeta): boolean;
+	/** Persist updated Practice dials metadata without bumping updatedAt. */
+	savePracticeMeta(id: string, practice: PracticeSessionMeta): boolean;
 	/** Rename a session (the header's click-to-edit title, 2026-09-17).
 	 * Like saveSettings: a rename is NOT conversation activity — updatedAt
 	 * stays put, so sidebar order never churns on a rename. */

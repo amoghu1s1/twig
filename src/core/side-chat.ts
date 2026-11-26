@@ -29,9 +29,9 @@ import type { LhMarkerMessage, LhMessage } from "./native-messages.ts";
 import {
 	activeProblemOf,
 	failedOutputCallIds,
+	isPracticePoseTool,
 	newMessageId,
 	PRACTICE_CONCLUDE_TOOL,
-	PRACTICE_PROBLEM_TOOL,
 	questionCallsOf,
 	SEND_TO_USER_TOOL,
 	sendToUserText,
@@ -291,7 +291,7 @@ export function sideChatLessonDocument(messages: readonly LhMessage[]): string {
 			if ((QUESTION_TOOLS as readonly string[]).includes(result.toolName)) {
 				const md = answeredQuestionMarkdown(result, calls.get(result.toolCallId)?.args);
 				if (md) blocks.push(md);
-			} else if (result.toolName === PRACTICE_PROBLEM_TOOL) {
+			} else if (isPracticePoseTool(result.toolName)) {
 				const md = problemMarkdown(calls.get(result.toolCallId)?.args, result.toolCallId === activeProblem);
 				if (md) blocks.push(md);
 			} else if (result.toolName === PRACTICE_CONCLUDE_TOOL) {

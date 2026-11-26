@@ -34,20 +34,30 @@ import type { LhMessage } from "./native-messages.ts";
 import {
 	activeProblemOf,
 	activeProblemOccurrenceOf,
+	concludedByAutoSolvePair,
 	concludedByDismissalPair,
 	isSideQuestionMarker,
 	danglingQuestionOf,
 	newAnswerResult,
 	newNextMessage,
+	newPracticeStructuredSubmitMessage,
 	newProblemDismissedMarker,
 	newThinkingMessage,
 	newUserMessage,
 	newMessageId,
 	isEmptyAssistantCompletion,
+	PRACTICE_CHECK_TOOL,
+	PRACTICE_CODE_TOOL,
+	PRACTICE_MATCH_TOOL,
 	questionCallsOf,
 	pluginQuestionCallsOf,
 	pendingProblemDismissalOf,
 } from "./native-messages.ts";
+import {
+	isPracticeThinkingAction,
+	type PracticeThinkingAction,
+} from "./contracts/practice.ts";
+import { foldPracticeLedger } from "./practice-ledger.ts";
 import { QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
 import { ChatInputError } from "./input-error.ts";
 import { parseComposerImages, type ComposerImage } from "./images.ts";
@@ -86,7 +96,24 @@ export type ChatInput =
 	 *  thinking on the ACTIVE problem — one lane (owner 2026-10-05):
 	 *  whether it claims an answer is read from the text. One
 	 *  problem may carry many submissions; each is its own turn. */
-	| { type: "thinking"; problemCallId: string; text: string; images?: ImageContent[]; occurrence?: PluginSubmissionOccurrence }
+	| {
+			type: "thinking";
+			problemCallId: string;
+			text: string;
+			action?: PracticeThinkingAction;
+			images?: ImageContent[];
+			occurrence?: PluginSubmissionOccurrence;
+	  }
+	| {
+			type: "practice-structured-submit";
+			problemCallId: string;
+			format: "check" | "match" | "code";
+			payload: Record<string, unknown>;
+			passed: boolean;
+			thinking?: string;
+			summaryText: string;
+			occurrence?: PluginSubmissionOccurrence;
+	  }
 	/** The practice move-on signal (owner round 16): the learner's
 	 *  explicit go-ahead during the between-problems pause — the Next
 	 *  chip or Enter on an empty composer. Practice sessions only, and
@@ -317,12 +344,59 @@ export function parseChatInput(input: unknown): ChatInput {
 			if (typeof i.problemCallId !== "string" || i.problemCallId.length === 0) {
 				throw new ChatInputError("thinking input requires problemCallId");
 			}
+			let action: PracticeThinkingAction | undefined;
+			if (i.action !== undefined) {
+				if (!isPracticeThinkingAction(i.action)) {
+					throw new ChatInputError("thinking input has invalid action");
+				}
+				action = i.action;
+			}
 			const images = parseImages(i.images);
 			const occurrence = parseOptionalOccurrence(i.occurrence, images);
-			if (typeof i.text !== "string" || (!i.text.trim() && !images)) {
+			const text = typeof i.text === "string" ? i.text : "";
+			const allowsEmpty = action !== undefined && action !== "submit";
+			if (typeof i.text !== "string" || (!allowsEmpty && !text.trim() && !images)) {
 				throw new ChatInputError("thinking input requires non-empty text or images");
 			}
-			return { type: "thinking", problemCallId: i.problemCallId, text: i.text, ...(images ? { images } : {}), ...(occurrence ? { occurrence } : {}) };
+			return {
+				type: "thinking",
+				problemCallId: i.problemCallId,
+				text,
+				...(action ? { action } : {}),
+				...(images ? { images } : {}),
+				...(occurrence ? { occurrence } : {}),
+			};
+		}
+		case "practice-structured-submit": {
+			if (typeof i.problemCallId !== "string" || i.problemCallId.length === 0) {
+				throw new ChatInputError("practice-structured-submit requires problemCallId");
+			}
+			if (i.format !== "check" && i.format !== "match" && i.format !== "code") {
+				throw new ChatInputError("practice-structured-submit requires format check, match, or code");
+			}
+			if (typeof i.payload !== "object" || i.payload === null || Array.isArray(i.payload)) {
+				throw new ChatInputError("practice-structured-submit requires payload object");
+			}
+			if (typeof i.passed !== "boolean") {
+				throw new ChatInputError("practice-structured-submit requires boolean passed");
+			}
+			if (typeof i.summaryText !== "string" || !i.summaryText.trim()) {
+				throw new ChatInputError("practice-structured-submit requires summaryText");
+			}
+			if (i.thinking !== undefined && typeof i.thinking !== "string") {
+				throw new ChatInputError("practice-structured-submit thinking must be text");
+			}
+			const occurrence = parseOptionalOccurrence(i.occurrence, undefined);
+			return {
+				type: "practice-structured-submit",
+				problemCallId: i.problemCallId,
+				format: i.format,
+				payload: i.payload as Record<string, unknown>,
+				passed: i.passed,
+				...(typeof i.thinking === "string" && i.thinking.trim() ? { thinking: i.thinking } : {}),
+				summaryText: i.summaryText,
+				...(occurrence ? { occurrence } : {}),
+			};
 		}
 		case "next":
 			return { type: "next" };
@@ -377,7 +451,41 @@ export function inputAppends(
 				throw new ChatInputError("thinking input targets no active problem");
 			}
 			if (active.pluginProblem) throw new ChatInputError("This problem requires its registered submission editor");
-			return [...dismissalConclusion(record), newThinkingMessage(input.problemCallId, input.text, input.images)];
+			return [...dismissalConclusion(record), newThinkingMessage(input.problemCallId, input.text, input.images, input.action)];
+		}
+		case "practice-structured-submit": {
+			const active = activeProblemOf(record.messages);
+			const occurrence = activeProblemOccurrenceOf(record.messages);
+			if (!active || !occurrence || active.toolCallId !== input.problemCallId) {
+				throw new ChatInputError("structured submission targets no active problem");
+			}
+			const expectedTool =
+				input.format === "check"
+					? PRACTICE_CHECK_TOOL
+					: input.format === "match"
+						? PRACTICE_MATCH_TOOL
+						: PRACTICE_CODE_TOOL;
+			if (occurrence.toolName !== expectedTool) {
+				throw new ChatInputError("structured submission format does not match the active problem");
+			}
+			const marker = newPracticeStructuredSubmitMessage({
+				problemCallId: input.problemCallId,
+				format: input.format,
+				payload: input.payload,
+				passed: input.passed,
+				...(input.thinking ? { thinking: input.thinking } : {}),
+				summaryText: input.summaryText,
+			});
+			const ledger = foldPracticeLedger(record.messages);
+			const cleanFirstPass =
+				input.passed === true &&
+				(ledger.activeProblem?.attempts ?? 0) === 0 &&
+				(ledger.activeProblem?.hints ?? 0) === 0;
+			return [
+				...dismissalConclusion(record),
+				marker,
+				...(cleanFirstPass ? concludedByAutoSolvePair(input.problemCallId, input.summaryText) : []),
+			];
 		}
 		case "next": {
 			// Honest 400s, the thinking gate's discipline: the signal is a

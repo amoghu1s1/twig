@@ -25,8 +25,8 @@ import { CODE_EXERCISE_TOOL } from "./code-exercise.ts";
 import type { LhMessage } from "./native-messages.ts";
 import {
 	failedOutputCallIds,
+	isPracticePoseTool,
 	PRACTICE_CONCLUDE_TOOL,
-	PRACTICE_PROBLEM_TOOL,
 	problemInputForConclude,
 	SEND_TO_USER_TOOL,
 	userFacingTextOf,
@@ -182,7 +182,7 @@ function toolResultBody(result: ToolResultMessage, ctx?: MarkdownContext): { hea
 		return { heading: "Code exercise", body };
 	}
 
-	if (ctx !== undefined && result.toolName === PRACTICE_PROBLEM_TOOL) {
+	if (ctx !== undefined && isPracticePoseTool(result.toolName)) {
 		const statement = ctx.calls.get(result.toolCallId)?.args?.statement;
 		return {
 			heading: "Problem",

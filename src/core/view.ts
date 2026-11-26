@@ -34,7 +34,7 @@
 
 import type { AssistantMessage, ImageContent, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { LhMarkerMessage, LhMessage } from "./native-messages.ts";
-import { modelSolutionForConclude, PRACTICE_CONCLUDE_TOOL, problemInputForConclude, SEND_TO_USER_TOOL, sendToUserText, pluginQuestionResultMatches } from "./native-messages.ts";
+import { isPracticePoseTool, modelSolutionForConclude, PRACTICE_CONCLUDE_TOOL, problemInputForConclude, SEND_TO_USER_TOOL, sendToUserText, pluginQuestionResultMatches } from "./native-messages.ts";
 import { readPluginQuestionMessageAnnotation, readPluginQuestionCancellation, type PluginQuestionAnnotationRead } from "./plugin-questions.ts";
 import { pluginProblemForCall, type PluginProblemSnapshot } from "./plugin-problems.ts";
 import { activeCompactionOf, type CompactionDetails } from "./compaction.ts";
@@ -360,7 +360,7 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
  *  but the ConcludeCard reads the call's input, and output-available with
  *  output undefined renders fine). */
 function isPlaceholderResultTool(name: string): boolean {
-	return (QUESTION_TOOLS as readonly string[]).includes(name) || name === "problem";
+	return (QUESTION_TOOLS as readonly string[]).includes(name) || isPracticePoseTool(name);
 }
 
 /** A tool call block → its view part, with the live execution layer.
@@ -452,6 +452,14 @@ function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[]): void {
 			});
 			return;
 		}
+		case "mistakes-context": {
+			out.push({
+				id: marker.id,
+				role: "user",
+				parts: [{ type: "data-mistakes-context", id: `mc_${marker.id}`, data: marker.details }],
+			});
+			return;
+		}
 		case "probe-handoff": {
 			out.push({
 				id: marker.id,
@@ -505,6 +513,14 @@ function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[]): void {
 				id: marker.id,
 				role: "user",
 				parts: [{ type: "data-practice-thinking", id: `pt_${marker.id}`, data: marker.details }],
+			});
+			return;
+		}
+		case "practice-structured-submit": {
+			out.push({
+				id: marker.id,
+				role: "user",
+				parts: [{ type: "data-practice-structured-submit", id: `pss_${marker.id}`, data: marker.details }],
 			});
 			return;
 		}

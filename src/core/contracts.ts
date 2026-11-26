@@ -20,3 +20,4 @@ export * from "./contracts/models.ts";
 export * from "./contracts/readings.ts";
 export * from "./contracts/reading-discussions.ts";
 export * from "./contracts/lab.ts";
+export * from "./contracts/practice.ts";
