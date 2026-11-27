@@ -8,7 +8,7 @@ import { callCost } from "../src/server/pricing.ts";
 
 const specimens = [
 	{ id: "recursive/flint-v1.0:free", input: ["text"] },
-	{ id: "xingchen-agi/xing4.0-29b-a4b:free", input: ["text"] },
+	{ id: "baidu/ernie-5.5-flash-preview:free", input: ["text"] },
 	{ id: "nvidia/nemotron-3.5-super-vl:free", input: ["text", "image"] },
 	{ id: "openrouter/free", input: ["text", "image"] },
 ];
