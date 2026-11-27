@@ -37,6 +37,7 @@ import {
 import { SettingsGroup } from "./controls.tsx";
 import { SubscriptionConnections } from "./subscription-connections.tsx";
 import { ClaudeCodeInstallationStatus } from "./claude-code-status.tsx";
+import { AntigravityInstallationStatus } from "./antigravity-status.tsx";
 import { ProviderMenuList } from "./model-menu.tsx";
 import { useInteractionLayer, useInteractionLayers, useOptionalInteractionLayers } from "@/components/interaction-layers";
 import { isInteractionScopeEligible } from "@/components/plugin-input-focus";
@@ -621,7 +622,10 @@ export function KeysSection({
 			</SettingsGroup>
 
 			<SettingsGroup label="External CLI" testid="group-external-cli">
-				<ClaudeCodeInstallationStatus />
+				<div className="space-y-5">
+					<ClaudeCodeInstallationStatus />
+					<AntigravityInstallationStatus />
+				</div>
 			</SettingsGroup>
 
 			{(["Dictation", "Search"] as const).map((label) => <SettingsGroup key={label} label={label} testid={label === "Dictation" ? "group-dictation" : "group-search"}>
