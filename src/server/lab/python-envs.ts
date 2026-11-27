@@ -142,7 +142,7 @@ export async function probePythonInterpreter(
 	if (!isExecutableFile(executablePath)) return null;
 	try {
 		const { stdout } = await execFileAsync(executablePath, ["-I", "-c", PROBE_SCRIPT], {
-			timeout: 2500,
+			timeout: 10_000,
 			maxBuffer: 64 * 1024,
 			windowsHide: true,
 		});

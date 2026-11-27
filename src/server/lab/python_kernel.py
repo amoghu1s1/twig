@@ -8,6 +8,7 @@ TWIG_KERNEL_PORT and TWIG_KERNEL_TOKEN.
 
 from __future__ import annotations
 
+import _thread
 import ast
 import base64
 import builtins
@@ -16,6 +17,7 @@ import importlib
 import io
 import json
 import os
+import queue
 import signal
 import socket
 import sys
@@ -641,44 +643,64 @@ def main() -> int:
     _sock = sock
     _send_event({"type": "auth", "token": token})
 
-    buf = b""
+    cmd_queue: queue.Queue[dict[str, Any] | None] = queue.Queue()
+
+    def _reader_loop() -> None:
+        buf = b""
+        try:
+            while True:
+                try:
+                    chunk = sock.recv(65536)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                buf += chunk
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    raw = line.decode("utf-8", errors="replace").strip()
+                    if not raw:
+                        continue
+                    try:
+                        cmd = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
+                    if cmd.get("type") == "interrupt":
+                        if _current_exec_id is not None:
+                            _thread.interrupt_main()
+                        continue
+                    cmd_queue.put(cmd)
+        finally:
+            cmd_queue.put(None)
+
+    reader = threading.Thread(target=_reader_loop, name="twig-kernel-reader", daemon=True)
+    reader.start()
+
     while True:
         try:
-            chunk = sock.recv(65536)
+            cmd = cmd_queue.get()
         except KeyboardInterrupt:
             # Stray interrupt while idle: ignore and stay ready.
             continue
-        except OSError:
+        if cmd is None:
             break
-        if not chunk:
-            break
-        buf += chunk
-        while b"\n" in buf:
-            line, buf = buf.split(b"\n", 1)
-            raw = line.decode("utf-8", errors="replace").strip()
-            if not raw:
-                continue
+        msg_type = cmd.get("type")
+        if msg_type == "execute":
+            _handle_execute(cmd)
+        elif msg_type == "inspect_vars":
+            _send_event({
+                "type": "vars",
+                "requestId": cmd.get("requestId"),
+                "variables": _collect_vars(),
+            })
+        elif msg_type == "ping":
+            _send_event({"type": "pong", "requestId": cmd.get("requestId")})
+        elif msg_type == "shutdown":
             try:
-                cmd = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            msg_type = cmd.get("type")
-            if msg_type == "execute":
-                _handle_execute(cmd)
-            elif msg_type == "inspect_vars":
-                _send_event({
-                    "type": "vars",
-                    "requestId": cmd.get("requestId"),
-                    "variables": _collect_vars(),
-                })
-            elif msg_type == "ping":
-                _send_event({"type": "pong", "requestId": cmd.get("requestId")})
-            elif msg_type == "shutdown":
-                try:
-                    sock.close()
-                except OSError:
-                    pass
-                return 0
+                sock.close()
+            except OSError:
+                pass
+            return 0
     return 0
 
 

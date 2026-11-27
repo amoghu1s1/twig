@@ -423,6 +423,18 @@ export class PythonLabKernel implements LabKernel {
 
 	async interrupt(): Promise<void> {
 		if (!this.child || !this.activeExec) return;
+		if (process.platform === "win32") {
+			// On Windows, child.kill("SIGINT") calls TerminateProcess and kills the kernel.
+			// Send an in-band interrupt message so the kernel's reader thread raises KeyboardInterrupt.
+			if (this.socket && !this.socket.destroyed) {
+				try {
+					this.socket.write(`${JSON.stringify({ type: "interrupt" })}\n`);
+				} catch {
+					// Socket may already be closing.
+				}
+			}
+			return;
+		}
 		try {
 			this.child.kill("SIGINT");
 		} catch {
